@@ -1,0 +1,28 @@
+:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #283d30; background: #f6f7f2; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px 20px 60px; }
+main { max-width: 700px; margin: auto; }
+a { color: #356c47; }
+.back { text-decoration: none; font-size: 14px; }
+.eyebrow { letter-spacing: 2px; font-size: 11px; margin-top: 40px; color: #7b887c; }
+h1 { font-size: 34px; margin-bottom: 12px; }
+h2 { font-size: 19px; margin-top: 0; }
+p { line-height: 1.7; }
+.intro { color: #657567; }
+form { padding: 28px; background: white; border: 1px solid #dde4d9; border-radius: 18px; margin-top: 24px; }
+label { display: block; font-weight: 600; font-size: 14px; margin: 20px 0 9px; }
+input:not([type="checkbox"]), select { width: 100%; padding: 12px; font: inherit; color: inherit; background: #fafbf8; border: 1px solid #cfd9cb; border-radius: 8px; }
+section { margin: 24px 0; padding: 22px; background: #f6f8f2; border-radius: 12px; }
+.hint { font-size: 12px; color: #657567; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+button { padding: 11px 16px; color: white; background: #3d6950; border: 1px solid #3d6950; border-radius: 8px; font: inherit; font-size: 14px; cursor: pointer; }
+button.secondary { color: #3d6950; background: transparent; border-color: #bdcdbd; }
+button:disabled { opacity: .5; cursor: wait; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #96b47c; outline-offset: 3px; }
+.checkbox { display: flex; gap: 10px; align-items: center; }
+#notice { min-height: 30px; padding: 12px; border-radius: 8px; overflow-wrap: anywhere; }
+#notice.error { background: #fff0ed; color: #982f27; }
+#authorization { border-top: 1px solid #d7dfd2; margin-top: 18px; }
+#device-code { font-family: monospace; font-size: 22px; letter-spacing: 2px; }
+[hidden] { display: none !important; }
+@media (max-width: 500px) { form { padding: 18px; } section { padding: 16px; } h1 { font-size: 28px; } }

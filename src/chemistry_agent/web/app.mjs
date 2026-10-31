@@ -101,10 +101,10 @@ async function refreshHealth() {
     state.health = await api("/health");
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
-      ? `${names[state.health.model] || state.health.model} · 已连接` : "模型未配置";
+      ? `${names[state.health.model] || state.health.model} · ${state.health.provider === "chatgpt" ? "已登录" : "已配置"}` : "模型未配置";
     $("model-status").classList.toggle("unavailable", !state.health.model_configured);
     $("connection-notice").hidden = state.health.model_configured;
-    $("connection-notice").textContent = "模型尚未配置，请设置本地 API Key 并重启服务。分子工具仍可使用。";
+    $("connection-notice").textContent = "模型尚未配置，请打开“模型设置”登录 ChatGPT 或填写 API Key。分子工具仍可使用。";
   } catch {
     state.health = null;
     $("model-label").textContent = "服务未连接";

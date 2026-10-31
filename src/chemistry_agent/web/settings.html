@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>模型登录与配置 · Chemistry Agent</title>
+  <link rel="stylesheet" href="/assets/settings.css">
+  <script type="module" src="/assets/settings.mjs"></script>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← 返回研究空间</a>
+    <p class="eyebrow">CHEMISTRY WORKSPACE</p>
+    <h1>连接你的 AI</h1>
+    <p class="intro">选择 ChatGPT 账号登录，或使用自己的模型 API。保存后即可在对话中使用，无需重启。</p>
+    <form id="model-form">
+      <label for="provider">登录方式</label>
+      <select id="provider">
+        <option value="chatgpt">ChatGPT 账号授权登录</option>
+        <option value="deepseek">DeepSeek API Key</option>
+        <option value="openai-compatible">OpenAI 兼容 API / 本地模型</option>
+      </select>
+      <section id="chatgpt-panel">
+        <h2>使用 ChatGPT 订阅</h2>
+        <p>由官方 Codex 客户端完成授权，使用账号可用的 Codex 额度。无需填写 OpenAI API Key。</p>
+        <p id="chatgpt-status" role="status">正在检查登录状态…</p>
+        <div class="actions">
+          <button id="browser-login" type="button">使用 ChatGPT 登录</button>
+          <button id="device-login" class="secondary" type="button">使用设备码登录</button>
+          <button id="chatgpt-logout" class="secondary" type="button" hidden>退出 ChatGPT</button>
+        </div>
+        <div id="authorization" hidden>
+          <p><a id="authorization-link" target="_blank" rel="noopener noreferrer">打开官方授权页面 ↗</a></p>
+          <p id="device-code-row" hidden>设备码：<strong id="device-code"></strong></p>
+          <button id="cancel-login" type="button" class="secondary">取消登录</button>
+        </div>
+        <p class="hint">浏览器登录适合在运行服务的电脑上使用；远程访问请选择设备码。设备码登录需要在 ChatGPT 安全设置中启用。登录仅用于本研究空间，不会退出你日常使用的 Codex。</p>
+      </section>
+      <section id="api-panel" hidden>
+        <h2>使用自己的 API</h2>
+        <label for="base-url">服务地址（Base URL）</label>
+        <input id="base-url" type="url" placeholder="https://api.example.com/v1" maxlength="2048" autocomplete="off">
+        <p class="hint">填写接口根地址，不要添加 /chat/completions。兼容模式支持提供 Chat Completions 工具调用的服务，本地 HTTP 模型可留空密钥。</p>
+        <label for="api-key">API Key</label>
+        <input id="api-key" type="password" maxlength="8192" autocomplete="new-password" placeholder="输入 API Key" spellcheck="false">
+        <p id="key-status" class="hint"></p>
+        <button id="clear-key" class="secondary" type="button">删除已保存的 API Key</button>
+        <label id="thinking-label" class="checkbox"><input id="thinking" type="checkbox">启用 DeepSeek 思考模式</label>
+      </section>
+      <label for="model">模型 ID <span id="model-optional">（可选）</span></label>
+      <input id="model" type="text" maxlength="160" autocomplete="off" placeholder="留空使用 Codex 默认模型">
+      <p id="model-hint" class="hint">可填写当前账号支持的 Codex 模型 ID。</p>
+      <div class="actions footer">
+        <button type="submit">保存设置</button>
+        <button id="test-model" type="button" class="secondary">保存并测试连接</button>
+      </div>
+      <p class="hint">连接测试会向所选服务发送一条简短消息，可能消耗额度。API Key 仅保存在服务端当前用户的私有配置文件中，不写入浏览器存储。</p>
+    </form>
+    <p id="notice" role="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>

@@ -14,6 +14,7 @@ from starlette.responses import JSONResponse
 
 from chemistry_agent.config import Settings
 from chemistry_agent.errors import AgentError
+from chemistry_agent.model_runtime import ModelScope, current_model_scope
 
 if TYPE_CHECKING:
     from chemistry_agent.store import Store
@@ -242,4 +243,8 @@ class AuthenticationMiddleware:
                 MutableHeaders(scope=message)["Cache-Control"] = "no-store"
             await send(message)
 
-        await self.app(scope, receive, send_private)
+        token = current_model_scope.set(ModelScope(request.state.user_id))
+        try:
+            await self.app(scope, receive, send_private)
+        finally:
+            current_model_scope.reset(token)

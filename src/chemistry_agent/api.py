@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import httpx
 from fastapi import FastAPI, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -18,7 +19,9 @@ from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthMana
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
-from chemistry_agent.provider import DeepSeekClient, ToolCall
+from chemistry_agent.model_routes import router as model_router
+from chemistry_agent.model_runtime import ProviderRouter
+from chemistry_agent.provider import ToolCall
 from chemistry_agent.schemas import (
     ChatRequest,
     ChatResponse,
@@ -58,8 +61,9 @@ def create_app(
     async def lifespan(app: FastAPI):
         store = await Store.open(settings.database_path)
         try:
-            provider = DeepSeekClient(settings, transport=transport)
+            provider = ProviderRouter(settings, transport=transport)
             try:
+                app.state.provider = provider
                 app.state.store = store
                 app.state.auth = AuthManager(settings, store)
                 counter = await asyncio.to_thread(TokenCounter, settings.tokenizer_path)
@@ -88,12 +92,30 @@ def create_app(
         title="Chemistry Agent",
         version=__version__,
         lifespan=lifespan,
-        description="本地化学 agent：DeepSeek + LangGraph + RDKit。先配置 Key，再调用 /chat。",
+        description="化学研究助手：ChatGPT 账号登录或自选模型 API + LangGraph + RDKit。",
     )
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
     app.include_router(structures_router)
+    app.include_router(model_router)
 
     app.add_middleware(AuthenticationMiddleware, settings=settings)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request: Request, exc: RequestValidationError):
+        # Pydantic's default error includes rejected input, potentially a plaintext key.
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": [
+                    {
+                        "loc": error["loc"],
+                        "type": error["type"],
+                        "msg": "输入格式有误，请检查字段。",
+                    }
+                    for error in exc.errors()
+                ]
+            },
+        )
 
     @app.get("/auth/status", tags=["accounts"])
     async def auth_status(request: Request):
@@ -145,13 +167,19 @@ def create_app(
         return FileResponse(WEB_DIRECTORY / "structure" / "index.html")
 
     @app.get("/health", tags=["service"])
-    async def health():
+    async def health(request: Request):
+        provider = request.app.state.provider
+        _, configuration = provider.configuration()
+        ready = (
+            False if settings.auth_enabled and not request.state.user else await provider.ready()
+        )
         return {
             "status": "ok",
             "version": __version__,
-            "model_configured": settings.model_configured,
-            "model": settings.deepseek_model,
-            "thinking": settings.deepseek_thinking,
+            "model_configured": ready,
+            "model": configuration.model or "ChatGPT",
+            "provider": configuration.provider,
+            "thinking": configuration.thinking,
             "context_window_tokens": settings.context_window_tokens,
             "context_input_budget_tokens": settings.context_input_budget,
             "context_recent_turns": settings.context_recent_turns,
@@ -213,8 +241,8 @@ def create_app(
 
     @app.post("/chat", response_model=ChatResponse, tags=["agent"])
     async def chat(body: ChatRequest, request: Request):
-        if not settings.model_configured:
-            raise AgentError("model_not_configured", "请先配置 DEEPSEEK_API_KEY。", 503)
+        if not await request.app.state.provider.ready():
+            raise AgentError("model_not_configured", "请在模型设置中登录 ChatGPT 或配置 API。", 503)
         store: Store = request.app.state.store
         session_id = (
             str(body.session_id)
