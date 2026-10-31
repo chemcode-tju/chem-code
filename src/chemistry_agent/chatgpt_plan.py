@@ -253,6 +253,13 @@ class ChatGPTPlan:
                 any(item["client_id"] == account_id for item in data["accounts"]),
                 "未知 ChatGPT 账号。",
             )
+            record = next(item for item in data["accounts"] if item["client_id"] == account_id)
+            require(
+                record.get("subject")
+                and record.get("access_token")
+                and PLAN_SCOPE in record.get("scopes", []),
+                "此账号需要先完成重新授权。",
+            )
             data.update(active=account_id, selected=True)
             self.save(user_id, data)
 
@@ -451,7 +458,7 @@ class ChatGPTPlan:
                 for retry in range(3):
                     try:
                         metadata = await self.discovery()
-                        await self.request(
+                        response = await self.request(
                             metadata["revocation_endpoint"],
                             method="POST",
                             data={
@@ -460,6 +467,7 @@ class ChatGPTPlan:
                                 "client_id": record["client_id"],
                             },
                         )
+                        require(response.status_code == 200, "远端撤销未确认。")
                         revoked = True
                         break
                     except (AgentError, ValueError, KeyError):

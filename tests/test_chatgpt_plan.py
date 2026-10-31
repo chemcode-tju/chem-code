@@ -419,3 +419,14 @@ async def test_failed_new_authorization_does_not_overwrite_existing_account(
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_unverified_registration_cannot_replace_active_account(settings_factory):
+    plan = ChatGPTPlan(ModelSettingsStore(settings_factory()))
+    save_account(plan)
+    data = plan.load(None)
+    data["accounts"].append({"client_id": "pending-registration"})
+    plan.save(None, data)
+    with pytest.raises(AgentError):
+        await plan.select_account(None, "pending-registration")
+    assert plan.active(None)["client_id"] == "oaiapp_test"

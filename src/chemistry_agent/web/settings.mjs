@@ -6,6 +6,7 @@ let busy = false;
 let savedSettings = null;
 let models = [];
 let lastAuth = null;
+let accounts = [];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json" } });
@@ -98,6 +99,7 @@ async function refreshLogin() {
   if (data.login.state === "failed" && data.login.error) notice(data.login.error, true);
   $("chatgpt-logout").hidden = !data.authenticated;
   $("device-login").disabled = busy || data.legacy_available === false;
+  accounts = data.accounts || [];
   $("chatgpt-account").replaceChildren(new Option(t("选择已保存的账号"), ""), ...(data.accounts || []).map((item) => new Option(item.label, item.id)));
   $("chatgpt-account").value = data.active_account || "";
   const url = data.login.url;
@@ -142,8 +144,9 @@ $("test-model").addEventListener("click", () => action(async () => {
   notice(`连接成功：${result.answer}`);
 }));
 async function login(method, newAccount = false) {
+  const accountId = newAccount ? null : $("chatgpt-account").value || null;
   await save();
-  await api("/api/model/chatgpt/login", { method: "POST", body: JSON.stringify({ method, new_account: newAccount, account_id: newAccount ? null : $("chatgpt-account").value || null }) });
+  await api("/api/model/chatgpt/login", { method: "POST", body: JSON.stringify({ method, new_account: newAccount, account_id: accountId }) });
   notice("已启动 ChatGPT 授权，请完成官方登录页面上的操作。");
   await refreshLogin();
 }
@@ -151,6 +154,9 @@ for (const method of ["browser", "device"]) $(`${method}-login`).addEventListene
 $("add-account").addEventListener("click", () => action(() => login("browser", true)));
 $("chatgpt-account").addEventListener("change", () => action(async () => {
   if (!$("chatgpt-account").value) return;
+  if (!accounts.find((item) => item.id === $("chatgpt-account").value)?.authenticated) {
+    await login("browser"); return;
+  }
   await api("/api/model/chatgpt/account", { method: "POST", body: JSON.stringify({ account_id: $("chatgpt-account").value }) });
   await refreshLogin();
 }));
