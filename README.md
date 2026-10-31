@@ -6,6 +6,10 @@
 
 远端部署和独立账号模式见 [DEPLOYMENT.md](DEPLOYMENT.md)。提供 Docker 镜像、Caddy HTTPS 入口、持久化数据卷，以及管理员创建账号、会话隔离和数据库备份命令。
 
+## AiiDA 自动化任务（开发中）
+
+已提供独立的本地自动化工作区：服务器连接检查、周期结构导入、输入预览、AiiDA 提交和任务查询。支持 Slurm/PBS 系列插件；本阶段先跑通单任务，批量调度和自动修复尚未实现。安装与使用见 [自动化任务说明](docs/AUTOMATION.md)。
+
 ## 安装与启动（Windows PowerShell）
 
 在本目录打开 PowerShell：

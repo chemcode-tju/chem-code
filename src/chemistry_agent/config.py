@@ -15,6 +15,12 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
+    automation_enabled: bool = Field(default=False, validation_alias="CHEMISTRY_AUTOMATION_ENABLED")
+    aiida_profile: str = Field(default="chem-agent", validation_alias="CHEMISTRY_AIIDA_PROFILE")
+    aiida_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "aiida", validation_alias="CHEMISTRY_AIIDA_PATH"
+    )
+
     deepseek_api_key: SecretStr | None = None
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = Field(default="deepseek-flash", min_length=1)
@@ -79,7 +85,7 @@ class Settings(BaseSettings):
             raise ValueError("DEEPSEEK_BASE_URL must not contain credentials, query, or fragment")
         return value.rstrip("/")
 
-    @field_validator("database_path", "tokenizer_path")
+    @field_validator("database_path", "tokenizer_path", "aiida_path")
     @classmethod
     def resolve_project_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value

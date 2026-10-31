@@ -1,0 +1,85 @@
+from pathlib import Path
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import FileResponse
+
+from chemistry_agent.automation.models import (
+    CodeCreate,
+    PreviewRequest,
+    ServerCreate,
+    SubmitRequest,
+)
+from chemistry_agent.automation.service import AutomationService
+from chemistry_agent.errors import AgentError
+
+router = APIRouter(tags=["automation"])
+PAGE_PATH = Path(__file__).resolve().parents[1] / "web/automation/index.html"
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def local_service(request: Request) -> AutomationService:
+    """The first version owns one local AiiDA profile; do not expose it to shared users."""
+    if request.app.state.settings.auth_enabled:
+        raise AgentError("automation_local_only", "此版本自动化仅用于本地单用户部署。", 403)
+    if (
+        request.url.hostname not in LOCAL_HOSTS
+        or not request.client
+        or request.client.host not in LOCAL_HOSTS
+    ):
+        raise AgentError("automation_local_only", "自动化接口仅允许本机访问。", 403)
+    origin = request.headers.get("origin")
+    if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
+        raise AgentError("origin_rejected", "请求来源不被允许。", 403)
+    return request.app.state.automation
+
+
+@router.get("/automation", include_in_schema=False)
+async def automation_page() -> FileResponse:
+    return FileResponse(PAGE_PATH)
+
+
+@router.get("/api/automation/status")
+async def status(service: Annotated[AutomationService, Depends(local_service)]) -> dict:
+    return await service.call("status")
+
+
+@router.post("/api/automation/servers")
+async def create_server(
+    body: ServerCreate, service: Annotated[AutomationService, Depends(local_service)]
+) -> dict:
+    return await service.call("create_server", body.model_dump(mode="json"))
+
+
+@router.post("/api/automation/servers/{server_id}/test")
+async def test_server(
+    server_id: UUID, service: Annotated[AutomationService, Depends(local_service)]
+) -> dict:
+    return await service.call("test_server", {"server_id": str(server_id)})
+
+
+@router.post("/api/automation/previews")
+async def preview(
+    body: PreviewRequest, service: Annotated[AutomationService, Depends(local_service)]
+) -> dict:
+    return await service.call("preview", body.model_dump(mode="json"))
+
+
+@router.post("/api/automation/submissions")
+async def submit(
+    body: SubmitRequest, service: Annotated[AutomationService, Depends(local_service)]
+) -> dict:
+    return await service.call("submit", body.model_dump(mode="json"))
+
+
+@router.get("/api/automation/jobs")
+async def jobs(service: Annotated[AutomationService, Depends(local_service)]) -> dict:
+    return await service.call("jobs")
+
+
+@router.post("/api/automation/codes")
+async def create_code(
+    body: CodeCreate, service: Annotated[AutomationService, Depends(local_service)]
+) -> dict:
+    return await service.call("create_code", body.model_dump(mode="json"))

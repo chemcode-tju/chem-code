@@ -12,3 +12,7 @@ data/
 *.db*
 build/
 !.env.server.example
+
+.conda/
+.local-backup/
+node_modules/

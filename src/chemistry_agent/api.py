@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from chemistry_agent import __version__
 from chemistry_agent.agent import SYSTEM_PROMPT, ChemistryAgent, RunProgress
 from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthManager
+from chemistry_agent.automation.routes import router as automation_router
+from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
@@ -91,6 +93,9 @@ def create_app(
     )
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
 
+    app.state.settings = settings
+    app.state.automation = AutomationService(settings)
+    app.include_router(automation_router)
     app.add_middleware(AuthenticationMiddleware, settings=settings)
 
     @app.get("/auth/status", tags=["accounts"])
