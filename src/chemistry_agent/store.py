@@ -10,8 +10,10 @@ import aiosqlite
 from filelock import FileLock
 from filelock import Timeout as LockTimeout
 
+from chemistry_agent.attachments import init_attachment_schema
 from chemistry_agent.auth import init_auth_schema
 from chemistry_agent.errors import AgentError
+from chemistry_agent.projects import init_project_schema
 from chemistry_agent.schemas import ContextMemory, ContextUsage, TokenUsage, ToolExecution
 
 
@@ -53,6 +55,10 @@ class Store:
                     created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
                     active_run_id TEXT
                 );
+                CREATE TABLE IF NOT EXISTS session_models (
+                    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL, base_url TEXT NOT NULL, model TEXT
+                );
                 CREATE TABLE IF NOT EXISTS messages (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -85,6 +91,8 @@ class Store:
                 await db.execute(
                     "ALTER TABLE runs ADD COLUMN context_info TEXT NOT NULL DEFAULT '{}'"
                 )
+            await init_project_schema(db)
+            await init_attachment_schema(db)
             # This service runs one worker. A previous worker's active jobs cannot be resumed.
             await db.execute(
                 "UPDATE runs SET status='interrupted', error_code='service_restarted', "
@@ -164,6 +172,47 @@ class Store:
             {k: v for k, v in message.items() if k != "reasoning_content"} for message in history
         ]
         return {**dict(row), "messages": messages}
+
+    async def get_session_model(
+        self, session_id: str, owner_id: str | None, provider: str, base_url: str
+    ) -> str | None:
+        """Ignore preferences saved for a different provider or API destination."""
+        async with self.lock:
+            row = await self._one(
+                "SELECT m.provider,m.base_url,m.model FROM sessions s "
+                "LEFT JOIN session_models m ON m.session_id=s.id WHERE s.id=? AND s.owner_id IS ?",
+                (session_id, owner_id),
+            )
+            if row is None:
+                raise AgentError("session_not_found", "会话不存在。", 404)
+            if row["provider"] != provider or (
+                provider != "chatgpt" and row["base_url"] != base_url
+            ):
+                return None
+            return row["model"]
+
+    async def set_session_model(
+        self,
+        session_id: str,
+        owner_id: str | None,
+        provider: str,
+        base_url: str,
+        model: str | None,
+    ) -> None:
+        async with self.transaction():
+            if (
+                await self._one(
+                    "SELECT id FROM sessions WHERE id=? AND owner_id IS ?", (session_id, owner_id)
+                )
+                is None
+            ):
+                raise AgentError("session_not_found", "会话不存在。", 404)
+            await self.db.execute(
+                "INSERT INTO session_models VALUES (?,?,?,?) "
+                "ON CONFLICT(session_id) DO UPDATE SET "
+                "provider=excluded.provider,base_url=excluded.base_url,model=excluded.model",
+                (session_id, provider, base_url, model),
+            )
 
     async def begin_run(
         self, session_id: str, owner_id: str | None = None

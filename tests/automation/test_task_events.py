@@ -270,3 +270,35 @@ def test_notification_routes_respect_local_boundary(settings_factory, tmp_path):
             ).status_code
             == 403
         )
+
+
+async def test_background_diagnosis_uses_saved_session_model(tmp_path, settings_factory):
+    from chemistry_agent.model_settings import ModelSettings
+
+    agent, store, service = recovery_fixture(tmp_path, settings_factory, mode="diagnose")
+    preferences = []
+    choices = []
+
+    class SessionStore:
+        async def get_session_model(self, session, owner, provider, base_url):
+            preferences.append((session, owner, provider, base_url))
+            return "saved-session-model"
+
+    agent.session_store = SessionStore()
+    configuration = ModelSettings(provider="openai-compatible", model="default-model")
+    agent.provider.configuration = lambda: (None, configuration)
+
+    def select_model(model):
+        choices.append(model)
+        return configuration.model_copy(update={"model": model})
+
+    agent.provider.select_model = select_model
+    await agent.process(store.next_recovery())
+    assert choices == ["saved-session-model"]
+    assert preferences[0][1:] == (None, "openai-compatible", "https://api.deepseek.com")
+    record = store.recovery(service.job["id"])
+    assert record["decision"]["model"] == {
+        "provider": "openai-compatible",
+        "model": "saved-session-model",
+    }
+    assert configuration.model == "default-model"

@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from chemistry_agent.chatgpt_plan import ChatGPTPlan
+from chemistry_agent.chatgpt_responses import PlanResponses
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_settings import ModelSettings, ModelSettingsStore
 from chemistry_agent.provider import AssistantMessage, Completion
@@ -37,15 +39,21 @@ class LoginAttempt:
     state: str = "starting"
     url: str | None = None
     code: str | None = None
+    error: str | None = None
     task: asyncio.Task | None = field(default=None, repr=False)
 
     def public(self) -> dict:
-        return {"state": self.state, "url": self.url, "code": self.code}
+        data = {"state": self.state, "url": self.url, "code": self.code}
+        if self.error:
+            data["error"] = self.error
+        return data
 
 
 class ChatGPTClient:
     def __init__(self, store: ModelSettingsStore):
         self.store = store
+        self.plan = ChatGPTPlan(store)
+        self.responses = PlanResponses(self.plan)
         self.attempts: dict[str | None, LoginAttempt] = {}
         self.locks: dict[str | None, asyncio.Lock] = {}
 
@@ -102,6 +110,8 @@ class ChatGPTClient:
             ) from exc
 
     async def authenticated(self, user_id: str | None) -> bool:
+        if self.plan.selected(user_id):
+            return self.plan.authenticated(user_id)
         if not shutil.which(self.store.settings.codex_binary):
             return False
         if not (self.store.directory(user_id) / "codex" / "auth.json").is_file():
@@ -125,19 +135,62 @@ class ChatGPTClient:
         attempt = self.attempts.get(user_id)
         logged_in = await self.authenticated(user_id)
         return {
-            "available": bool(shutil.which(self.store.settings.codex_binary)),
+            "available": True,
+            "legacy_available": bool(shutil.which(self.store.settings.codex_binary)),
+            "authentication_mode": (
+                "chemistry-agent"
+                if self.plan.selected(user_id)
+                else "codex"
+                if logged_in
+                else "none"
+            ),
+            **self.plan.public(user_id),
             "authenticated": logged_in,
             "login": attempt.public() if attempt else {"state": "idle", "url": None, "code": None},
         }
 
-    async def start_login(self, user_id: str | None, method: str) -> dict:
+    async def start_login(
+        self,
+        user_id: str | None,
+        method: str,
+        *,
+        account_id: str | None = None,
+        new_account: bool = False,
+    ) -> dict:
         async with self.lock(user_id):
-            self.executable()
+            if method == "device":
+                self.executable()
             await self.cancel_login(user_id)
             attempt = LoginAttempt()
             self.attempts[user_id] = attempt
-            attempt.task = asyncio.create_task(self._login(user_id, method, attempt))
+            attempt.task = asyncio.create_task(
+                self._plan_login(user_id, attempt, account_id=account_id, new_account=new_account)
+                if method == "browser"
+                else self._login(user_id, method, attempt)
+            )
             return attempt.public()
+
+    async def _plan_login(self, user_id: str | None, attempt: LoginAttempt, **options: Any) -> None:
+        try:
+            await self.plan.login(user_id, attempt, **options)
+        except TimeoutError:
+            attempt.state = "expired"
+        except asyncio.CancelledError:
+            attempt.state = "cancelled"
+            raise
+        except AgentError as exc:
+            attempt.state = "failed"
+            attempt.error = exc.message
+        except (OSError, ValueError, KeyError, TypeError):
+            attempt.state = "failed"
+            attempt.error = "授权处理失败，请重新登录。"
+        finally:
+            attempt.url = attempt.code = None
+
+    async def select_account(self, user_id: str | None, account_id: str) -> None:
+        async with self.lock(user_id):
+            await self.cancel_login(user_id)
+            await self.plan.select_account(user_id, account_id)
 
     async def _login(self, user_id: str | None, method: str, attempt: LoginAttempt) -> None:
         process = None
@@ -162,6 +215,11 @@ class ChatGPTClient:
                         attempt.code = match.group(0)
                 await process.wait()
                 attempt.state = "complete" if process.returncode == 0 else "failed"
+                if attempt.state == "complete":
+                    async with self.plan.locked(user_id):
+                        data = self.plan.load(user_id)
+                        data["selected"] = False
+                        self.plan.save(user_id, data)
         except TimeoutError:
             attempt.state = "expired"
         except asyncio.CancelledError:
@@ -181,9 +239,12 @@ class ChatGPTClient:
             attempt.task.cancel()
             await asyncio.gather(attempt.task, return_exceptions=True)
 
-    async def logout(self, user_id: str | None) -> None:
+    async def logout(self, user_id: str | None) -> dict:
         async with self.lock(user_id):
             await self.cancel_login(user_id)
+            if self.plan.selected(user_id):
+                self.attempts.pop(user_id, None)
+                return await self.plan.logout(user_id)
             process = await self.process(
                 user_id,
                 "logout",
@@ -197,6 +258,76 @@ class ChatGPTClient:
             finally:
                 await stop_process(process)
             self.attempts.pop(user_id, None)
+            return {"remote_revoked": True}
+
+    async def list_models(self, user_id: str | None) -> list[dict]:
+        async with self.lock(user_id):
+            if self.plan.selected(user_id):
+                return await self.responses.list_models(user_id)
+            if not await self.authenticated(user_id):
+                raise AgentError("chatgpt_login_required", "请先在设置中登录 ChatGPT。", 503)
+            process = await self.process(
+                user_id,
+                "app-server",
+                "--listen",
+                "stdio://",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+
+            async def rpc(identifier: int, method: str, params: dict) -> dict:
+                process.stdin.write(
+                    (
+                        json.dumps({"id": identifier, "method": method, "params": params}) + "\n"
+                    ).encode()
+                )
+                await process.stdin.drain()
+                while line := await process.stdout.readline():
+                    result = json.loads(line)
+                    if result.get("id") == identifier:
+                        if "error" in result:
+                            raise ValueError("Catalog RPC failed")
+                        return result["result"]
+                raise ValueError("Catalog RPC closed")
+
+            try:
+                async with asyncio.timeout(30):
+                    await rpc(
+                        0,
+                        "initialize",
+                        {
+                            "clientInfo": {
+                                "name": "chemistry_agent",
+                                "title": "Chemistry Agent",
+                                "version": "0.1.0",
+                            }
+                        },
+                    )
+                    process.stdin.write(b'{"method":"initialized"}\n')
+                    await process.stdin.drain()
+                    models, cursor = [], None
+                    for page in range(20):
+                        result = await rpc(
+                            page + 1,
+                            "model/list",
+                            {"limit": 100, "includeHidden": False, "cursor": cursor},
+                        )
+                        models.extend(
+                            {"id": item["model"], "name": item.get("displayName") or item["model"]}
+                            for item in result["data"]
+                            if not item.get("hidden")
+                        )
+                        cursor = result.get("nextCursor")
+                        if not cursor:
+                            return models
+                    raise ValueError("Catalog pagination exceeded")
+            except (ValueError, KeyError, TypeError, TimeoutError, OSError) as exc:
+                raise AgentError(
+                    "model_catalog_failed", "无法读取模型目录，请刷新或手动填写模型 ID。", 502
+                ) from exc
+            finally:
+                await stop_process(process)
 
     async def close(self) -> None:
         for user_id in list(self.attempts):
@@ -215,6 +346,16 @@ class ChatGPTClient:
     ) -> Completion:
         """Request a tool-call plan; only Chemistry Agent executes registered tools."""
         async with self.lock(user_id):
+            if self.plan.selected(user_id):
+                return await self.responses.complete(
+                    user_id,
+                    configuration.model,
+                    messages,
+                    tools,
+                    allow_tools=allow_tools,
+                    max_tokens=max_tokens,
+                    thinking=thinking,
+                )
             if not await self.authenticated(user_id):
                 raise AgentError("chatgpt_login_required", "请在模型设置中登录 ChatGPT。", 503)
             with tempfile.TemporaryDirectory(prefix="chemistry-response-") as temporary:

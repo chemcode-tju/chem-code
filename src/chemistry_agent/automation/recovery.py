@@ -78,8 +78,9 @@ def apply_recovery(preview: dict, decision: RecoveryDecision, policy: RecoveryPo
 
 
 class RecoveryAgent:
-    def __init__(self, chat, store: EventStore, provider):
+    def __init__(self, chat, store: EventStore, provider, *, session_store=None):
         self.chat, self.store, self.provider = chat, store, provider
+        self.session_store = session_store
 
     async def process(self, item: dict) -> None:
         job_id, session = item["job_id"], item["session_id"]
@@ -97,6 +98,14 @@ class RecoveryAgent:
             job = await self.chat.service.call("job_details", {"job_id": job_id})
             token = current_model_scope.set(ModelScope(user_id=None))
             try:
+                model_context = {}
+                if self.session_store is not None:
+                    _, configuration = self.provider.configuration()
+                    model = await self.session_store.get_session_model(
+                        session, None, configuration.provider, configuration.base_url
+                    )
+                    selected = self.provider.select_model(model)
+                    model_context = {"provider": selected.provider, "model": selected.model}
                 if not await self.provider.ready():
                     raise AgentError("model_unavailable", "自动诊断需要可用的模型登录或 API。", 503)
                 async with asyncio.timeout(180):
@@ -133,7 +142,11 @@ class RecoveryAgent:
             if content.startswith("```") and content.endswith("```"):
                 content = content.split("\n", 1)[1].rsplit("```", 1)[0]
             decision = RecoveryDecision.model_validate_json(content)
-            detail = {"decision": decision.model_dump(), "usage": result.usage.model_dump()}
+            detail = {
+                "decision": decision.model_dump(),
+                "usage": result.usage.model_dump(),
+                "model": model_context,
+            }
             self.store.update_recovery(job_id, "diagnosed", decision=detail)
             policy = RecoveryPolicy.model_validate(self.store.policy(root_id))
             if policy.mode == "off":

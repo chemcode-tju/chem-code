@@ -12,6 +12,8 @@ model-credentials/
 *.sqlite3*
 *.db*
 build/
+/output/
+/.playwright-cli/
 !.env.server.example
 
 .conda/

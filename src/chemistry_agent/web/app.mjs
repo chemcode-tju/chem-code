@@ -1,6 +1,10 @@
-import { TOOL_LABELS, buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
-import { createNotifications } from "./notifications.mjs";
 import { createCalculations } from "./calculations.mjs";
+import { createNotifications } from "./notifications.mjs";
+import { createChatModelPicker } from "./chat-models.mjs";
+import { t } from "./i18n.mjs";
+import { createFileUploads, renderFiles, contextFiles } from "./files.mjs";
+import { createProjectNavigation } from "./projects.mjs";
+import { TOOL_LABELS, buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
 
 const $ = (id) => document.getElementById(id);
 const icon = (name, className = "") => `<svg class="icon ${className}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
@@ -13,14 +17,19 @@ const state = {
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
 let toastTimer;
+let chatModels;
 const notifications = createNotifications({ api });
 const calculations = createCalculations({
-  api, getSession: () => state.sessionId, isBusy: () => state.busy || state.loading,
+  api, getSession: () => state.sessionId,
+  isBusy: () => state.busy || state.loading || chatModels?.saving || uploads.uploading,
   ensureSession: async () => {
     if (!state.sessionId) {
-      const session = await api("/sessions", { method: "POST", body: JSON.stringify({ title: "结构与计算" }) });
+      const selectedModel = chatModels.value;
+      const session = await api("/sessions", {method:"POST", body:JSON.stringify({title:"结构与计算"})});
       state.sessionId = session.id; rememberSession(session.id);
       $("conversation-title").textContent = session.title;
+      await chatModels.saveNewSession(session.id, selectedModel);
+      await projectNavigation.assign(session.id);
       await refreshSessions();
     }
     return state.sessionId;
@@ -72,22 +81,38 @@ function rememberSession(id) {
 
 function syncDrawerAccessibility() {
   const loginRequired = !$("login-screen").hidden;
-  const sidebarHidden = loginRequired || (innerWidth <= 760 && !document.body.classList.contains("sidebar-open"));
-  const inspectorHidden = loginRequired || (innerWidth <= 1120 && !document.body.classList.contains("inspector-open"));
-  document.querySelector(".main-panel").inert = loginRequired;
-  document.querySelector(".main-panel").setAttribute("aria-hidden", String(loginRequired));
+  const sidebarHidden = loginRequired || (innerWidth <= 760 && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
+  const inspectorHidden = loginRequired || !document.body.classList.contains("inspector-open");
+  const mainHidden = loginRequired || (innerWidth <= 760 && !inspectorHidden);
+  document.querySelector(".main-panel").inert = mainHidden;
+  document.querySelector(".main-panel").setAttribute("aria-hidden", String(mainHidden));
   $("sidebar").inert = sidebarHidden;
   $("inspector").inert = inspectorHidden;
   $("sidebar").setAttribute("aria-hidden", String(sidebarHidden));
   $("inspector").setAttribute("aria-hidden", String(inspectorHidden));
 }
 
+function setInspectorOpen(open, { focus = true, persist = true } = {}) {
+  const wasFocused = $("inspector").contains(document.activeElement);
+  document.body.classList.toggle("inspector-open", open);
+  $("tools-toggle").setAttribute("aria-expanded", String(open));
+  $("tools-toggle").setAttribute("aria-label", open ? "关闭研究面板" : "打开研究工具");
+  $("tools-toggle").title = open ? "关闭研究面板" : "打开研究工具";
+  if (persist) {
+    try { localStorage.setItem("chemistry.inspectorOpen", String(open)); } catch { /* Optional. */ }
+  }
+  syncDrawerAccessibility();
+  if (focus && open) $("inspector-close").focus();
+  else if (focus && wasFocused) $("tools-toggle").focus();
+}
+
 function setDrawer(name, open) {
+  if (name === "inspector") { setInspectorOpen(open); return; }
   const panel = $(name === "sidebar" ? "sidebar" : "inspector");
   const trigger = $(name === "sidebar" ? "menu-toggle" : "tools-toggle");
   const wasFocused = panel.contains(document.activeElement);
   document.body.classList.toggle(`${name}-open`, open);
-  const anyOpen = document.body.classList.contains("sidebar-open") || document.body.classList.contains("inspector-open");
+  const anyOpen = document.body.classList.contains("sidebar-open");
   $("screen-overlay").hidden = !anyOpen;
   $("menu-toggle").setAttribute("aria-expanded", String(document.body.classList.contains("sidebar-open")));
   $("tools-toggle").setAttribute("aria-expanded", String(document.body.classList.contains("inspector-open")));
@@ -96,65 +121,85 @@ function setDrawer(name, open) {
   else if (wasFocused && trigger.getClientRects().length) trigger.focus();
 }
 
-function closeDrawers() { setDrawer("sidebar", false); setDrawer("inspector", false); }
+function closeDrawers() {
+  setDrawer("sidebar", false);
+  if (innerWidth <= 760) setInspectorOpen(false, { focus:false });
+}
 
 function updateControls() {
-  const locked = state.busy || state.loading;
+  const locked = state.busy || state.loading || chatModels?.saving || calculations.busy();
   $("compact-context").disabled = locked || !state.sessionId || !state.health?.model_configured;
+  $("chat-model").disabled = Boolean(locked);
+  $("chat-model-apply").disabled = Boolean(locked);
+  $("chat-model-id").disabled = Boolean(locked);
   $("message-input").disabled = locked;
-  $("reference-input").disabled = locked;
-  $("send-button").disabled = locked || !state.health?.model_configured;
+  $("send-button").disabled = locked || uploads.uploading || !state.health?.model_configured;
+  $("composer-add").disabled = locked || uploads.uploading;
+  $("sidebar-add").disabled = locked || uploads.uploading;
   $("send-button").setAttribute("aria-label", state.busy ? "正在生成回答" : "发送消息");
   $("new-chat").disabled = locked;
-  $("logout-button").disabled = locked;
-  $("reference-toggle").disabled = locked;
-  $("remove-reference").disabled = locked;
+  $("new-project").disabled = locked;
+  document.querySelectorAll("[data-new-in]").forEach((button) => { button.disabled = locked; });
   document.querySelectorAll(".session-button,.suggestion-card").forEach((button) => { button.disabled = locked; });
   $("chat-form").setAttribute("aria-busy", String(state.busy));
 }
 
 async function refreshHealth() {
   try {
+    const previousProvider = state.health?.provider;
     state.health = await api("/health");
     calculations.enabled(Boolean(state.health.automation_enabled));
     notifications.enabled(Boolean(state.health.automation_enabled));
+    $("automation-link").hidden = !state.health.automation_enabled;
+    if (chatModels && previousProvider && previousProvider !== state.health.provider) {
+      chatModels.newConversation();
+      if (state.sessionId) await chatModels.loadSession(state.sessionId);
+      await chatModels.refresh();
+    }
+    chatModels?.render();
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
       ? `${names[state.health.model] || state.health.model} · ${state.health.provider === "chatgpt" ? "已登录" : "已配置"}` : "模型未配置";
     $("model-status").classList.toggle("unavailable", !state.health.model_configured);
-    $("connection-notice").hidden = state.health.model_configured;
-    $("connection-notice").textContent = "模型尚未配置，请打开“模型设置”登录 ChatGPT 或填写 API Key。分子工具仍可使用。";
   } catch {
     state.health = null;
     $("model-label").textContent = "服务未连接";
     $("model-status").classList.add("unavailable");
-    $("connection-notice").hidden = false;
-    $("connection-notice").textContent = "暂时无法连接本地服务，恢复连接后将自动更新。";
   }
   updateControls();
 }
 
+function sessionButton(session) {
+  return `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}">${icon("chat")}<span>${escapeHtml(session.title)}</span></button>`;
+}
+
+const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
+chatModels = createChatModelPicker({ api, state, toast, updateControls });
+const uploads = createFileUploads({ state, toast, updateControls, onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
+
 function renderSessions() {
-  $("session-list").innerHTML = state.sessions.length ? state.sessions.map((session) =>
-    `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}">${icon("chat")}<span>${escapeHtml(session.title)}</span></button>`
-  ).join("") : '<p class="sidebar-empty">你的研究，从第一段对话开始。</p>';
+  const chats = state.sessions.filter((session) => !projectNavigation.includes(session.id));
+  $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无独立聊天</p>';
   $("load-more").hidden = !state.hasMore;
+  projectNavigation.render();
   updateControls();
 }
 
 async function refreshSessions(append = false) {
   const accountVersion = state.accountVersion;
   const offset = append ? state.sessions.length : 0;
-  const sessions = await api(`/sessions?limit=50&offset=${offset}`);
+  const [sessions, projects] = await Promise.all([api(`/sessions?limit=50&offset=${offset}`), api("/api/projects")]);
   if (accountVersion !== state.accountVersion) return;
+  projectNavigation.accept(projects);
   state.sessions = append ? [...state.sessions, ...sessions] : sessions;
   state.hasMore = sessions.length === 50;
   renderSessions();
 }
 
-function renderUser(text, context) {
-  return `<div class="user-message"><div class="user-bubble">${escapeHtml(text)}${context ?
-    `<details class="attached-reference"><summary>${icon("document")} 已附参考文献片段 · ${context.length.toLocaleString()} 字符</summary><pre>${escapeHtml(context)}</pre></details>` : ""}</div></div>`;
+function renderUser(text, context, files = []) {
+  const attachedFiles = files.length ? files : contextFiles(context);
+  return `<div class="user-message"><div class="user-bubble"><span data-no-i18n>${escapeHtml(text)}</span>${renderFiles(attachedFiles)}${context && !attachedFiles.length ?
+    `<details class="attached-reference"><summary>${icon("document")} ${t("附件与上下文")}</summary><pre>${escapeHtml(context)}</pre></details>` : ""}</div></div>`;
 }
 
 function renderToolTrace(calls, turnIndex) {
@@ -182,13 +227,13 @@ function renderConversation(scroll = true) {
     return;
   }
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    `<article class="turn">${renderUser(turn.text, turn.context)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div><div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    `<article class="turn">${renderUser(turn.text, turn.context, turn.files)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div><div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
   if (state.pending) {
     const pending = state.pending;
     const article = document.createElement("article");
     article.className = "turn";
-    article.innerHTML = `${renderUser(pending.message, pending.context)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${pending.error ? `<div class="message-error">${escapeHtml(pending.error)}<br><button class="retry-button" id="retry-message">${icon("refresh")}重试这条消息</button></div>` : '<div class="thinking-indicator"><span></span><span></span><span></span>正在分析问题…</div>'}</div></div>`;
+    article.innerHTML = `${renderUser(pending.message, pending.context, pending.files)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${pending.error ? `<div class="message-error">${escapeHtml(pending.error)}<br><button class="retry-button" id="retry-message">${icon("refresh")}重试这条消息</button></div>` : '<div class="thinking-indicator"><span></span><span></span><span></span>正在分析问题…</div>'}</div></div>`;
     $("conversation").append(article);
   }
   if (scroll) requestAnimationFrame(() => {
@@ -199,6 +244,8 @@ function renderConversation(scroll = true) {
 
 async function selectSession(id, quiet = false) {
   if (state.busy) return;
+  uploads.clear();
+  calculations.clearSelection();
   const navigation = ++state.navigation;
   state.loading = true;
   state.pending = null;
@@ -208,6 +255,8 @@ async function selectSession(id, quiet = false) {
     // Message history is authoritative. All tool details can be reconstructed from it.
     const session = await api(`/sessions/${encodeURIComponent(id)}`);
     const runs = await api(`/sessions/${encodeURIComponent(id)}/runs?limit=100`).catch(() => []);
+    if (navigation !== state.navigation) return;
+    await chatModels.loadSession(id);
     if (navigation !== state.navigation) return;
     state.sessionId = id;
     state.runs = runs;
@@ -222,10 +271,11 @@ async function selectSession(id, quiet = false) {
     if (navigation !== state.navigation) return;
     if (!quiet) toast(error.message);
     state.sessionId = null;
+    chatModels.newConversation();
     state.turns = [];
     state.runs = [];
     rememberSession(null);
-    $("conversation-title").textContent = "化学助手";
+    $("conversation-title").textContent = t("新对话");
   } finally {
     if (navigation === state.navigation) {
       state.loading = false;
@@ -236,19 +286,20 @@ async function selectSession(id, quiet = false) {
 }
 
 function newConversation() {
-  $("context-panel").hidden = true;
-  if (state.busy || state.loading) return;
+  if (state.busy || state.loading || chatModels.saving) return;
+  chatModels.newConversation();
   state.navigation += 1;
+  projectNavigation.clearSelection();
   state.sessionId = null;
   state.turns = [];
   state.runs = [];
   state.pending = null;
   calculations.reset();
+  $("context-panel").hidden = true;
   rememberSession(null);
-  $("conversation-title").textContent = "化学助手";
+  $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
-  $("reference-input").value = "";
-  setReferenceOpen(false);
+  uploads.clear();
   renderConversation(false);
   renderSessions();
   renderResult(null);
@@ -256,20 +307,13 @@ function newConversation() {
   $("message-input").focus();
 }
 
-function setReferenceOpen(open) {
-  $("reference-editor").hidden = !open;
-  $("reference-toggle").setAttribute("aria-expanded", String(open));
-  const length = $("reference-input").value.length;
-  $("reference-count").textContent = length.toLocaleString();
-  $("reference-count").hidden = length === 0;
-}
-
-async function sendChat(message, context) {
-  if (state.busy || state.loading || calculations.busy() || !message.trim()) return;
+async function sendChat(message, context = "", files = uploads.files) {
+  if (state.busy || state.loading || chatModels.saving || uploads.uploading || calculations.busy() || !message.trim()) return;
+  const selectedModel = chatModels.value;
   if (!state.health?.model_configured) { toast("请先连接并配置模型。"); return; }
   state.busy = true;
   const accountVersion = state.accountVersion;
-  state.pending = { message: message.trim(), context: context.trim() };
+  state.pending = { message: message.trim(), context: context.trim(), files };
   renderConversation();
   try {
     if (!state.sessionId) {
@@ -278,31 +322,34 @@ async function sendChat(message, context) {
       state.sessionId = session.id;
       $("conversation-title").textContent = session.title;
       rememberSession(session.id);
+      await chatModels.saveNewSession(session.id, selectedModel);
+      await projectNavigation.assign(session.id);
+      if (accountVersion !== state.accountVersion) return;
     }
     const result = await api("/chat", { method: "POST", body: JSON.stringify({
       session_id: state.sessionId, message: message.trim(), context: context.trim() || null,
+      file_ids: files.map((file) => file.id), model: selectedModel,
       structure_ids: calculations.selectedIds(),
     }) });
     if (accountVersion !== state.accountVersion) return;
-    state.turns.push({ text: message.trim(), context: context.trim(), answer: result.answer,
+    state.turns.push({ text: message.trim(), context: context.trim(), files, answer: result.answer,
       calls: result.tool_calls, run: { usage: result.usage, context: result.context } });
     state.pending = null;
     calculations.clearSelection();
     $("message-input").value = "";
     $("message-input").style.height = "";
-    $("reference-input").value = "";
-    setReferenceOpen(false);
+    uploads.clear();
     if (result.tool_calls.length) renderResult(result.tool_calls.at(-1));
     await refreshSessions().catch(() => {});
     await calculations.refresh().catch(() => {});
+    await refreshContext();
   } catch (error) {
     if (accountVersion !== state.accountVersion) return;
-    state.pending = { message: message.trim(), context: context.trim(), error: error.message };
+    state.pending = { message: message.trim(), context: context.trim(), files, error: error.message };
     $("message-input").value = message;
-    $("reference-input").value = context;
-    if (context) setReferenceOpen(true);
     await refreshSessions().catch(() => {});
     await calculations.refresh().catch(() => {});
+    await refreshContext();
   } finally {
     if (accountVersion === state.accountVersion) {
       state.busy = false;
@@ -320,18 +367,19 @@ const emptyResult = $("result-panel").innerHTML;
 function renderResult(call) {
   if (!call) {
     $("result-panel").innerHTML = emptyResult;
-    $("result-badge").textContent = "等待计算";
+    $("result-badge").textContent = "暂无记录";
+    $("result-section").open = false;
     return;
   }
   if (!call.success) {
+    $("result-section").open = true;
     $("result-panel").innerHTML = `<div class="tool-failure">${escapeHtml(call.result?.message || "计算未完成，请检查输入的分子结构。")}</div>`;
     $("result-badge").textContent = "请检查输入";
     return;
   }
+  $("result-section").open = true;
   const result = call.result;
   $("result-badge").textContent = "已计算";
-  const calculationBadges = { calculation_preview: "待确认", build_structure: "已建模", import_structure: "已导入", calculation_setup: "配置已读取", calculation_artifacts: "记录已读取", calculation_jobs: "状态已查询", calculation_job: "状态已查询", calculation_submit_confirmed: "已交给 AiiDA" };
-  if (calculationBadges[call.name]) $("result-badge").textContent = calculationBadges[call.name];
   let body;
   if (call.name === "molecular_properties") {
     body = `<div class="calculation-title"><strong>${escapeHtml(result.formula)}</strong><span>分子属性</span></div><div class="canonical-smiles">${escapeHtml(result.canonical_smiles)}</div><div class="metric-grid">${metric("分子量", result.molecular_weight_g_mol, "g/mol")}${metric("Crippen LogP", result.logp_rdkit_crippen)}${metric("TPSA", result.tpsa_angstrom_squared, "Å²")}${metric("精确质量", result.exact_mass_da, "Da")}${metric("氢键供体", result.hydrogen_bond_donors)}${metric("氢键受体", result.hydrogen_bond_acceptors)}${metric("可旋转键", result.rotatable_bonds)}${metric("环数量", result.ring_count)}</div>`;
@@ -340,12 +388,7 @@ function renderResult(call) {
     const percent = Number.isFinite(score) ? Math.max(0, Math.min(100, score * 100)) : 0;
     body = `<div class="calculation-title"><strong>结构相似度</strong><span>TANIMOTO</span></div><div class="canonical-smiles">${escapeHtml(result.canonical_smiles_a)} ↔ ${escapeHtml(result.canonical_smiles_b)}</div><div class="similarity-score"><strong>${escapeHtml(metricValue(score, 6))}</strong><div class="score-track"><span style="width:${percent}%"></span></div><small>0 无指纹重叠 · 1 指纹相同</small></div><div class="result-source">Morgan 指纹 · radius=2 · 2048 bits<br>结构相似度不代表生物活性。</div>`;
   } else {
-    body = `<div class="calculation-title"><strong>${escapeHtml(TOOL_LABELS[call.name] || call.name)}</strong></div>`;
-    if (call.name === "calculation_preview") body += '<p>实际输入文件已生成，等待你在聊天预览卡片中确认。尚未提交。</p>';
-    if (call.name === "calculation_job") {
-      const energy = result.results?.total_energies?.energy_extrapolated;
-      body += `<p>AiiDA #${escapeHtml(result.pk)} · ${escapeHtml(result.process_state)}<br>Slurm ${escapeHtml(result.scheduler_job_id || "尚未生成")} · 退出码 ${escapeHtml(result.exit_status ?? "尚未结束")}</p><div class="metric-grid">${metric("能量（外推）", energy, "eV")}</div><p class="result-source">正常退出不代表科学精度已收敛。</p>`;
-    }
+    body = `<div class="calculation-title"><strong>${escapeHtml(call.name)}</strong></div>`;
   }
   $("result-panel").innerHTML = `<div class="calculation-card">${body}<div class="result-source">${escapeHtml(result.source || "")}</div><details class="raw-result"><summary>查看参数与完整结果</summary><pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, result }, null, 2))}</pre></details></div>`;
 }
@@ -376,7 +419,7 @@ async function runLocalTool(name, form) {
 
 $("chat-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  sendChat($("message-input").value, $("reference-input").value);
+  sendChat($("message-input").value);
 });
 $("message-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
@@ -389,21 +432,6 @@ $("message-input").addEventListener("input", () => {
   $("message-input").style.height = `${Math.min($("message-input").scrollHeight, 180)}px`;
 });
 $("new-chat").addEventListener("click", newConversation);
-$("reference-toggle").addEventListener("click", () => {
-  setReferenceOpen($("reference-editor").hidden);
-  if (!$("reference-editor").hidden) $("reference-input").focus();
-});
-$("remove-reference").addEventListener("click", () => { $("reference-input").value = ""; setReferenceOpen(false); });
-$("reference-input").addEventListener("input", () => setReferenceOpen(true));
-$("reference-suggestion").addEventListener("click", () => {
-  $("message-input").value = "请分析这段文献的研究方法、关键发现和结论局限，并区分原文证据与推断。";
-  setReferenceOpen(true);
-  $("reference-input").focus();
-});
-document.querySelectorAll("[data-prompt]").forEach((button) => button.addEventListener("click", () => {
-  $("message-input").value = button.dataset.prompt;
-  $("message-input").focus();
-}));
 $("session-list").addEventListener("click", (event) => {
   const button = event.target.closest("[data-session]");
   if (button) selectSession(button.dataset.session);
@@ -418,7 +446,7 @@ $("conversation").addEventListener("click", async (event) => {
   const resultButton = event.target.closest("[data-result]");
   if (resultButton) {
     renderResult(state.results.get(resultButton.dataset.result));
-    if (innerWidth <= 1120) setDrawer("inspector", true);
+    setInspectorOpen(true);
   }
   const copyButton = event.target.closest("[data-copy]");
   if (copyButton) {
@@ -426,20 +454,32 @@ $("conversation").addEventListener("click", async (event) => {
     catch { toast("复制不可用，请选中文字后手动复制。"); }
   }
   if (event.target.closest("#retry-message") && state.pending && !state.busy) {
-    sendChat(state.pending.message, state.pending.context);
+    sendChat(state.pending.message, state.pending.context, state.pending.files);
   }
 });
 $("properties-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_properties", event.currentTarget); });
 $("similarity-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_similarity", event.currentTarget); });
+function setSidebarCollapsed(collapsed, reveal = false) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  $("sidebar-collapse").setAttribute("aria-expanded", String(!collapsed));
+  $("sidebar-collapse").setAttribute("aria-label", collapsed ? "展开侧栏" : "折叠侧栏");
+  $("sidebar-collapse").title = collapsed ? "展开侧栏" : "折叠侧栏";
+  try { localStorage.setItem("chemistry.sidebarCollapsed", String(collapsed)); } catch { /* Optional. */ }
+  if (reveal && innerWidth <= 760) setDrawer("sidebar", !collapsed);
+  syncDrawerAccessibility();
+}
+try { setSidebarCollapsed(localStorage.getItem("chemistry.sidebarCollapsed") === "true"); } catch { /* Default expanded. */ }
+$("sidebar-collapse").addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"), true));
+$("rail-projects").addEventListener("click", () => { setSidebarCollapsed(false, true); $("new-project").focus(); });
 $("menu-toggle").addEventListener("click", () => { setDrawer("inspector", false); setDrawer("sidebar", !document.body.classList.contains("sidebar-open")); });
 $("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false); setDrawer("inspector", !document.body.classList.contains("inspector-open")); });
 $("inspector-close").addEventListener("click", () => setDrawer("inspector", false));
 $("screen-overlay").addEventListener("click", closeDrawers);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeDrawers();
+  if ($("project-dialog").open) return;
+  if (event.key === "Escape") { closeDrawers(); setInspectorOpen(false); }
   if (event.key !== "Tab") return;
-  const openPanel = document.body.classList.contains("sidebar-open") ? $("sidebar") :
-    document.body.classList.contains("inspector-open") ? $("inspector") : null;
+  const openPanel = document.body.classList.contains("sidebar-open") ? $("sidebar") : null;
   if (!openPanel) return;
   const focusable = [...openPanel.querySelectorAll("a, button:not(:disabled), input, textarea, summary")]
     .filter((element) => element.getClientRects().length && !element.disabled);
@@ -451,12 +491,13 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("resize", () => {
-  if (innerWidth > 1120) closeDrawers();
+  if (innerWidth > 760) closeDrawers();
   syncDrawerAccessibility();
 });
 
 function showLogin(message = "") {
-  calculations.reset();
+  calculations.reset(); notifications.enabled(false);
+  $("context-panel").hidden = true;
   state.accountVersion += 1;
   state.navigation += 1;
   rememberSession(null);
@@ -467,16 +508,18 @@ function showLogin(message = "") {
   state.pending = null;
   state.results.clear();
   state.auth.user = null;
+  chatModels.reset();
+  projectNavigation.reset();
+
   state.busy = false;
   state.loading = false;
   $("conversation").replaceChildren();
   $("session-list").replaceChildren();
-  $("conversation-title").textContent = "化学助手";
+  $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
-  $("reference-input").value = "";
+  uploads.clear();
   $("properties-form").reset();
   $("similarity-form").reset();
-  setReferenceOpen(false);
   renderResult(null);
   closeDrawers();
   $("login-screen").hidden = false;
@@ -491,9 +534,6 @@ function showLogin(message = "") {
 async function startWorkspace() {
   $("login-screen").hidden = true;
   document.body.classList.remove("auth-checking");
-  $("workspace-name").textContent = state.auth.user?.username || "本地研究空间";
-  $("workspace-note").textContent = state.auth.enabled ? "个人研究空间" : "会话自动保存在本机";
-  $("logout-button").hidden = !state.auth.enabled;
   syncDrawerAccessibility();
   await Promise.all([refreshHealth(), refreshSessions().catch((error) => {
     $("session-list").innerHTML = '<p class="sidebar-empty">暂时无法读取会话，请点击刷新。</p>';
@@ -502,8 +542,9 @@ async function startWorkspace() {
   let id = new URL(location.href).searchParams.get("session");
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try { id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
+  if (state.health?.model_configured) await chatModels.refresh();
   if (id) await selectSession(id, true);
-  else updateControls();
+  else { $("conversation-title").textContent = t("新对话"); updateControls(); }
 }
 
 async function initialize() {
@@ -534,16 +575,16 @@ $("login-form").addEventListener("submit", async (event) => {
     $("login-submit").disabled = false;
   }
 });
-$("logout-button").addEventListener("click", async () => {
-  try {
-    await api("/auth/logout", { method: "POST" });
-    showLogin();
-  } catch (error) { toast(error.message); }
-});
 
+window.addEventListener("languagechange", () => {
+  if (!state.sessionId) $("conversation-title").textContent = t("新对话");
+});
+try {
+  const savedInspector = localStorage.getItem("chemistry.inspectorOpen");
+  setInspectorOpen(savedInspector === null ? innerWidth > 1120 : savedInspector === "true", { focus:false, persist:false });
+} catch { setInspectorOpen(innerWidth > 1120, { focus:false, persist:false }); }
 initialize();
 setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);
-
 
 async function refreshContext() {
   const id = state.sessionId;
@@ -567,3 +608,8 @@ $("compact-context").onclick = async () => {
   } catch (error) { toast(error.message); }
   finally { state.busy = false; updateControls(); }
 };
+
+$("structure-upload").addEventListener("click", () => {
+  $("composer-upload-menu").hidden = true;
+  $("composer-add").setAttribute("aria-expanded", "false");
+});

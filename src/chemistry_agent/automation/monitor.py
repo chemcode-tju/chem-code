@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class TaskMonitor:
-    def __init__(self, chat, provider, interval: float = 20):
+    def __init__(self, chat, provider, interval: float = 20, *, session_store=None):
         self.chat = chat
         self.events = EventStore(chat.service.settings.aiida_path / "task-monitor.sqlite3")
-        self.recovery = RecoveryAgent(chat, self.events, provider)
+        self.recovery = RecoveryAgent(chat, self.events, provider, session_store=session_store)
         self.interval = interval
         self.tasks: list[asyncio.Task] = []
         self.lock = asyncio.Lock()

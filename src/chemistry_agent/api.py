@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from chemistry_agent import __version__
 from chemistry_agent.agent import AUTOMATION_PROMPT, SYSTEM_PROMPT, ChemistryAgent, RunProgress
+from chemistry_agent.attachments import attachment_context
+from chemistry_agent.attachments import router as attachments_router
 from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthManager
 from chemistry_agent.automation.chat import CalculationChat
 from chemistry_agent.automation.chat_routes import router as calculation_chat_router
@@ -27,6 +29,7 @@ from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_routes import router as model_router
 from chemistry_agent.model_runtime import ProviderRouter
+from chemistry_agent.projects import router as projects_router
 from chemistry_agent.provider import ToolCall
 from chemistry_agent.schemas import (
     ChatRequest,
@@ -39,6 +42,7 @@ from chemistry_agent.schemas import (
     ToolExecution,
 )
 from chemistry_agent.store import Store
+from chemistry_agent.structures import router as structures_router
 from chemistry_agent.tokens import TokenCounter
 from chemistry_agent.tools import ToolRegistry
 
@@ -91,7 +95,7 @@ def create_app(
                 )
                 app.state.context_manager = context_manager
                 monitor = (
-                    TaskMonitor(calculation_chat, provider)
+                    TaskMonitor(calculation_chat, provider, session_store=store)
                     if calculation_enabled and settings.automation_monitor_enabled
                     else None
                 )
@@ -117,6 +121,9 @@ def create_app(
     )
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
     app.include_router(model_router)
+    app.include_router(projects_router)
+    app.include_router(attachments_router)
+    app.include_router(structures_router)
 
     app.state.settings = settings
     app.state.automation = automation
@@ -186,6 +193,10 @@ def create_app(
     @app.get("/", include_in_schema=False)
     async def index():
         return FileResponse(WEB_DIRECTORY / "index.html")
+
+    @app.get("/structures", include_in_schema=False)
+    async def structure_viewer():
+        return FileResponse(WEB_DIRECTORY / "structure" / "index.html")
 
     @app.get("/health", tags=["service"])
     async def health(request: Request):
@@ -279,7 +290,13 @@ def create_app(
     async def compact_context(session_id: UUID, request: Request):
         if calculation_enabled:
             local_service(request)
-        if not await request.app.state.provider.ready():
+        provider = request.app.state.provider
+        _, configuration = provider.configuration()
+        model = await request.app.state.store.get_session_model(
+            str(session_id), request.state.user_id, configuration.provider, configuration.base_url
+        )
+        provider.select_model(model)
+        if not await provider.ready():
             raise AgentError("model_not_configured", "请先配置模型以生成历史摘要。", 503)
         store = request.app.state.store
         run_id, history = await store.begin_run(str(session_id), request.state.user_id)
@@ -326,9 +343,21 @@ def create_app(
             local_service(request)
         if body.structure_ids and not calculation_enabled:
             raise AgentError("automation_disabled", "结构附件需要本地自动化功能。", 422)
-        if not await request.app.state.provider.ready():
-            raise AgentError("model_not_configured", "请在模型设置中登录 ChatGPT 或配置 API。", 503)
         store: Store = request.app.state.store
+        provider: ProviderRouter = request.app.state.provider
+        _, configuration = provider.configuration()
+        saved_model = None
+        if body.session_id:
+            saved_model = await store.get_session_model(
+                str(body.session_id),
+                request.state.user_id,
+                configuration.provider,
+                configuration.base_url,
+            )
+        provider.select_model(body.model if "model" in body.model_fields_set else saved_model)
+        if not await provider.ready():
+            raise AgentError("model_not_configured", "请在模型设置中登录 ChatGPT 或配置 API。", 503)
+        file_context = await attachment_context(store, body.file_ids, request.state.user_id)
         session_id = (
             str(body.session_id)
             if body.session_id
@@ -344,10 +373,9 @@ def create_app(
         run_id, history = await store.begin_run(session_id, request.state.user_id)
         request.state.run_id = run_id
         content = body.message
-        if body.context:
-            content += (
-                "\n\n<user_provided_reference>\n" + body.context + ("\n</user_provided_reference>")
-            )
+        context = "\n\n".join(part for part in (body.context, file_context) if part)
+        if context:
+            content += "\n\n<user_provided_reference>\n" + context + "\n</user_provided_reference>"
         if attached_structures:
             content += "\n\n已验证结构附件（用 ID 调用计算工具）：\n" + json.dumps(
                 attached_structures, ensure_ascii=False

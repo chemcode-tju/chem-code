@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict');
+const S=require('../../src/chemistry_agent/web/structure/snapshot.js');
+const pixels=new Uint8Array(10*8*4);pixels[(2*10+3)*4+3]=255;pixels[(6*10+8)*4+3]=255;
+assert.deepEqual(S.cropBounds(pixels,10,8),{x:3,y:2,width:6,height:5});
+assert.throws(()=>S.cropBounds(new Uint8Array(4),1,1),/没有/);
+const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=','base64'));
+const result=S.pngDpi(png,300);assert.equal(new DataView(result.buffer).getUint32(41),11811);
+const jpeg=S.jpegDpi(new Uint8Array([255,216,255,217]),300);assert.equal(new DataView(jpeg.buffer).getUint16(14),300);
+const pdf=Buffer.from(S.pdf(new Uint8Array([255,216,255,217]),600,1200,300)).toString();
+assert.ok(pdf.includes('/MediaBox [0 0 144 288]'));assert.ok(pdf.includes('xref\n0 6'));console.log('Snapshot tight crop, PNG/JPEG density and PDF page size passed.');

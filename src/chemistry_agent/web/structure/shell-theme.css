@@ -1,0 +1,54 @@
+/* Workspace chrome follows the shared theme;
+scientific viewport/export colors stay independent. */
+html,body {
+  background:var(--surface);
+  color:var(--text);
+  color-scheme:inherit;
+}
+body {
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","PingFang SC",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+button,select,textarea,dialog,input {
+  color-scheme:inherit;
+}
+button,select,input:not([type=checkbox]):not([type=range]):not([type=color]),textarea,dialog,.view-menu summary,.view-menu-items {
+  color:var(--text);
+  background-color:var(--surface);
+  border-color:var(--strong-border);
+}
+button:hover,.view-menu-items button:hover {
+  background:var(--hover);
+}
+button:disabled,input:disabled,textarea:disabled,select:disabled {
+  color:var(--muted);
+  background:var(--subtle);
+}
+button[aria-pressed=true],.dialog-actions button:last-child {
+  background:var(--accent);
+  border-color:var(--accent);
+  color:var(--on-accent);
+}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible {
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+footer,fieldset,#atom-panel,.import-options,.follow-row,.floating-panel h2 {
+  border-color:var(--border);
+}
+footer {
+  background:var(--subtle);
+}
+input::placeholder,textarea::placeholder,.import-options p,#import-note,#ticks,#drift-dialog p,#drift-state {
+  color:var(--muted);
+}
+#measurement {
+  color:var(--text);
+}
+.viewport.active {
+  border-color:var(--accent);
+}
+input[type=checkbox],input[type=range] {
+  accent-color:var(--accent);
+}
