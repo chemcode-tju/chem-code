@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     deepseek_thinking: bool = False
     deepseek_max_tokens: int = Field(default=4096, ge=256, le=32768)
     deepseek_timeout_seconds: float = Field(default=60, gt=0, le=300)
+    codex_binary: str = Field(default="codex", validation_alias="CHEMISTRY_CODEX_BINARY")
+    codex_timeout_seconds: float = Field(
+        default=150, gt=0, le=1800, validation_alias="CHEMISTRY_CODEX_TIMEOUT_SECONDS"
+    )
     host: str = Field(default="127.0.0.1", validation_alias="CHEMISTRY_HOST")
     port: int = Field(default=8765, ge=1, le=65535, validation_alias="CHEMISTRY_PORT")
     max_tool_rounds: int = Field(

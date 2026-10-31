@@ -44,8 +44,15 @@ class Completion(BaseModel):
 
 
 class DeepSeekClient:
-    def __init__(self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        compatible: bool = False,
+    ):
         self.settings = settings
+        self.compatible = compatible
         self.http = httpx.AsyncClient(
             base_url=settings.deepseek_base_url + "/",
             timeout=httpx.Timeout(settings.deepseek_timeout_seconds, connect=10),
@@ -64,7 +71,7 @@ class DeepSeekClient:
         max_tokens: int | None = None,
         thinking: bool | None = None,
     ) -> Completion:
-        if not self.settings.model_configured:
+        if not self.settings.model_configured and not self.compatible:
             raise AgentError("model_not_configured", "请先配置 DEEPSEEK_API_KEY。", 503)
         payload = {
             "model": self.settings.deepseek_model,
@@ -79,14 +86,19 @@ class DeepSeekClient:
             else self.settings.deepseek_max_tokens,
             "stream": False,
         }
+        if self.compatible:
+            payload.pop("thinking")
+            payload["messages"] = [
+                {name: value for name, value in message.items() if name != "reasoning_content"}
+                for message in messages
+            ]
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto" if allow_tools else "none"
-        key = self.settings.deepseek_api_key.get_secret_value()
+        key = self.settings.deepseek_api_key
+        headers = {"Authorization": f"Bearer {key.get_secret_value()}"} if key else {}
         try:
-            response = await self.http.post(
-                "chat/completions", json=payload, headers={"Authorization": f"Bearer {key}"}
-            )
+            response = await self.http.post("chat/completions", json=payload, headers=headers)
         except httpx.TimeoutException as exc:
             raise AgentError("provider_timeout", "DeepSeek 响应超时，请稍后重试。", 504) from exc
         except httpx.RequestError as exc:

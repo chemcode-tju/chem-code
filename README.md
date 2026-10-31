@@ -1,6 +1,6 @@
 # Chemistry Agent
 
-第一版独立化学 agent 服务，使用 Python 3.11+、LangGraph、FastAPI、SQLite 和 RDKit，模型通过 DeepSeek 官方 Chat Completion API 调用。
+第一版独立化学 agent 服务，使用 Python 3.11+、LangGraph、FastAPI、SQLite 和 RDKit，支持 ChatGPT 账号授权、DeepSeek 和自定义 OpenAI 兼容模型服务。
 
 目前可用：中文聊天前端、基于已知 SMILES 的分子属性计算和分子相似度比较、用户提供的文献片段分析、多轮会话、工具调用记录和运行状态。所有新增代码都在本目录内。
 
@@ -9,6 +9,12 @@
 ## AiiDA 自动化任务（开发中）
 
 已提供独立的本地自动化工作区：服务器连接检查、周期结构导入、输入预览、AiiDA 提交和任务查询。支持 Slurm/PBS 系列插件；本阶段先跑通单任务，批量调度和自动修复尚未实现。安装与使用见 [自动化任务说明](docs/AUTOMATION.md)。
+
+## 模型登录
+
+研究空间顶部的「模型设置」支持 ChatGPT 账号授权、DeepSeek API Key 和自定义 OpenAI
+兼容服务。配置保存后立即生效，不需要提前填写密钥。安装、授权和接口范围见
+[模型登录与配置](docs/MODEL_LOGIN.md)。
 
 ## 安装与启动（Windows PowerShell）
 
