@@ -172,3 +172,34 @@ Agent 可使用 `calculation_events` 查询本会话通知，再用 `calculation
 - 每次保留诊断、修改原因、用量、预览、原/新任务关联和预算预留。结果不明时保留同一预览并转人工核查；不会新建预览绕过防重复。可以在原任务卡片“关闭自动处理”。
 
 当前工作流的故障恢复会从原结构重跑完整两步，不是从 WAVECAR/CHGCAR 或失败步骤续算。需要改动物理模型、超过预算、模型不可用或分析中断时，通知用户处理。日志不足时模型应停下；有界执行器限制行为范围，但不保证模型的故障判断正确。
+
+## 体相晶格到固定层表面
+
+`calculation_prepare(workflow="bulk_surface", surface_plan=...)` 会生成完整流程预览。
+确认一次后由 AiiDA `chemistry.bulk_surface` WorkChain 推进：体相晶胞优化、收敛检查、
+按实际输出晶格切表面、设置固定层、表面优化及结果检查。浏览器关闭后仍由 daemon 运行。
+当前自动模板明确限定为单元素、4 原子 fcc 惯用胞的 (100) 表面；其他晶型和晶面仍可用
+ASE 建模工具，但不应承诺已支持相应自动流程。
+
+示例 `surface_plan`：`size=[2,2]`、`layers=4`、`fixed_layers=2`、
+`vacuum_angstrom=20`、`kmesh=[9,9,1]`。真空指相邻周期 slab 间的总间隔，
+调用 ASE 时每侧为10 Å。表面保持晶胞不变（ISIF=2），默认 EDIFFG=-0.03 eV/Å。
+这些是可审阅的初始参数，不代表已经做了截断能、k 点、层数或真空收敛测试。
+`bulk_job_id` 可复用本对话内已正常结束、已优化晶胞且收敛的体相，避免重复计算。
+没有复用任务时，预览表面 POSCAR 仅用初始晶格展示几何；执行时会用收敛晶格重新生成。
+失败会停止后续步骤并通知，表面流程目前只自动诊断，不自动重跑整个流程。
+
+ASE 的 `FixAtoms` 不再被一律拒绝：转换为独立的 AiiDA `dynamics.positions_dof` 输入，
+由 aiida-vasp 写入 POSCAR 的 Selective Dynamics。`FixScaled` 也可保留；
+`FixCartesian` 只在与晶格方向约束等价时转换。不能用 Selective Dynamics 表示的键长等约束
+会清楚报错。ASE 表面层标签不会再误变成 Cu1、Cu2 等 AiiDA 化学种类。
+
+`build_structure` 默认仍写 `structure.extxyz`；含分数方向约束时用
+`output_format="vasp"` 并写 `structure.vasp`。读取已有结构可用 `input.vasp`，
+避免普通 ASE extxyz 对部分约束的格式限制。
+`calculation_import_result(job_id=...)` 和卡片中的“取回优化结构用于建模”能把真实输出结构
+注册回当前会话，保留来源节点和固定设置，不再只能拿初始结构继续建模。
+
+验证包括真实 AiiDA 本地流程（模拟计算子进程）、失败阻断、复用体相不重复执行、
+实际 aiida-vasp POSCAR 输出的固定标记，以及原 #60 的真实输入 dry-run。
+这些验证没有新提交远端 VASP 任务，实际表面优化仍需确认卡片后运行。

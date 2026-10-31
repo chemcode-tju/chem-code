@@ -41,6 +41,7 @@ def test_workspace_preserves_attachments_structures_models_and_routes(settings_f
         for path in ("/", "/settings", "/structures", "/automation", "/api/projects"):
             assert client.get(path).status_code == 200
         html = client.get("/").text
+        assert client.get("/assets/calculations.mjs").headers["cache-control"] == "no-cache"
         for identifier in (
             "project-list",
             "chat-model",

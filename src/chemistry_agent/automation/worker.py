@@ -21,6 +21,7 @@ def dispatch(message: dict) -> dict:
             "aiida_profile_missing", "请先运行 scripts/setup_automation.py 初始化独立配置。", 503
         ) from exc
     from chemistry_agent.automation import backend
+    from chemistry_agent.automation.surface import job_structure
 
     actions = {
         "status": lambda _: backend.status(),
@@ -33,6 +34,7 @@ def dispatch(message: dict) -> dict:
         "validate_structure": backend.validate_structure,
         "catalog": lambda _: backend.catalog(),
         "job_details": backend.job_details,
+        "job_structure": job_structure,
         "save_configuration": backend.save_configuration,
         "resolve_calculation": backend.resolve_calculation,
         "tracked_jobs": backend.tracked_jobs,

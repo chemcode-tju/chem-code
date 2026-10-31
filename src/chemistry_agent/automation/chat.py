@@ -9,7 +9,12 @@ from uuid import UUID, uuid4
 from pydantic import Field
 
 from chemistry_agent.automation.modeling import execute_model
-from chemistry_agent.automation.models import PreviewRequest, StrictModel, StructureInput
+from chemistry_agent.automation.models import (
+    PreviewRequest,
+    StrictModel,
+    StructureInput,
+    SurfacePlan,
+)
 from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
@@ -28,6 +33,7 @@ class ModelInput(StrictModel):
     name: str = Field(min_length=1, max_length=120)
     code: str = Field(min_length=1, max_length=50000)
     input_structure_id: UUID | None = None
+    output_format: Literal["extxyz", "vasp"] = "extxyz"
 
 
 class ChatPreviewInput(PreviewRequest):
@@ -41,7 +47,8 @@ class JobInput(StrictModel):
 
 
 class PrepareInput(StrictModel):
-    workflow: Literal["single", "relax_static"] = "single"
+    workflow: Literal["single", "relax_static", "bulk_surface"] = "single"
+    surface_plan: SurfacePlan | None = None
     structure_id: UUID
     protocol_id: str | None = Field(default=None, max_length=64)
     incar: dict = Field(default_factory=dict, max_length=200)
@@ -110,6 +117,16 @@ class CalculationChat:
         if args.input_structure_id:
             original = self.load(context.session_id, "structures", str(args.input_structure_id))
             (directory / "input.extxyz").write_text(original["extxyz"])
+            # POSCAR preserves fractional-direction constraints for ASE modeling.
+            import io
+
+            from ase.io import read
+
+            from chemistry_agent.automation.constraints import poscar_text, restore_constraints
+
+            atoms = read(io.StringIO(original["extxyz"]), format="extxyz")
+            restore_constraints(atoms)
+            (directory / "input.vasp").write_text(poscar_text(atoms))
         record = {
             "id": identifier,
             "name": args.name,
@@ -120,10 +137,13 @@ class CalculationChat:
         self.save(context.session_id, "model_records", identifier, record)
         try:
             async with self.model_lock:
-                content = await execute_model(directory, args.code)
+                content = await execute_model(
+                    directory, args.code, output_format=args.output_format
+                )
             result = await self.import_structure(
                 ImportInput(
-                    name=args.name, structure=StructureInput(format="extxyz", content=content)
+                    name=args.name,
+                    structure=StructureInput(format=args.output_format, content=content),
                 ),
                 context,
             )
@@ -213,6 +233,11 @@ class CalculationChat:
         )
         request = {key: value for key, value in resolved["request"].items() if key != "structure"}
         request["workflow"] = args.workflow
+        request["surface_plan"] = (
+            args.surface_plan.model_dump(mode="json") if args.surface_plan else None
+        )
+        if args.surface_plan and args.surface_plan.bulk_job_id:
+            self.require_session_job(context.session_id, args.surface_plan.bulk_job_id)
         result = await self.preview(
             ChatPreviewInput(structure_id=args.structure_id, **request), context
         )
@@ -228,9 +253,22 @@ class CalculationChat:
         if args.structure is not None:
             raise AgentError("use_structure_id", "请用结构 ID 引用已上传或建模的结构。", 422)
         structure = self.load(context.session_id, "structures", str(args.structure_id))
+        if args.surface_plan and args.surface_plan.bulk_job_id:
+            self.require_session_job(context.session_id, args.surface_plan.bulk_job_id)
         payload = args.model_dump(mode="json", exclude={"structure_id"})
         payload["structure"] = structure["structure"]
         result = await self.service.call("preview", payload)
+        if args.workflow == "bulk_surface":
+            slab = await self.import_structure(
+                ImportInput(
+                    name="fcc100-slab-preview",
+                    structure=StructureInput(
+                        format="vasp", content=result["files"]["surface/POSCAR"]
+                    ),
+                ),
+                context,
+            )
+            result["surface_structure_id"] = slab["id"]
         result.update(
             structure_id=structure["id"],
             request=payload,
@@ -246,6 +284,19 @@ class CalculationChat:
             "input_files": list(result["files"]),
             "review": "完整输入与脚本已保存在聊天预览卡片中，等待用户确认。",
         }
+
+    def require_session_job(self, session_id: str, identifier: str) -> None:
+        records = self.list_records(session_id, "submissions", limit=100000)
+        if not any(identifier in {item["job"]["id"], str(item["job"]["pk"])} for item in records):
+            raise AgentError("job_not_in_session", "只能复用当前对话中的已提交任务。", 403)
+
+    async def import_job_structure(self, args: JobInput, context: ToolContext) -> dict:
+        self.require_session_job(context.session_id, args.job_id)
+        result = await self.service.call("job_structure", args.model_dump())
+        identifier = str(uuid4())
+        data = {"id": identifier, "name": f"optimized-job-{result['source_job_pk']}", **result}
+        self.save(context.session_id, "structures", identifier, data)
+        return self.structure_summary(data)
 
     async def jobs(self, args: EmptyInput, context: ToolContext) -> dict:
         return await self.service.call("jobs")
@@ -304,7 +355,9 @@ class CalculationChat:
             Tool(
                 "build_structure",
                 "Run ASE Python modeling code in an isolated, offline process. "
-                "Write structure.extxyz. Optional input is input.extxyz. No SSH or submission.",
+                "Write structure.extxyz, or choose output_format=vasp and write structure.vasp "
+                "to preserve FixScaled/other VASP directional constraints. Optional input: "
+                "input.vasp (constraints preserved) and input.extxyz. No SSH or submission.",
                 ModelInput,
                 self.build_structure,
                 True,
@@ -330,6 +383,8 @@ class CalculationChat:
                 "Prepare a VASP preview from structure_id and a saved protocol. Resolves "
                 "server/code/resources and imports missing POTCARs from user-approved sources. "
                 "Optional INCAR/kmesh overrides are shown in preview. Never submits. "
+                "For bulk to fcc(100) slab relaxation use workflow=bulk_surface and surface_plan; "
+                "this persists the whole plan and automatically advances after approval. "
                 "Check protocol scope using calculation_setup first.",
                 PrepareInput,
                 self.prepare,
@@ -341,6 +396,14 @@ class CalculationChat:
                 "saved structure_id. Does NOT submit. User must click the preview confirmation.",
                 ChatPreviewInput,
                 self.preview,
+                True,
+            ),
+            Tool(
+                "calculation_import_result",
+                "Import a finished job output structure into this session for ASE modeling. "
+                "Preserves fixed atoms and records AiiDA output provenance. Never submits.",
+                JobInput,
+                self.import_job_structure,
                 True,
             ),
             Tool(

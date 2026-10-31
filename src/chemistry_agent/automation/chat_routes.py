@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Body, Request
 from fastapi.responses import Response
 
-from chemistry_agent.automation.chat import CalculationChat, ImportInput
+from chemistry_agent.automation.chat import CalculationChat, ImportInput, JobInput
 from chemistry_agent.automation.recovery import RecoveryPolicy
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.errors import AgentError
@@ -53,6 +53,14 @@ async def artifacts(session_id: UUID, request: Request) -> dict:
             for item in chat.directory(identifier, "submissions").glob("*.json")
         },
     }
+
+
+@router.post("/{session_id}/jobs/{job_id}/structure")
+async def import_result(session_id: UUID, job_id: str, request: Request) -> dict:
+    chat = await session_chat(request, session_id)
+    return await chat.import_job_structure(
+        JobInput(job_id=job_id), ToolContext(str(session_id), str(uuid4()))
+    )
 
 
 @router.get("/{session_id}/files/{kind}/{artifact_id}")
@@ -111,6 +119,8 @@ async def confirm(
             f"当前状态：{job['process_state']}。调度器作业号："
             f"{job.get('scheduler_job_id') or '尚未生成'}。可以继续询问状态和结果。"
         )
+        if preview.get("workflow") == "bulk_surface":
+            answer += " 已确认整个表面流程，AiiDA 将自动推进；完成或失败会更新任务卡并通知。"
         messages = [
             {
                 "role": "user",

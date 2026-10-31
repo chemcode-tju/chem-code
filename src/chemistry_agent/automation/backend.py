@@ -19,13 +19,18 @@ from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.builder import ProcessBuilder
 from aiida.plugins import CalculationFactory
 from ase import Atoms
-from ase.io import read, write
+from ase.io import read
 from filelock import FileLock
 
 from chemistry_agent.automation.configuration import (
     CalculationConfiguration,
     CalculationProtocol,
     PotentialSource,
+)
+from chemistry_agent.automation.constraints import (
+    positions_dof,
+    restore_constraints,
+    structure_text,
 )
 from chemistry_agent.automation.models import (
     CodeCreate,
@@ -51,14 +56,14 @@ def read_structure(specification: StructureInput) -> Atoms:
         if len(frames) != 1:
             raise ValueError("每个任务必须提供且只提供一个结构。")
         atoms = frames[0]
+        restore_constraints(atoms)
         if not 1 <= len(atoms) <= 10000:
             raise ValueError("结构原子数必须为 1–10000。")
         if not np.isfinite(atoms.positions).all() or not np.isfinite(atoms.cell.array).all():
             raise ValueError("结构包含非有限坐标。")
         if atoms.cell.rank != 3 or abs(atoms.cell.volume) < 1e-6 or not atoms.pbc.all():
             raise ValueError("首版只接受具有完整晶胞的三维周期结构。")
-        if atoms.constraints:
-            raise ValueError("首版暂不转换原子约束；不能静默丢弃 Selective Dynamics。")
+        positions_dof(atoms)
         if np.any(atoms.get_initial_magnetic_moments()) or np.any(atoms.get_initial_charges()):
             raise ValueError("结构含初始磁矩或电荷，请显式转为 INCAR 配置后再导入。")
         return atoms
@@ -202,7 +207,10 @@ def build_job(body: PreviewRequest, label: str) -> tuple[ProcessBuilder, Atoms]:
     computer = load_server(str(body.server_id))
     validate_gpu_type(computer, body.resources)
     atoms = read_structure(body.structure)
-    structure = orm.StructureData(ase=atoms)
+    # ASE surface tags identify layers, not different chemical species/kinds.
+    chemical_atoms = atoms.copy()
+    chemical_atoms.set_tags(0)
+    structure = orm.StructureData(ase=chemical_atoms)
     if body.kind == "structure_probe":
         if (
             body.resources.nodes != 1
@@ -232,6 +240,8 @@ def build_job(body: PreviewRequest, label: str) -> tuple[ProcessBuilder, Atoms]:
         )
         builder.kpoints = orm.KpointsData()
         builder.kpoints.set_kpoints_mesh(body.kmesh)
+        if atoms.constraints:
+            builder.dynamics = orm.Dict(dict={"positions_dof": positions_dof(atoms)})
         builder.potential = PotcarData.get_potcars_from_structure(
             structure, body.potential_family, mapping=body.potential_mapping
         )
@@ -268,6 +278,10 @@ def automation_directory() -> Path:
 
 def preview(payload: dict) -> dict:
     body = PreviewRequest.model_validate(payload)
+    if body.workflow == "bulk_surface":
+        from chemistry_agent.automation.surface import preview_surface
+
+        return preview_surface(body)
     if body.workflow == "relax_static":
         return preview_workflow(body)
     preview_id = str(uuid4())
@@ -419,10 +433,22 @@ def job_record(node: orm.ProcessNode) -> dict:
         result["scientific_validation"] = "not_applicable_probe"
     if "misc" in node.outputs:
         result["results"] = node.outputs.misc.get_dict()
+    if "structure" in node.outputs:
+        final = node.outputs.structure.get_ase()
+        result["output_structure"] = {
+            "uuid": node.outputs.structure.uuid,
+            "atoms": len(final),
+            "cell_angstrom": final.cell.tolist(),
+        }
     if is_calculation:
         result.update(submission_diagnostics(node))
     else:
-        result["workflow"] = "relax_static"
+        result["workflow"] = (
+            "bulk_surface"
+            if "BulkSurfaceWorkChain" in (node.process_type or "")
+            or node.process_type == "aiida.workflows:chemistry.bulk_surface"
+            else "relax_static"
+        )
         result["steps"] = [
             job_record(child) for child in node.called if isinstance(child, orm.CalcJobNode)
         ]
@@ -493,7 +519,11 @@ def submit_preview(payload: dict) -> dict:
                 raise AgentError(
                     "daemon_not_running", "AiiDA daemon 未运行，请先启动后台服务。", 503
                 )
-            if record.get("workflow") == "relax_static":
+            if record.get("workflow") == "bulk_surface":
+                from chemistry_agent.automation.surface import surface_builder
+
+                builder, fingerprint = surface_builder(record, label)
+            elif record.get("workflow") == "relax_static":
                 builder, fingerprint = workflow_builder(record, label)
             else:
                 builder, _ = build_job(PreviewRequest.model_validate(record["request"]), label)
@@ -532,11 +562,10 @@ def tracked_jobs(payload: dict) -> dict:
 def validate_structure(payload: dict) -> dict:
     specification = StructureInput.model_validate(payload)
     atoms = read_structure(specification)
-    buffer = io.StringIO()
-    write(buffer, atoms, format="extxyz")
     return {
         "structure": specification.model_dump(),
-        "extxyz": buffer.getvalue(),
+        "extxyz": structure_text(atoms),
+        "positions_dof": positions_dof(atoms),
         "formula": atoms.get_chemical_formula(),
         "atoms": len(atoms),
         "elements": sorted(set(atoms.get_chemical_symbols())),

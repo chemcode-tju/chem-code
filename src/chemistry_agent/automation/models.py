@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Name = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")]
 
@@ -40,8 +40,35 @@ class Resources(StrictModel):
     gpu_type: Name | None = None
 
 
+class SurfacePlan(StrictModel):
+    surface: Literal["fcc100"] = "fcc100"
+    size: tuple[int, int] = (2, 2)
+    layers: int = Field(default=4, ge=2, le=30)
+    fixed_layers: int = Field(default=2, ge=0, le=29)
+    vacuum_angstrom: float = Field(default=20, ge=5, le=100)
+    bulk_job_id: str | None = Field(default=None, max_length=80)
+    incar: dict = Field(
+        default_factory=lambda: {"ISIF": 2, "IBRION": 2, "NSW": 100, "EDIFFG": -0.03}
+    )
+    kmesh: tuple[int, int, int] = (9, 9, 1)
+
+    @model_validator(mode="after")
+    def validate_surface(self):
+        if not 0 <= self.fixed_layers < self.layers:
+            raise ValueError("固定层数必须小于总层数。")
+        if (
+            any(n < 1 or n > 12 for n in self.size)
+            or self.size[0] * self.size[1] * self.layers > 512
+        ):
+            raise ValueError("表面大小超出范围（最多512原子）。")
+        if any(n < 1 or n > 100 for n in self.kmesh) or self.kmesh[2] != 1:
+            raise ValueError("表面 k 点须为 1–100，真空方向取1。")
+        return self
+
+
 class PreviewRequest(StrictModel):
-    workflow: Literal["single", "relax_static"] = "single"
+    workflow: Literal["single", "relax_static", "bulk_surface"] = "single"
+    surface_plan: SurfacePlan | None = None
     server_id: UUID
     structure: StructureInput
     resources: Resources

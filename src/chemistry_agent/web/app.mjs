@@ -1,4 +1,4 @@
-import { createCalculations } from "./calculations.mjs";
+import { createCalculations } from "./calculations.mjs?v=20261101-surface";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";

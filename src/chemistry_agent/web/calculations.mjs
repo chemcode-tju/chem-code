@@ -15,8 +15,9 @@ export function renderTaskStatus(job, recovery = null) {
     ${job.finished_ok && job.results ? `<p>电子收敛：${status.electronic_converged === true ? "通过" : "待核验"}${status.nsw > 0 ? ` · 结构收敛：${status.ionic_converged === true ? "通过" : "未通过"}` : ""} · 科学精度尚未验证</p>` : ""}
     ${!job.finished_ok && errors.length ? `<p>${esc(errors[0].message)}</p>` : ""}
     ${schedulerStale ? '<p>调度器状态待同步，当前显示最后已知状态。</p>' : ''}
-    ${steps.map((step) => `<p>${step.label.endsWith(":relax") ? "① 结构优化" : "② 单点计算"} · #${step.pk} · ${esc(step.process_state)}${step.exit_status !== null ? ` · 退出码 ${step.exit_status}` : ""}</p>`).join("")}
-    ${job.summary ? `<p>流程汇总：单点能 ${esc(String(job.summary.singlepoint_energy_ev))} eV；最大力 ${esc(String(job.summary.max_force_ev_per_angstrom))} eV/Å</p>` : ""}
+    ${steps.map((step) => `<p>${step.label.endsWith(":bulk") ? "① 体相优化" : step.label.endsWith(":surface") ? "② 表面优化" : step.label.endsWith(":relax") ? "① 结构优化" : "② 单点计算"} · #${step.pk} · ${esc(step.process_state)}${step.exit_status !== null ? ` · 退出码 ${step.exit_status}` : ""}</p>`).join("")}
+    ${job.summary && job.workflow !== "bulk_surface" ? `<p>流程汇总：单点能 ${esc(String(job.summary.singlepoint_energy_ev))} eV；最大力 ${esc(String(job.summary.max_force_ev_per_angstrom))} eV/Å</p>` : ""}
+    ${job.summary && job.workflow === "bulk_surface" ? `<p>体相晶格常数 ${esc(String(job.summary.lattice_constant_angstrom))} Å · ${job.summary.layers} 层 / 固定 ${job.summary.fixed_layers} 层 · 自由原子最大力 ${esc(String(job.summary.max_free_force_ev_per_angstrom))} eV/Å</p>` : ""}
     ${recovery ? `<p>Agent 处理：${esc(recoveryLabels[recovery.state] || recovery.state)}${recovery.decision?.decision?.reason ? ` · ${esc(recovery.decision.decision.reason)}` : ""}${recovery.result?.reason ? ` · ${esc(recovery.result.reason)}` : ""}</p>` : ""}
     <small>AiiDA 记录同步于 ${esc(job.checked_at ? new Date(job.checked_at).toLocaleTimeString() : "等待后台同步")}</small>`;
 }
@@ -41,7 +42,8 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
       const submission = records.submissions[item.preview_id];
       const job = submission ? (records.live_jobs?.[submission.job.id] || submission.job) : null;
       const resource = item.resources;
-      return `<article class="calculation-preview"><div class="calculation-card-heading"><strong>${esc(item.structure.formula)} · ${item.workflow === "relax_static" ? "优化 → 单点流程" : "计算任务"}</strong><span>${job ? `AiiDA #${job.pk}` : "等待确认"}</span></div>
+      return `<article class="calculation-preview"><div class="calculation-card-heading"><strong>${esc(item.structure.formula)} · ${item.workflow === "bulk_surface" ? "体相 → 切表面 → 表面优化" : item.workflow === "relax_static" ? "优化 → 单点流程" : "计算任务"}</strong><span>${job ? `AiiDA #${job.pk}` : "等待确认"}</span></div>
+        ${item.workflow === "bulk_surface" ? "<p>流程已确认后由 AiiDA 自动推进；失败时通知并诊断，重试需重新预览确认。</p>" : ""}
         ${item.workflow_note ? `<p>${esc(item.workflow_note)} · 最多 ${item.max_calculations} 个计算，累计时限 ${item.total_wallclock_limit_seconds} 秒。</p>` : ""}
         ${item.correction ? `<p class="result-source">${esc(item.correction)}</p>` : ""}
         <p>${esc(item.server.label)} · ${esc(resource.queue)} · ${resource.nodes} 节点 × ${resource.ranks_per_node} MPI · ${resource.gpus_per_node || 0} ${esc(resource.gpu_type || "GPU")} / 节点 · ${resource.wallclock_seconds} 秒 · ${resource.memory_mb} MB</p>
@@ -49,7 +51,8 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
         <p class="result-source">预览 ${esc(item.preview_id)}<br>输入摘要 ${esc(item.input_sha256)}</p>
         <details><summary>查看实际参数、结构和提交脚本</summary>${Object.entries(item.files).map(([name, content]) => `<h4>${esc(name)}</h4><pre>${esc(content)}</pre>`).join("")}</details>
         ${job ? `<div class="live-task-state" data-job-live="${esc(job.id)}">${renderTaskStatus(job, records.recovery?.[job.id])}</div><button type="button" data-refresh-job="${esc(job.id)}">查看完整任务记录</button>
-        ${!job.finished_ok ? `<button type="button" data-recovery-job="${esc(job.id)}" data-recovery-mode="diagnose">唤起 Agent 分析</button><button type="button" data-recovery-job="${esc(job.id)}" data-recovery-mode="off">关闭自动处理</button>` : ""}` : `<label class="recovery-choice"><input type="checkbox" data-auto-recovery="${esc(item.preview_id)}">允许 Agent 自动修复最多 2 次；每次不超过原时限 2 倍（含原任务最多 5 倍累计时限），不增加内存、CPU/GPU，不改变物理模型。未勾选时只诊断并给出预览。</label><button type="button" class="tool-submit" data-confirm-preview="${esc(item.preview_id)}">确认${item.workflow === "relax_static" ? "整个流程" : "以上参数"}并提交</button>`}
+        ${job.finished_ok && job.output_structure ? `<button type="button" data-import-job="${esc(job.id)}">取回优化结构用于建模</button>` : ""}
+        ${!job.finished_ok ? `<button type="button" data-recovery-job="${esc(job.id)}" data-recovery-mode="diagnose">唤起 Agent 分析</button><button type="button" data-recovery-job="${esc(job.id)}" data-recovery-mode="off">关闭自动处理</button>` : ""}` : `${item.workflow === "bulk_surface" ? "" : `<label class="recovery-choice"><input type="checkbox" data-auto-recovery="${esc(item.preview_id)}" ${item.workflow === "bulk_surface" ? "disabled" : ""}>允许 Agent 自动修复最多 2 次；每次不超过原时限 2 倍（含原任务最多 5 倍累计时限），不增加内存、CPU/GPU，不改变物理模型。未勾选时只诊断并给出预览。</label>`}<button type="button" class="tool-submit" data-confirm-preview="${esc(item.preview_id)}">确认${item.workflow && item.workflow !== "single" ? "整个流程" : "以上参数"}并提交</button>`}
         <div class="job-live-result" data-job-result="${esc(item.preview_id)}"></div></article>`;
     }).join("");
     panel.innerHTML = `<div class="section-heading"><h2>本次对话的结构与计算</h2><button type="button" id="refresh-calculations">刷新</button></div>${downloads}${models}${previews}`;
@@ -103,6 +106,10 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
         const approved = panel.querySelector(`[data-auto-recovery="${CSS.escape(target.dataset.confirmPreview)}"]`)?.checked;
         await api(`${path(id)}/confirm/${encodeURIComponent(target.dataset.confirmPreview)}`, { method: "POST", body: JSON.stringify({mode: approved ? "auto" : "diagnose", max_attempts: 2}) });
         if (id === getSession()) await onConfirmed(id);
+      } else if (target.dataset.importJob) {
+        await api(`${path(id)}/jobs/${encodeURIComponent(target.dataset.importJob)}/structure`, {method: "POST"});
+        await refresh();
+        toast("优化结构已加入本次对话，可继续建模。");
       } else if (target.dataset.recoveryJob) {
         await api(`${path(id)}/jobs/${encodeURIComponent(target.dataset.recoveryJob)}/recovery`, { method: "POST", body: JSON.stringify({mode: target.dataset.recoveryMode, max_attempts: 2}) });
         toast(target.dataset.recoveryMode === "off" ? "已关闭此任务后续自动处理。" : "已请求后台 Agent 分析，结果将显示在通知与任务卡片中。");

@@ -134,7 +134,7 @@ def test_chatgpt_modeling_preview_preserves_confirmation_boundary(
     monkeypatch.setattr(ChatGPTClient, "process", process)
     if not real_sandbox:
 
-        async def model_output(directory: Path, code: str) -> str:
+        async def model_output(directory: Path, code: str, *, output_format="extxyz") -> str:
             assert code == MODEL_CODE
             (directory / "model.py").write_text(code)
             buffer = io.StringIO()

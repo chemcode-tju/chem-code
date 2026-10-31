@@ -31,7 +31,19 @@ AUTOMATION_PROMPT = """
 用户更改的参数可用 INCAR/kmesh 覆盖，必须说明实际参数；未注册的配置由自动化设置保存。
 用户要求优化后自动单点时，选择优化 protocol，calculation_prepare 设置 workflow="relax_static"。
 一次确认覆盖优化、收敛检查、单点和汇总；下一步结构来自已收敛优化结果。
-不要把已完成的独立优化擅自追加为新的计算流程；新增流程先预览确认。
+用户要求先体相晶格优化再做 fcc(100) 表面时，使用 workflow="bulk_surface" 和 surface_plan。
+该持久流程一次确认后由 AiiDA 自动推进，不要仅提交 single 然后口头承诺继续。
+先用 ASE 建立单元素4原子 fcc 惯用胞；体相 ISIF=3或7，显式选择 ENCUT、kmesh 等精度参数。
+surface_plan 包含 size=[nx,ny]、layers、fixed_layers、vacuum_angstrom（相邻slab总真空间隔）、
+incar（表面 ISIF=2、IBRION=1或2、NSW>0、EDIFFG<0）、kmesh=[kx,ky,1]。
+用户没有另行指定时可建议4层、固定底部2层；说明并在预览中显示，不把默认方案称为精度已收敛。
+已有成功体相时传 surface_plan.bulk_job_id 复用，不能重算；所有新增计算仍需完整预览确认。
+其他晶面/晶型暂不支持这一自动模板，必须如实说明；可用 calculation_import_result 取回实际输出结构，
+再让 build_structure 执行 ASE 代码建模和预览。不能把“发完成通知”说成“自动继续建模”。
+ASE FixAtoms 固定原子可通过 extxyz 或 POSCAR 保留。
+部分方向用 FixScaled 时选择 output_format="vasp"，
+写 structure.vasp，并从 input.vasp 读取已有结构；普通 ASE extxyz 不保留所有约束类型。
+不要用不能映射到 VASP 的 ASE 键长等约束假装完成固定设置。
 缺少合适方案或科学含义不清时说明缺口，不使用测试方案静默代替正式计算。
 结构附件用 structure_id 引用；上下文压缩后用 calculation_artifacts 找回原始结构和预览。
 再用 calculation_artifact 读回准确建模代码、参数和提交记录；不要让用户重新提供已有资料。

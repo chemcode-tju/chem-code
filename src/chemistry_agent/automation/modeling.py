@@ -38,7 +38,7 @@ def sandbox_profile(directory: Path) -> str:
 """
 
 
-async def execute_model(directory: Path, code: str) -> str:
+async def execute_model(directory: Path, code: str, *, output_format: str = "extxyz") -> str:
     """Bound runtime and outputs, strip credentials, and retain the exact source for review."""
     executable = Path("/usr/bin/sandbox-exec")
     (directory / "model.py").write_text(code)
@@ -100,7 +100,7 @@ async def execute_model(directory: Path, code: str) -> str:
         log_text = stream.read(16000).decode(errors="replace")
     if process.returncode:
         raise AgentError("modeling_failed", f"建模执行失败：\n{log_text[-8000:]}", 422)
-    output = directory / "structure.extxyz"
+    output = directory / ("structure.vasp" if output_format == "vasp" else "structure.extxyz")
     if output.is_symlink() or not output.is_file() or output.stat().st_size > 2_000_000:
-        raise AgentError("invalid_model_output", "请生成不超过 2 MB 的 structure.extxyz。", 422)
+        raise AgentError("invalid_model_output", f"请生成不超过 2 MB 的 {output.name}。", 422)
     return output.read_text()

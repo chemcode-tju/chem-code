@@ -105,12 +105,12 @@ def test_unknown_submit_outcome_is_not_retried(profile, monkeypatch):
     assert error.value.code == "submission_uncertain"
 
 
-def test_rejects_constraints_and_missing_periodic_cell():
+def test_preserves_fixed_atoms_and_rejects_missing_periodic_cell():
     fixed = POSCAR.replace("Direct", "Selective dynamics\nDirect").replace(
         "0 0 0\n", "0 0 0 F F F\n"
     )
-    with pytest.raises(AgentError, match="约束"):
-        backend.read_structure(StructureInput(content=fixed))
+    atoms = backend.read_structure(StructureInput(content=fixed))
+    assert atoms.constraints[0].get_indices().tolist() == [0]
     with pytest.raises(AgentError):
         backend.read_structure(StructureInput(format="extxyz", content="1\n\nCu 0 0 0\n"))
 

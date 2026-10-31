@@ -237,10 +237,11 @@ class AuthenticationMiddleware:
                 return
 
         async def send_private(message):
-            if message["type"] == "http.response.start" and not request.url.path.startswith(
-                "/assets/"
-            ):
-                MutableHeaders(scope=message)["Cache-Control"] = "no-store"
+            if message["type"] == "http.response.start":
+                # Unversioned modules must revalidate after a local software update.
+                MutableHeaders(scope=message)["Cache-Control"] = (
+                    "no-cache" if request.url.path.startswith("/assets/") else "no-store"
+                )
             await send(message)
 
         token = current_model_scope.set(ModelScope(request.state.user_id))

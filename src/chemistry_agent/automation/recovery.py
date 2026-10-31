@@ -51,6 +51,12 @@ def safe_to_replace(job: dict) -> bool:
 
 def apply_recovery(preview: dict, decision: RecoveryDecision, policy: RecoveryPolicy) -> dict:
     """Enforce limits independently of model instructions and mutable model memory."""
+    if preview.get("workflow") == "bulk_surface":
+        raise AgentError(
+            "surface_recovery_review",
+            "体相到表面流程需保留已完成步骤，请通过新的复用预览恢复，不能自动重跑整个流程。",
+            422,
+        )
     if preview.get("recovery_attempt", 0) >= policy.max_attempts:
         raise AgentError("recovery_budget_exhausted", "已达到自动恢复次数上限。", 422)
     request = copy.deepcopy(preview["request"])

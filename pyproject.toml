@@ -30,6 +30,7 @@ dependencies = [
 "chemistry.structure_probe" = "chemistry_agent.automation.probe:StructureProbeParser"
 
 [project.entry-points."aiida.workflows"]
+"chemistry.bulk_surface" = "chemistry_agent.automation.workflows:BulkSurfaceWorkChain"
 "chemistry.relax_static" = "chemistry_agent.automation.workflows:RelaxStaticWorkChain"
 
 [project.optional-dependencies]
