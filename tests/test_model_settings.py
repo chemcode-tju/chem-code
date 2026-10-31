@@ -348,3 +348,66 @@ def test_schema_and_usage_tolerate_non_json_log_lines():
         ).total_tokens
         == 5
     )
+
+
+def test_deepseek_requires_key_even_for_local_proxy(settings_factory):
+    with TestClient(create_app(settings_factory(deepseek_api_key=None))) as client:
+        result = client.put(
+            "/api/model/settings",
+            json=api_configuration(
+                provider="deepseek",
+                base_url="http://localhost:9999",
+                api_key=None,
+            ),
+        )
+        assert result.status_code == 422
+        assert result.json()["error"]["code"] == "key_required"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"role": "assistant", "content": "", "tool_calls": []},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "1",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"},
+                }
+            ],
+        },
+    ],
+)
+async def test_codex_rejects_empty_answers_and_unregistered_tools(
+    settings_factory,
+    monkeypatch,
+    response,
+):
+    client = ChatGPTClient(ModelSettingsStore(settings_factory()))
+
+    async def authenticated(user_id):
+        return True
+
+    async def process(user_id, *arguments, **options):
+        return FakeProcess(
+            Path(arguments[arguments.index("--output-last-message") + 1]),
+            response,
+        )
+
+    monkeypatch.setattr(client, "authenticated", authenticated)
+    monkeypatch.setattr(client, "process", process)
+    with pytest.raises(AgentError) as error:
+        await client.complete(None, ModelSettings(), [], [], allow_tools=False)
+    assert error.value.code == "provider_invalid_response"
+
+
+def test_missing_codex_is_actionable_without_blocking_api_mode(settings_factory):
+    with TestClient(create_app(settings_factory(codex_binary="/missing/codex"))) as client:
+        assert client.get("/health").json()["model_configured"]
+        assert not client.get("/api/model/chatgpt/status").json()["available"]
+        result = client.post("/api/model/chatgpt/login", json={"method": "browser"})
+        assert result.status_code == 503
+        assert result.json()["error"]["code"] == "codex_not_installed"

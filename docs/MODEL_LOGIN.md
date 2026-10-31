@@ -6,6 +6,7 @@
 ## ChatGPT 账号授权
 
 1. 在运行服务的电脑安装官方 Codex CLI，确保服务进程能找到 `codex`。
+   当前适配按 Codex CLI 0.164.0 验证；旧版缺少相关执行参数时请更新。
    macOS 可使用 `brew install --cask codex`。也可在服务环境中设置
    `CHEMISTRY_CODEX_BINARY` 为已有可执行文件的绝对路径。
 2. 选择 **ChatGPT 账号授权登录**，点击 **使用 ChatGPT 登录**。
