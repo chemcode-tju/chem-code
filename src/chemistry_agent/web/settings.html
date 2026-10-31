@@ -53,9 +53,12 @@
         <label id="thinking-label" class="checkbox"><input id="thinking" type="checkbox">启用 DeepSeek 思考模式</label>
       </section>
       <label for="model-choice">默认模型</label><div class="model-choice-row"><select id="model-choice" data-no-i18n><option value="">自动选择</option></select><button id="refresh-models" class="secondary" type="button">刷新模型</button></div><p id="catalog-status" class="hint" role="status"></p>
+      <p class="hint">连接后自动读取可用模型。保持自动选择即可使用，也可从列表切换。</p>
+      <details id="model-advanced"><summary>高级选项</summary>
       <label for="model">模型 ID <span id="model-optional">（可选）</span></label>
       <input id="model" type="text" maxlength="160" autocomplete="off" placeholder="留空自动选择可用模型">
       <p id="model-hint" class="hint">可从列表选择，也可手动填写模型 ID。聊天输入框旁可为每段对话单独选择模型。</p>
+      </details>
       <div class="actions footer">
         <button type="submit">保存设置</button>
         <button id="test-model" type="button" class="secondary">保存并测试连接</button>

@@ -22,7 +22,8 @@ function notice(text, error = false) {
 
 function showModels() {
   fillModelOptions($("model-choice"), models, $("model").value.trim(), {
-    defaultLabel: $("provider").value === "chatgpt" ? "自动选择" : "请选择模型", manual: true,
+    defaultLabel: $("provider").value === "chatgpt" ? "自动选择" : "请选择模型",
+    manual: $("provider").value !== "chatgpt",
   });
 }
 function togglePanels() {
@@ -47,6 +48,7 @@ function displaySettings(data) {
   $("thinking").checked = data.thinking;
   $("api-key").value = "";
   $("key-status").textContent = data.has_api_key ? "已保存密钥。留空可保留；更换服务地址或类型时须重新填写。" : "尚未保存 API Key。";
+  $("model-advanced").open = data.provider !== "chatgpt" && !data.model;
   togglePanels();
 }
 async function refreshModels() {
@@ -118,13 +120,14 @@ $("provider").addEventListener("change", () => {
   $("model").value = $("provider").value === "deepseek" ? "deepseek-flash" : "";
   if ($("provider").value === "deepseek") $("base-url").value = "https://api.deepseek.com";
   else if ($("provider").value === "openai-compatible") $("base-url").value = "";
+  $("model-advanced").open = $("provider").value !== "chatgpt" && !$("model").value;
   $("catalog-status").textContent = "请先保存连接设置，再刷新模型列表。";
   $("key-status").textContent = "更换服务时，请填写对应 API Key。";
   togglePanels();
 });
 $("base-url").addEventListener("input", () => { models = []; showModels(); $("catalog-status").textContent = "请先保存连接设置，再刷新模型列表。"; });
 $("model-choice").addEventListener("change", () => {
-  if ($("model-choice").value === "__manual__") { $("model").focus(); return; }
+  if ($("model-choice").value === "__manual__") { $("model-advanced").open = true; $("model").focus(); return; }
   $("model").value = $("model-choice").value;
 });
 $("model").addEventListener("input", showModels);

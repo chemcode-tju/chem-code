@@ -7,7 +7,7 @@ export function createChatModelPicker({ api, state, toast, updateControls }) {
   const input = document.getElementById("chat-model-id");
   let models = [], value = null, generation = 0, catalogVersion = 0, saving = false;
   function render() {
-    fillModelOptions(select, models, value || "", { manual: true });
+    fillModelOptions(select, models, value || "", { manual: state.health?.provider !== "chatgpt" });
     select.options[0].textContent = `${t("跟随默认模型")}${state.health?.model ? ` · ${state.health.model}` : ""}`;
     updateControls();
   }

@@ -89,3 +89,5 @@ button.secondary { background: var(--surface); color: var(--text); }
 }
 
 .model-choice-row{display:flex;gap:8px;align-items:center}.model-choice-row select{flex:1;min-width:0}.model-choice-row button{flex-shrink:0}#chatgpt-panel details{margin:16px 0}#chatgpt-panel summary{cursor:pointer;color:var(--muted)}
+
+#model-advanced{margin:16px 0}#model-advanced summary{cursor:pointer;color:var(--muted);font-size:13px}#model-advanced[open] summary{margin-bottom:12px}
