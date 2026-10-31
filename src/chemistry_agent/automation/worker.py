@@ -33,6 +33,9 @@ def dispatch(message: dict) -> dict:
         "validate_structure": backend.validate_structure,
         "catalog": lambda _: backend.catalog(),
         "job_details": backend.job_details,
+        "save_configuration": backend.save_configuration,
+        "resolve_calculation": backend.resolve_calculation,
+        "tracked_jobs": backend.tracked_jobs,
     }
     return actions[message["action"]](message.get("payload", {}))
 

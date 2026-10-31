@@ -14,6 +14,8 @@ def settings_factory(tmp_path):
             "deepseek_thinking": False,
             "database_path": tmp_path / "agent.sqlite3",
             "tokenizer_path": tmp_path / "missing-tokenizer.json",
+            "aiida_path": tmp_path / "aiida",
+            "automation_monitor_enabled": False,
         }
         return Settings(**(values | overrides))
 

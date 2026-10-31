@@ -40,6 +40,7 @@ class ToolExecution(BaseModel):
 
 
 class ContextUsage(BaseModel):
+    manual_compaction: bool = False
     compressed: bool = False
     summary_used: bool = False
     summarized_messages: int = 0

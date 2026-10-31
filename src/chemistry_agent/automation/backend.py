@@ -2,9 +2,11 @@ import hashlib
 import io
 import json
 import os
+import re
 import shlex
 import sqlite3
 import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -20,9 +22,15 @@ from ase import Atoms
 from ase.io import read, write
 from filelock import FileLock
 
+from chemistry_agent.automation.configuration import (
+    CalculationConfiguration,
+    CalculationProtocol,
+    PotentialSource,
+)
 from chemistry_agent.automation.models import (
     CodeCreate,
     PreviewRequest,
+    Resources,
     ServerCreate,
     StructureInput,
 )
@@ -165,8 +173,34 @@ def test_server(payload: dict) -> dict:
     return {"server_id": computer.uuid, "checks": checks, "checked_at": now()}
 
 
+def validate_gpu_type(computer: orm.Computer, resources: Resources) -> None:
+    """Check configured Slurm GRES names, irrespective of current node occupancy."""
+    if not resources.gpus_per_node or not resources.gpu_type:
+        return
+    if computer.scheduler_type != "core.slurm":
+        raise AgentError(
+            "gpu_scheduler_unsupported", "PBS GPU 资源语法需按站点配置，首版暂不支持。", 422
+        )
+    with computer.get_transport() as transport:
+        code, output, _ = transport.exec_command_wait(
+            f"sinfo --noheader --partition={shlex.quote(resources.queue)} --format=%G"
+        )
+    if code:
+        raise AgentError("gpu_query_failed", "无法查询分区 GPU 类型，请检查队列配置和连接。", 422)
+    available = sorted(set(re.findall(r"(?:^|[,\s])gpu:([^,:()\s]+):\d+", output)))
+    if resources.gpu_type not in available:
+        names = ", ".join(available) or "未发现具名 GPU"
+        raise AgentError(
+            "gpu_type_unavailable",
+            f"队列 {resources.queue} 未配置 GPU 类型 {resources.gpu_type}；"
+            f"可用类型：{names}。类型名区分大小写，请使用调度器原名。",
+            422,
+        )
+
+
 def build_job(body: PreviewRequest, label: str) -> tuple[ProcessBuilder, Atoms]:
     computer = load_server(str(body.server_id))
+    validate_gpu_type(computer, body.resources)
     atoms = read_structure(body.structure)
     structure = orm.StructureData(ase=atoms)
     if body.kind == "structure_probe":
@@ -234,6 +268,8 @@ def automation_directory() -> Path:
 
 def preview(payload: dict) -> dict:
     body = PreviewRequest.model_validate(payload)
+    if body.workflow == "relax_static":
+        return preview_workflow(body)
     preview_id = str(uuid4())
     builder, atoms = build_job(body, PREFIX + preview_id)
     directory = automation_directory() / preview_id
@@ -273,7 +309,88 @@ def preview(payload: dict) -> dict:
     return {key: value for key, value in record.items() if key != "request"}
 
 
-def job_record(node: orm.CalcJobNode) -> dict:
+def workflow_builder(record: dict, label: str) -> tuple[ProcessBuilder, str]:
+    from chemistry_agent.automation.workflows import RelaxStaticWorkChain
+
+    builder = RelaxStaticWorkChain.get_builder()
+    fingerprints = []
+    for stage in ("relax", "singlepoint"):
+        child, _ = build_job(
+            PreviewRequest.model_validate(record["stage_requests"][stage]), f"{label}:{stage}"
+        )
+        fingerprints.append(execution_fingerprint(child))
+        builder[stage] = child._inputs(prune=True)
+    builder.metadata.label = label
+    fingerprint = hashlib.sha256(json.dumps(fingerprints).encode()).hexdigest()
+    return builder, fingerprint
+
+
+def preview_workflow(body: PreviewRequest) -> dict:
+    """Preview both stages without executing them; static structure is late-bound."""
+    incar = {key.upper(): value for key, value in body.incar.items()}
+    if (
+        body.kind != "vasp"
+        or incar.get("NSW", 0) < 1
+        or incar.get("IBRION", -1) < 1
+        or incar.get("ISIF") != 2
+        or incar.get("EDIFFG", 0) >= 0
+    ):
+        raise AgentError(
+            "workflow_requires_relax",
+            "请选择固定晶胞优化方案，设置 NSW>0、IBRION>0、ISIF=2、EDIFFG<0。",
+            422,
+        )
+    requests, stages, files, fingerprints = {}, [], {}, []
+    for stage in ("relax", "singlepoint"):
+        child = body.model_dump(mode="json")
+        child["workflow"] = "single"
+        child["incar"] = dict(incar)
+        if stage == "singlepoint":
+            child["incar"].update(NSW=0, IBRION=-1)
+        result = preview(child)
+        fingerprints.append(result["execution_fingerprint"])
+        requests[stage] = child
+        stages.append(
+            {
+                "stage": stage,
+                "incar": child["incar"],
+                "resources": child["resources"],
+                "structure_source": "uploaded" if stage == "relax" else "relax.outputs.structure",
+            }
+        )
+        files.update(
+            {
+                f"{stage}/{name}": content
+                for name, content in result["files"].items()
+                if stage == "relax" or name != "POSCAR"
+            }
+        )
+    identifier = str(uuid4())
+    record = {
+        **result,
+        "preview_id": identifier,
+        "created_at": now(),
+        "workflow": "relax_static",
+        "request": body.model_dump(mode="json"),
+        "stage_requests": requests,
+        "stages": stages,
+        "files": files,
+        "max_calculations": 2,
+        "total_wallclock_limit_seconds": 2 * body.resources.wallclock_seconds,
+        "workflow_note": (
+            "优化通过电子与结构收敛检查后，自动用优化结构计算单点；第二步 POSCAR 在运行时生成。"
+        ),
+    }
+    record["execution_fingerprint"] = hashlib.sha256(json.dumps(fingerprints).encode()).hexdigest()
+    record["input_sha256"] = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+    directory = automation_directory() / identifier
+    directory.mkdir(mode=0o700)
+    (directory / "preview.json").write_text(json.dumps(record, ensure_ascii=False))
+    return {key: value for key, value in record.items() if key not in {"request", "stage_requests"}}
+
+
+def job_record(node: orm.ProcessNode) -> dict:
+    is_calculation = isinstance(node, orm.CalcJobNode)
     result = {
         "id": node.uuid,
         "pk": node.pk,
@@ -281,11 +398,17 @@ def job_record(node: orm.CalcJobNode) -> dict:
         "process_state": node.process_state.value if node.process_state else "unknown",
         "process_status": node.process_status,
         "paused": node.paused,
-        "scheduler_state": node.get_scheduler_state().value if node.get_scheduler_state() else None,
-        "scheduler_job_id": node.get_job_id(),
+        "scheduler_state": node.get_scheduler_state().value
+        if is_calculation and node.get_scheduler_state()
+        else None,
+        "scheduler_job_id": node.get_job_id() if is_calculation else None,
+        "scheduler_checked_at": node.get_scheduler_lastchecktime().isoformat()
+        if is_calculation and node.get_scheduler_lastchecktime()
+        else None,
         "exit_status": node.exit_status,
         "exit_message": node.exit_message,
         "finished_ok": node.is_finished_ok,
+        "retrieved": "retrieved" in node.outputs,
         "created_at": node.ctime.isoformat(),
         "updated_at": node.mtime.isoformat(),
         "checked_at": now(),
@@ -296,7 +419,49 @@ def job_record(node: orm.CalcJobNode) -> dict:
         result["scientific_validation"] = "not_applicable_probe"
     if "misc" in node.outputs:
         result["results"] = node.outputs.misc.get_dict()
+    if is_calculation:
+        result.update(submission_diagnostics(node))
+    else:
+        result["workflow"] = "relax_static"
+        result["steps"] = [
+            job_record(child) for child in node.called if isinstance(child, orm.CalcJobNode)
+        ]
+        if "summary" in node.outputs:
+            result["summary"] = node.outputs.summary.get_dict()
+        if "results" in node.outputs:
+            result["results"] = node.outputs.results.get_dict()
     return result
+
+
+def submission_diagnostics(node: orm.CalcJobNode) -> dict:
+    """Surface pre-scheduler failures that have no retrieved stdout/stderr yet."""
+    errors = []
+    logs = orm.Log.collection.find(
+        {"dbnode_id": node.pk, "levelname": {"in": ["ERROR", "WARNING"]}},
+        order_by={"time": "desc"},
+        limit=3,
+    )
+    for log in logs:
+        lines = [line.strip() for line in log.message.splitlines() if line.strip()]
+        useful = [line for line in lines if "sbatch:" in line or "SchedulerError:" in line]
+        errors.append(
+            {
+                "time": log.time.isoformat(),
+                "level": log.levelname,
+                "message": "\n".join(useful or lines[-2:])[-1500:],
+            }
+        )
+    # Show the actionable scheduler response before a later generic retry-limit warning.
+    errors.sort(key=lambda item: "sbatch: error:" not in item["message"])
+    if node.get_job_id():
+        state = "accepted_by_scheduler"
+    elif any("sbatch: error:" in item["message"] for item in errors):
+        state = "rejected_by_scheduler"
+    elif errors:
+        state = "submission_error" if not node.is_terminated else "not_submitted"
+    else:
+        state = "not_submitted"
+    return {"submission_state": state, "recent_process_errors": errors}
 
 
 def submit_preview(payload: dict) -> dict:
@@ -310,7 +475,7 @@ def submit_preview(payload: dict) -> dict:
     # A durable reservation precedes submit. Ambiguous crashes never trigger blind re-submission.
     with FileLock(str(root / "submission.lock"), timeout=10):
         existing = (
-            orm.QueryBuilder().append(orm.CalcJobNode, filters={"label": label}).all(flat=True)
+            orm.QueryBuilder().append(orm.ProcessNode, filters={"label": label}).all(flat=True)
         )
         if existing:
             return {"reused": True, "job": job_record(existing[0])}
@@ -328,8 +493,12 @@ def submit_preview(payload: dict) -> dict:
                 raise AgentError(
                     "daemon_not_running", "AiiDA daemon 未运行，请先启动后台服务。", 503
                 )
-            builder, _ = build_job(PreviewRequest.model_validate(record["request"]), label)
-            if execution_fingerprint(builder) != record["execution_fingerprint"]:
+            if record.get("workflow") == "relax_static":
+                builder, fingerprint = workflow_builder(record, label)
+            else:
+                builder, _ = build_job(PreviewRequest.model_validate(record["request"]), label)
+                fingerprint = execution_fingerprint(builder)
+            if fingerprint != record["execution_fingerprint"]:
                 raise AgentError("preview_stale", "服务器或 Code 已变化，请重新生成预览。", 409)
             database.execute("INSERT INTO reservations VALUES (?,?)", (preview_id, now()))
             database.commit()
@@ -339,10 +508,25 @@ def submit_preview(payload: dict) -> dict:
 
 def jobs() -> dict:
     query = orm.QueryBuilder().append(
-        orm.CalcJobNode, filters={"label": {"like": PREFIX + "%"}}, tag="job"
+        orm.ProcessNode, filters={"label": {"like": PREFIX + "%"}}, tag="job"
     )
     query.order_by({"job": {"ctime": "desc"}}).limit(100)
     return {"jobs": [job_record(node) for node in query.all(flat=True)], "checked_at": now()}
+
+
+def tracked_jobs(payload: dict) -> dict:
+    identifiers = [str(UUID(item)) for item in payload.get("job_ids", [])[:200]]
+    nodes = (
+        orm.QueryBuilder()
+        .append(orm.ProcessNode, filters={"uuid": {"in": identifiers}})
+        .all(flat=True)
+        if identifiers
+        else []
+    )
+    return {
+        "jobs": [job_record(node) for node in nodes if node.label.startswith(PREFIX)],
+        "checked_at": now(),
+    }
 
 
 def validate_structure(payload: dict) -> dict:
@@ -351,9 +535,13 @@ def validate_structure(payload: dict) -> dict:
     buffer = io.StringIO()
     write(buffer, atoms, format="extxyz")
     return {
-        "structure": specification.model_dump(), "extxyz": buffer.getvalue(),
-        "formula": atoms.get_chemical_formula(), "atoms": len(atoms),
-        "cell_angstrom": atoms.cell.tolist(), "volume_angstrom3": atoms.get_volume(),
+        "structure": specification.model_dump(),
+        "extxyz": buffer.getvalue(),
+        "formula": atoms.get_chemical_formula(),
+        "atoms": len(atoms),
+        "elements": sorted(set(atoms.get_chemical_symbols())),
+        "cell_angstrom": atoms.cell.tolist(),
+        "volume_angstrom3": atoms.get_volume(),
         "input_sha256": hashlib.sha256(specification.content.encode()).hexdigest(),
     }
 
@@ -366,11 +554,167 @@ def catalog() -> dict:
     for group in PotcarData.get_potcar_groups():
         potentials = [
             {"element": node.element, "full_name": node.full_name}
-            for node in group.nodes if isinstance(node, PotcarData)
+            for node in group.nodes
+            if isinstance(node, PotcarData)
         ]
         families.append({"name": group.label, "potentials": potentials})
     result["potential_families"] = families
+    configuration = CalculationConfiguration(Path(os.environ["AIIDA_PATH"])).read()
+    result["protocols"] = configuration["protocols"]
+    result["potential_sources"] = [
+        {key: value for key, value in source.items() if key != "root"}
+        for source in configuration["sources"]
+    ]
     return result
+
+
+def save_configuration(payload: dict) -> dict:
+    configuration = CalculationConfiguration(Path(os.environ["AIIDA_PATH"]))
+    kind = payload["kind"]
+    if kind == "sources":
+        source = PotentialSource.model_validate(payload["value"])
+        for existing in configuration.read()["sources"]:
+            if existing["family"] == source.family and (
+                existing["root"] != source.root or existing["server_id"] != str(source.server_id)
+            ):
+                raise AgentError(
+                    "potential_source_conflict",
+                    "同一赝势族不能切换到另一套来源，请使用新的族名。",
+                    422,
+                )
+        computer = load_server(str(source.server_id))
+        with computer.get_transport() as transport:
+            if not transport.isdir(source.root):
+                raise AgentError("potential_source_missing", "服务器赝势目录不存在。", 422)
+        return configuration.save(kind, source)
+    protocol = CalculationProtocol.model_validate(payload["value"])
+    computer = load_server(str(protocol.server_id))
+    code = orm.load_code(uuid=str(protocol.code_id))
+    if code.computer.uuid != computer.uuid or code.default_calc_job_plugin != "vasp.vasp":
+        raise AgentError("code_mismatch", "计算方案的 Code 与服务器不匹配。", 422)
+    validate_gpu_type(computer, protocol.resources)
+    configuration.get("sources", protocol.potential_source_id)
+    return configuration.save("protocols", protocol)
+
+
+def resolve_calculation(payload: dict) -> dict:
+    """Resolve a saved recipe; copy only missing approved potentials, never expose contents."""
+    from aiida_vasp.data.potcar import PotcarData, PotcarGroup
+
+    configuration = CalculationConfiguration(Path(os.environ["AIIDA_PATH"]))
+    protocol_id = payload.get("protocol_id")
+    if not protocol_id:
+        defaults = [item for item in configuration.read()["protocols"] if item["default"]]
+        if len(defaults) != 1:
+            raise AgentError(
+                "protocol_required", "请从 calculation_setup 中选择一个已注册计算方案。", 422
+            )
+        protocol_id = defaults[0]["id"]
+    protocol = CalculationProtocol.model_validate(configuration.get("protocols", protocol_id))
+    source = PotentialSource.model_validate(
+        configuration.get("sources", protocol.potential_source_id)
+    )
+    atoms = read_structure(StructureInput.model_validate(payload["structure"]))
+    elements = sorted(set(atoms.get_chemical_symbols()))
+    if len(atoms) > protocol.max_atoms or (
+        protocol.allowed_elements and not set(elements) <= set(protocol.allowed_elements)
+    ):
+        raise AgentError(
+            "protocol_scope_mismatch", "结构超出方案的元素或原子数范围，请选择适用方案。", 422
+        )
+    mapping = {element: protocol.potential_mapping.get(element, element) for element in elements}
+    incar = {key.upper(): value for key, value in protocol.incar.items()}
+    incar.update({key.upper(): value for key, value in payload.get("incar", {}).items()})
+    if str(incar.get("GGA", "PE")).upper() != "PE" or incar.get("METAGGA"):
+        raise AgentError("functional_mismatch", "快捷方案目前仅支持明确的 PBE 设置。", 422)
+    group, _ = PotcarGroup.collection.get_or_create(label=source.family)
+    registered = []
+    missing = []
+    for element, name in mapping.items():
+        candidates = [
+            node for node in group.nodes if isinstance(node, PotcarData) and node.full_name == name
+        ]
+        if len(candidates) > 1 or (candidates and candidates[0].element != element):
+            raise AgentError(
+                "potential_ambiguous", f"赝势 {name} 有重复版本或元素不匹配，请修正赝势族。", 422
+            )
+        if candidates:
+            functional = candidates[0].base.attributes.get(
+                "functional", candidates[0].base.attributes.get("unctional", "")
+            )
+            if "PBE" not in str(functional).upper():
+                raise AgentError("potential_functional_mismatch", f"赝势 {name} 不是 PBE。", 422)
+            registered.append(
+                {
+                    "element": element,
+                    "full_name": name,
+                    "uuid": candidates[0].uuid,
+                    "sha512": candidates[0].sha512,
+                    "imported": False,
+                }
+            )
+        else:
+            missing.append((element, name))
+    if missing:
+        computer = load_server(str(source.server_id))
+        with tempfile.TemporaryDirectory(prefix="chem-potcar-") as temporary:
+            with computer.get_transport() as transport:
+                # Check all required files first; paths come only from user configuration.
+                for _, name in missing:
+                    path = f"{source.root}/{name}/POTCAR"
+                    if not transport.isfile(path):
+                        raise AgentError(
+                            "potential_missing", f"已注册赝势源缺少 {name}/POTCAR。", 422
+                        )
+                for element, name in missing:
+                    local = Path(temporary) / source.family / name / "POTCAR"
+                    local.parent.mkdir(parents=True, exist_ok=True)
+                    transport.getfile(f"{source.root}/{name}/POTCAR", str(local))
+                    node, _ = PotcarData.get_or_create_from_file(local)
+                    if node.element != element or node.full_name != name:
+                        raise AgentError(
+                            "potential_mismatch", f"赝势 {name} 的实际元素/名称不匹配。", 422
+                        )
+                    functional = node.base.attributes.get(
+                        "functional", node.base.attributes.get("unctional", "")
+                    )
+                    if "PBE" not in str(functional).upper():
+                        raise AgentError(
+                            "potential_functional_mismatch", f"赝势 {name} 不是 PBE。", 422
+                        )
+                    group.add_nodes(node)
+                    registered.append(
+                        {
+                            "element": element,
+                            "full_name": name,
+                            "uuid": node.uuid,
+                            "sha512": node.sha512,
+                            "imported": True,
+                        }
+                    )
+    mesh = payload.get("kmesh") or protocol.kmesh
+    if not payload.get("kmesh") and protocol.kpoint_spacing:
+        mesh = tuple(
+            int(max(1, np.ceil(length / protocol.kpoint_spacing)))
+            for length in 2 * np.pi * np.linalg.norm(atoms.cell.reciprocal(), axis=1)
+        )
+    request = PreviewRequest(
+        kind="vasp",
+        server_id=protocol.server_id,
+        code_id=protocol.code_id,
+        structure=StructureInput.model_validate(payload["structure"]),
+        resources=protocol.resources,
+        incar=incar,
+        kmesh=mesh,
+        potential_family=source.family,
+        potential_mapping=mapping,
+    )
+    return {
+        "request": request.model_dump(mode="json"),
+        "protocol": protocol.model_dump(mode="json"),
+        "potentials": registered,
+        "scientific_validation": "not_assessed",
+    }
 
 
 def job_details(payload: dict) -> dict:
@@ -379,15 +723,29 @@ def job_details(payload: dict) -> dict:
         node = orm.load_node(int(identifier) if identifier.isdigit() else str(UUID(identifier)))
     except (ValueError, NotExistent) as exc:
         raise AgentError("job_not_found", "没有找到该 AiiDA 任务。", 404) from exc
-    if not isinstance(node, orm.CalcJobNode) or not node.label.startswith(PREFIX):
+    if not isinstance(node, (orm.CalcJobNode, orm.WorkChainNode)) or not node.label.startswith(
+        PREFIX
+    ):
         raise AgentError("job_not_owned", "只能查询本模块创建的计算任务。", 404)
     result = job_record(node)
     result["retrieved_files"] = []
     result["diagnostics"] = {}
+    if isinstance(node, orm.WorkChainNode):
+        result["steps"] = [
+            job_details({"job_id": child.uuid})
+            for child in node.called
+            if isinstance(child, orm.CalcJobNode) and child.label.startswith(PREFIX)
+        ]
     if "retrieved" in node.outputs:
         repository = node.outputs.retrieved.base.repository
-        allowed = {"OUTCAR", "vasprun.xml", "CONTCAR", "vasp_output",
-                   "_scheduler-stdout.txt", "_scheduler-stderr.txt"}
+        allowed = {
+            "OUTCAR",
+            "vasprun.xml",
+            "CONTCAR",
+            "vasp_output",
+            "_scheduler-stdout.txt",
+            "_scheduler-stderr.txt",
+        }
         names = set(repository.list_object_names()) & allowed
         result["retrieved_files"] = sorted(names)
         for name in ("vasp_output", "_scheduler-stderr.txt"):

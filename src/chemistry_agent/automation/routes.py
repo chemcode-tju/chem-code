@@ -5,6 +5,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse
 
+from chemistry_agent.automation.configuration import (
+    CalculationConfiguration,
+    CalculationProtocol,
+    PotentialSource,
+)
 from chemistry_agent.automation.models import (
     CodeCreate,
     PreviewRequest,
@@ -33,6 +38,29 @@ def local_service(request: Request) -> AutomationService:
     if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
         raise AgentError("origin_rejected", "请求来源不被允许。", 403)
     return request.app.state.automation
+
+
+@router.get("/api/automation/configuration")
+async def configuration(service: Annotated[AutomationService, Depends(local_service)]) -> dict:
+    return CalculationConfiguration(service.settings.aiida_path).read()
+
+
+@router.post("/api/automation/potential-sources")
+async def save_source(
+    body: PotentialSource, service: Annotated[AutomationService, Depends(local_service)]
+) -> dict:
+    return await service.call(
+        "save_configuration", {"kind": "sources", "value": body.model_dump(mode="json")}
+    )
+
+
+@router.post("/api/automation/protocols")
+async def save_protocol(
+    body: CalculationProtocol, service: Annotated[AutomationService, Depends(local_service)]
+) -> dict:
+    return await service.call(
+        "save_configuration", {"kind": "protocols", "value": body.model_dump(mode="json")}
+    )
 
 
 @router.get("/automation", include_in_schema=False)
@@ -90,3 +118,19 @@ async def create_code(
     body: CodeCreate, service: Annotated[AutomationService, Depends(local_service)]
 ) -> dict:
     return await service.call("create_code", body.model_dump(mode="json"))
+
+
+@router.get("/api/automation/notifications")
+async def notifications(request: Request) -> dict:
+    local_service(request)
+    monitor = getattr(request.app.state, "task_monitor", None)
+    return monitor.events.inbox(None) if monitor else {"events": [], "unread": 0, "monitor": {}}
+
+
+@router.post("/api/automation/notifications/{event_id}/read")
+async def read_notification(event_id: UUID, request: Request) -> dict:
+    local_service(request)
+    monitor = getattr(request.app.state, "task_monitor", None)
+    if monitor:
+        monitor.events.mark_read(str(event_id))
+    return {"read": True}

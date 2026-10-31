@@ -71,3 +71,29 @@ test("compression badges distinguish summaries and tool excerpts, including lega
   assert.match(summary.description, /原始记录完整保存/);
   assert.equal(contextBadge({ compressed: true, summary_used: false }).label, "工具结果已精简");
 });
+
+test("manual compaction does not shift usage onto a conversation turn", () => {
+  const turns = buildTurns([
+    { role: "user", content: "问" }, { role: "assistant", content: "答" },
+  ], [
+    { id: "chat", status: "completed", started_at: "2026-01-01", context: {} },
+    { id: "compact", status: "completed", started_at: "2026-01-02", context: { manual_compaction: true } },
+  ]);
+  assert.equal(turns[0].run.id, "chat");
+});
+
+test('task cards show completion and recovery while escaping diagnostic text', async () => {
+  const { renderTaskStatus } = await import('../src/chemistry_agent/web/calculations.mjs');
+  const html = renderTaskStatus({
+    pk: 52, finished_ok: true, scheduler_job_id: '202442',
+    display_title: '计算完成，结果已取回',
+    results: { total_energies: { energy_extrapolated: -14.23149943 },
+      run_status: { electronic_converged: true, ionic_converged: true, nsw: 100 } },
+  }, {state: 'needs_user', result: {reason: '<script>bad()</script>'}});
+  assert.match(html, /计算完成/);
+  assert.match(html, /-14.23149943 eV/);
+  assert.match(html, /电子收敛：通过/);
+  assert.match(html, /结构收敛：通过/);
+  assert.match(html, /需要你处理/);
+  assert.ok(!html.includes('<script>'));
+});

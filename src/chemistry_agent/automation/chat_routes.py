@@ -1,13 +1,14 @@
 """Browser confirmation is authoritative; no LLM tool can submit a job."""
 
 import json
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Body, Request
 from fastapi.responses import Response
 
 from chemistry_agent.automation.chat import CalculationChat, ImportInput
+from chemistry_agent.automation.recovery import RecoveryPolicy
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.errors import AgentError
 from chemistry_agent.schemas import ChatResponse, TokenUsage, ToolExecution
@@ -34,7 +35,14 @@ async def upload_structure(session_id: UUID, body: ImportInput, request: Request
 async def artifacts(session_id: UUID, request: Request) -> dict:
     chat = await session_chat(request, session_id)
     identifier = str(session_id)
+    monitor = getattr(request.app.state, "task_monitor", None)
+    snapshots = monitor.events.snapshots(identifier) if monitor else {}
     return {
+        "live_jobs": snapshots,
+        "monitor": monitor.events.inbox(identifier, limit=1)["monitor"] if monitor else {},
+        "recovery": {job_id: monitor.events.recovery(job_id) for job_id in snapshots}
+        if monitor
+        else {},
         "structures": [
             chat.structure_summary(item) for item in chat.list_records(identifier, "structures")
         ],
@@ -69,7 +77,12 @@ async def download(
 
 
 @router.post("/{session_id}/confirm/{preview_id}", response_model=ChatResponse)
-async def confirm(session_id: UUID, preview_id: UUID, request: Request) -> ChatResponse:
+async def confirm(
+    session_id: UUID,
+    preview_id: UUID,
+    request: Request,
+    policy: Annotated[RecoveryPolicy | None, Body()] = None,
+) -> ChatResponse:
     chat = await session_chat(request, session_id)
     session = str(session_id)
     preview = chat.load(session, "previews", str(preview_id))
@@ -79,6 +92,12 @@ async def confirm(session_id: UUID, preview_id: UUID, request: Request) -> ChatR
     try:
         result = await chat.confirm(session, str(preview_id))
         job = result["job"]
+        monitor = getattr(request.app.state, "task_monitor", None)
+        if monitor:
+            root_id = preview.get("recovery_root_id", job["id"])
+            if policy is not None and not result["reused"]:
+                monitor.events.set_policy(root_id, policy.model_dump())
+            monitor.events.observe(session, str(preview_id), job)
         call_id = str(uuid4())
         execution = ToolExecution(
             call_id=call_id,
@@ -128,3 +147,47 @@ async def confirm(session_id: UUID, preview_id: UUID, request: Request) -> ChatR
             session, run_id, "confirmation_failed", tool_calls=[], usage=TokenUsage()
         )
         raise
+
+
+@router.get("/{session_id}/events")
+async def session_events(session_id: UUID, request: Request) -> dict:
+    await session_chat(request, session_id)
+    monitor = getattr(request.app.state, "task_monitor", None)
+    if not monitor:
+        return {"events": [], "unread": 0, "jobs": {}, "recovery": {}, "monitor": {}}
+    snapshots = monitor.events.snapshots(str(session_id))
+    return {
+        **monitor.events.inbox(str(session_id)),
+        "jobs": snapshots,
+        "recovery": {job_id: monitor.events.recovery(job_id) for job_id in snapshots},
+    }
+
+
+@router.post("/{session_id}/jobs/{job_id}/recovery")
+async def recovery_policy(
+    session_id: UUID, job_id: UUID, body: RecoveryPolicy, request: Request
+) -> dict:
+    chat = await session_chat(request, session_id)
+    monitor = getattr(request.app.state, "task_monitor", None)
+    if not monitor:
+        raise AgentError("monitor_disabled", "后台监控尚未启用。", 503)
+    submission = next(
+        (
+            path
+            for path in chat.directory(str(session_id), "submissions").glob("*.json")
+            if json.loads(path.read_text())["job"]["id"] == str(job_id)
+        ),
+        None,
+    )
+    if submission is None:
+        raise AgentError("job_not_found", "当前会话没有该任务。", 404)
+    preview = chat.load(str(session_id), "previews", submission.stem)
+    root_id = preview.get("recovery_root_id", str(job_id))
+    monitor.events.set_policy(root_id, body.model_dump())
+    if body.mode != "off":
+        from chemistry_agent.automation.events import FAILURE_STATES, task_state
+
+        snapshot = monitor.events.snapshots(str(session_id)).get(str(job_id))
+        if snapshot and task_state(snapshot)[0] in FAILURE_STATES:
+            monitor.events.enqueue(str(session_id), submission.stem, str(job_id), force=True)
+    return {"job_id": str(job_id), "root_job_id": root_id, "policy": body.model_dump()}

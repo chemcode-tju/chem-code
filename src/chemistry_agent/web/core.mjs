@@ -4,7 +4,9 @@ export const TOOL_LABELS = {
   calculation_setup: "服务器与程序配置",
   import_structure: "导入结构",
   build_structure: "ASE 代码建模",
-  calculation_artifacts: "查找结构与预览",
+  calculation_artifacts: "找回计算记录",
+  calculation_artifact: "读取原始计算参数",
+  calculation_prepare: "匹配方案与赝势",
   calculation_preview: "生成计算预览",
   calculation_submit_confirmed: "用户确认提交",
   calculation_jobs: "查询计算任务",
@@ -44,7 +46,7 @@ export function parseJson(value, fallback = null) {
 
 export function buildTurns(messages, runs = []) {
   const turns = [];
-  const completed = runs.filter((run) => run.status === "completed")
+  const completed = runs.filter((run) => run.status === "completed" && !run.context?.manual_compaction)
     .sort((a, b) => a.started_at.localeCompare(b.started_at));
   let turn = null;
   let pendingCalls = new Map();

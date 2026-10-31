@@ -41,6 +41,7 @@ class Resources(StrictModel):
 
 
 class PreviewRequest(StrictModel):
+    workflow: Literal["single", "relax_static"] = "single"
     server_id: UUID
     structure: StructureInput
     resources: Resources

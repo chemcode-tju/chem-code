@@ -79,6 +79,9 @@
       <div class="topbar-actions"><a class="reference-toggle" href="/settings">模型设置</a><span class="model-status" id="model-status"><span class="status-dot"></span><span id="model-label">正在连接…</span></span><button class="icon-button tools-toggle" id="tools-toggle" aria-label="打开研究工具" aria-expanded="false"><svg class="icon"><use href="#i-panel"/></svg></button></div>
     </header>
 
+    <details class="task-notifications" id="notification-panel" hidden>
+      <summary id="notification-title">任务通知</summary><p id="monitor-status"></p><div id="notification-list"></div>
+    </details>
     <div class="connection-notice" id="connection-notice" role="status" hidden></div>
     <div class="chat-scroll" id="chat-scroll">
       <div class="content-frame">
@@ -101,6 +104,12 @@
       </div>
     </div>
 
+    <details id="context-panel" class="context-memory-panel" hidden>
+      <summary id="context-status">会话记忆与上下文</summary>
+      <p id="context-budget"></p><pre id="context-summary"></pre>
+      <button type="button" id="compact-context" class="reference-toggle">立即压缩历史</button>
+      <p>接近预算时自动压缩，也可手动生成摘要（会调用当前模型）。保留最近对话，原文、结构、参数和任务记录不会删除。</p>
+    </details>
     <div class="composer-area">
       <form class="composer" id="chat-form">
         <div id="structure-attachments" class="structure-attachments"></div>

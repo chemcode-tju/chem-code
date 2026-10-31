@@ -18,6 +18,7 @@ from chemistry_agent.agent import AUTOMATION_PROMPT, SYSTEM_PROMPT, ChemistryAge
 from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthManager
 from chemistry_agent.automation.chat import CalculationChat
 from chemistry_agent.automation.chat_routes import router as calculation_chat_router
+from chemistry_agent.automation.monitor import TaskMonitor
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
@@ -89,7 +90,20 @@ def create_app(
                     context_manager,
                 )
                 app.state.context_manager = context_manager
-                yield
+                monitor = (
+                    TaskMonitor(calculation_chat, provider)
+                    if calculation_enabled and settings.automation_monitor_enabled
+                    else None
+                )
+                app.state.task_monitor = monitor
+                calculation_chat.monitor = monitor
+                if monitor:
+                    monitor.start()
+                try:
+                    yield
+                finally:
+                    if monitor:
+                        await monitor.close()
             finally:
                 await provider.close()
         finally:
@@ -243,6 +257,65 @@ def create_app(
             str(session_id), limit, offset, request.state.user_id
         )
 
+    @app.get("/sessions/{session_id}/context", tags=["sessions"])
+    async def context_status(session_id: UUID, request: Request):
+        store = request.app.state.store
+        session = await store.get_session(str(session_id), request.state.user_id)
+        memory = await store.get_context_memory(str(session_id))
+        manager = request.app.state.context_manager
+        wire, compacted = manager._wire(session["messages"], [], memory)
+        return {
+            **memory.model_dump(),
+            "original_messages": len(session["messages"]),
+            "estimated_input_tokens": manager.counter.request_tokens(wire, manager.tools),
+            "input_budget_tokens": settings.context_input_budget,
+            "trigger_tokens": int(settings.context_input_budget * settings.context_trigger_ratio),
+            "recent_turns": settings.context_recent_turns,
+            "compacted_tool_results": compacted,
+            "tokenizer": manager.counter.method,
+        }
+
+    @app.post("/sessions/{session_id}/context/compact", tags=["sessions"])
+    async def compact_context(session_id: UUID, request: Request):
+        if calculation_enabled:
+            local_service(request)
+        if not await request.app.state.provider.ready():
+            raise AgentError("model_not_configured", "请先配置模型以生成历史摘要。", 503)
+        store = request.app.state.store
+        run_id, history = await store.begin_run(str(session_id), request.state.user_id)
+        request.state.run_id, request.state.session_id = run_id, str(session_id)
+        progress = RunProgress()
+        progress.context.manual_compaction = True
+        try:
+            async with asyncio.timeout(settings.run_timeout_seconds):
+                await request.app.state.context_manager.prepare(
+                    history, len(history), str(session_id), run_id, progress, force=True
+                )
+            await store.complete_run(
+                str(session_id),
+                run_id,
+                [],
+                "历史压缩完成；原始对话和计算产物完整保留。",
+                [],
+                progress.usage,
+                context=progress.context,
+            )
+        except BaseException:
+            await store.fail_run(
+                str(session_id),
+                run_id,
+                "context_compaction_failed",
+                tool_calls=[],
+                usage=progress.usage,
+                context=progress.context,
+            )
+            raise
+        return {
+            "run_id": run_id,
+            "context": progress.context.model_dump(),
+            "memory": (await store.get_context_memory(str(session_id))).model_dump(),
+        }
+
     @app.get("/runs/{run_id}", response_model=RunDetail, tags=["runs"])
     async def get_run(run_id: UUID, request: Request):
         return await request.app.state.store.get_run(str(run_id), request.state.user_id)
@@ -265,7 +338,8 @@ def create_app(
         attached_structures = [
             calculation_chat.structure_summary(
                 calculation_chat.load(session_id, "structures", str(identifier))
-            ) for identifier in body.structure_ids
+            )
+            for identifier in body.structure_ids
         ]
         run_id, history = await store.begin_run(session_id, request.state.user_id)
         request.state.run_id = run_id

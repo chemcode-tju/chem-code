@@ -121,3 +121,51 @@ def test_probe_does_not_accept_gpu_or_large_resources(profile):
     with pytest.raises(AgentError) as error:
         backend.build_job(PreviewRequest.model_validate(payload), "probe")
     assert error.value.code == "probe_resource_limit"
+
+
+def test_slurm_gpu_names_are_case_sensitive_but_occupancy_is_irrelevant():
+    from chemistry_agent.automation.models import Resources
+
+    class Transport:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def exec_command_wait(self, command):
+            assert command == "sinfo --noheader --partition=ultrahigh --format=%G"
+            return 0, "gpu:p100:4\ngpu:v100:8\ngpu:rtx5080:10(S:0-103)\n", ""
+
+    computer = SimpleNamespace(scheduler_type="core.slurm", get_transport=Transport)
+    with pytest.raises(AgentError) as error:
+        backend.validate_gpu_type(
+            computer, Resources(queue="ultrahigh", gpus_per_node=1, gpu_type="P100")
+        )
+    assert error.value.code == "gpu_type_unavailable"
+    assert "p100" in error.value.message
+    backend.validate_gpu_type(
+        computer, Resources(queue="ultrahigh", gpus_per_node=1, gpu_type="p100")
+    )
+
+
+def test_submission_errors_are_visible_before_scheduler_id_exists(profile):
+    from datetime import UTC, datetime
+
+    node = orm.CalcJobNode(label=backend.PREFIX + str(uuid4())).store()
+    orm.Log(
+        time=datetime.now(UTC),
+        loggername="test",
+        levelname="ERROR",
+        dbnode_id=node.pk,
+        message="Traceback not needed\nSchedulerError: Error during submission\n"
+        "stderr=sbatch: error: Batch job submission failed: "
+        "Requested node configuration is not available\n",
+    )
+    result = backend.job_record(node)
+    assert result["submission_state"] == "rejected_by_scheduler"
+    assert result["scheduler_job_id"] is None
+    assert "Requested node configuration" in result["recent_process_errors"][0]["message"]
+    assert "Traceback" not in result["recent_process_errors"][0]["message"]
+    node.set_job_id("123")
+    assert backend.job_record(node)["submission_state"] == "accepted_by_scheduler"

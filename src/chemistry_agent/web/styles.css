@@ -262,3 +262,19 @@ input::placeholder{color:#a7af9a}
 .structure-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px; }
 .structure-chip { margin-top: 6px; border-radius: 8px; padding: 4px 8px; background: #edf3e9; font-size: 12px; }
 .structure-chip button { border: 0; background: transparent; padding: 0 4px; }
+
+.context-memory-panel { margin: 0 24px 12px; padding: 12px 16px; border: 1px solid #dfe7dc; border-radius: 12px; background: #f6f8f3; }
+.context-memory-panel summary { cursor: pointer; font-size: 13px; }
+.context-memory-panel pre { max-height: 220px; overflow: auto; white-space: pre-wrap; font: inherit; font-size: 12px; }
+.context-memory-panel p { font-size: 12px; color: #677565; }
+
+.task-notifications { margin: 8px 24px; border: 1px solid #dfe7dc; border-radius: 12px; padding: 10px 14px; font-size: 13px; background: #f7faf4; }
+.task-notifications summary { cursor: pointer; font-weight: 600; }
+#notification-list { max-height: 260px; overflow: auto; }
+.task-notification { border-top: 1px solid #dfe7dc; padding: 10px 0; }
+.task-notification small { display: block; color: #657665; margin: 5px 0; }
+.task-notification.read { opacity: .65; }
+.task-notification button { margin-left: 12px; }
+.live-task-state { background: #f6f8f3; border-radius: 10px; padding: 10px; margin: 10px 0; }
+.live-task-state p { margin: 6px 0; }
+.recovery-choice { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; font-size: 12px; }

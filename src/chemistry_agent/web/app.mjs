@@ -1,4 +1,5 @@
 import { TOOL_LABELS, buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
+import { createNotifications } from "./notifications.mjs";
 import { createCalculations } from "./calculations.mjs";
 
 const $ = (id) => document.getElementById(id);
@@ -12,6 +13,7 @@ const state = {
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
 let toastTimer;
+const notifications = createNotifications({ api });
 const calculations = createCalculations({
   api, getSession: () => state.sessionId, isBusy: () => state.busy || state.loading,
   ensureSession: async () => {
@@ -98,6 +100,7 @@ function closeDrawers() { setDrawer("sidebar", false); setDrawer("inspector", fa
 
 function updateControls() {
   const locked = state.busy || state.loading;
+  $("compact-context").disabled = locked || !state.sessionId || !state.health?.model_configured;
   $("message-input").disabled = locked;
   $("reference-input").disabled = locked;
   $("send-button").disabled = locked || !state.health?.model_configured;
@@ -114,6 +117,7 @@ async function refreshHealth() {
   try {
     state.health = await api("/health");
     calculations.enabled(Boolean(state.health.automation_enabled));
+    notifications.enabled(Boolean(state.health.automation_enabled));
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
       ? `${names[state.health.model] || state.health.model} · ${state.health.provider === "chatgpt" ? "已登录" : "已配置"}` : "模型未配置";
@@ -211,6 +215,7 @@ async function selectSession(id, quiet = false) {
     $("conversation-title").textContent = session.title;
     rememberSession(id);
     await calculations.refresh();
+    await refreshContext();
     const lastCall = state.turns.flatMap((turn) => turn.calls).at(-1);
     renderResult(lastCall || null);
   } catch (error) {
@@ -231,6 +236,7 @@ async function selectSession(id, quiet = false) {
 }
 
 function newConversation() {
+  $("context-panel").hidden = true;
   if (state.busy || state.loading) return;
   state.navigation += 1;
   state.sessionId = null;
@@ -537,3 +543,27 @@ $("logout-button").addEventListener("click", async () => {
 
 initialize();
 setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);
+
+
+async function refreshContext() {
+  const id = state.sessionId;
+  if (!id) { $("context-panel").hidden = true; return; }
+  try {
+    const info = await api(`/sessions/${encodeURIComponent(id)}/context`);
+    if (id !== state.sessionId) return;
+    $("context-panel").hidden = false;
+    $("context-status").textContent = `会话记忆 · 已摘要 ${info.covered_messages} / ${info.original_messages} 条消息`;
+    $("context-budget").textContent = `估算输入 ${info.estimated_input_tokens.toLocaleString()} / ${info.input_budget_tokens.toLocaleString()} tokens（${info.tokenizer}）；自动触发 ${info.trigger_tokens.toLocaleString()}，保留最近 ${info.recent_turns} 轮。`;
+    $("context-summary").textContent = info.summary || "尚未生成历史摘要。短对话可直接保留原文。";
+  } catch (error) { toast(error.message); }
+}
+$("compact-context").onclick = async () => {
+  if (!state.sessionId || state.busy || state.loading || calculations.busy()) return;
+  state.busy = true; updateControls();
+  try {
+    const result = await api(`/sessions/${encodeURIComponent(state.sessionId)}/context/compact`, { method: "POST" });
+    await refreshContext();
+    toast(result.context.summary_calls ? "历史摘要已更新，原文和计算产物完整保留。" : "暂无需要进一步压缩的历史，保留最近对话。 ");
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; updateControls(); }
+};

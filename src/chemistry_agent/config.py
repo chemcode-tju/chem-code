@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     )
 
     automation_enabled: bool = Field(default=False, validation_alias="CHEMISTRY_AUTOMATION_ENABLED")
+    automation_monitor_enabled: bool = Field(
+        default=True, validation_alias="CHEMISTRY_AUTOMATION_MONITOR_ENABLED"
+    )
     aiida_profile: str = Field(default="chem-agent", validation_alias="CHEMISTRY_AIIDA_PROFILE")
     aiida_path: Path = Field(
         default=PROJECT_ROOT / "data" / "aiida", validation_alias="CHEMISTRY_AIIDA_PATH"

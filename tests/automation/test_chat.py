@@ -300,3 +300,63 @@ def test_fresh_calculation_ids_survive_small_tool_compaction_budget(settings_fac
     with local_client(app) as client:
         response = client.post("/chat", json={"message": "获取全部程序"})
         assert response.status_code == 200, response.text
+
+
+async def test_prepare_and_recover_exact_parameters_after_summary(settings_factory, tmp_path):
+    from chemistry_agent.automation.chat import (
+        ArtifactInput,
+        ArtifactListInput,
+        CalculationChat,
+        ImportInput,
+        PrepareInput,
+    )
+    from chemistry_agent.automation.service import AutomationService
+    from chemistry_agent.tools import ToolContext
+
+    engine = FakeEngine()
+    service = AutomationService(
+        settings_factory(automation_enabled=True, aiida_path=tmp_path / "aiida")
+    )
+
+    async def call(action, payload=None):
+        if action == "resolve_calculation":
+            return {
+                "request": {
+                    "kind": "vasp",
+                    "structure": payload["structure"],
+                    "server_id": str(uuid4()),
+                    "code_id": str(uuid4()),
+                    "resources": {"queue": "test"},
+                    "incar": {"ENCUT": 520},
+                    "kmesh": [3, 3, 3],
+                    "potential_family": "PBE",
+                    "potential_mapping": {"Cu": "Cu"},
+                },
+                "protocol": {"id": "static"},
+                "potentials": [{"element": "Cu", "sha512": "hash"}],
+                "scientific_validation": "not_assessed",
+            }
+        return await engine(action, payload)
+
+    service.call = call
+    chat = CalculationChat(service)
+    context = ToolContext(str(uuid4()), str(uuid4()))
+    structure = await chat.import_structure(ImportInput(structure={"content": "Cu"}), context)
+    preview = await chat.prepare(PrepareInput(structure_id=structure["id"]), context)
+    assert preview["incar"] == {"ENCUT": 520}
+    assert "submit" not in engine.actions
+    await chat.confirm(context.session_id, preview["preview_id"])
+    # No conversation text or LLM summary needed to reconstruct authoritative artifacts.
+    restored = CalculationChat(service)
+    artifacts = await restored.artifacts(ArtifactListInput(), context)
+    assert artifacts["submissions"][0]["job"]["pk"] == 42
+    exact = await restored.artifact(
+        ArtifactInput(kind="previews", artifact_id=preview["preview_id"]), context
+    )
+    assert exact["request"]["kmesh"] == [3, 3, 3]
+    assert exact["potentials"][0]["sha512"] == "hash"
+    other = ToolContext(str(uuid4()), str(uuid4()))
+    with pytest.raises(AgentError):
+        await restored.artifact(
+            ArtifactInput(kind="previews", artifact_id=preview["preview_id"]), other
+        )

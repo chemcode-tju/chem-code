@@ -503,3 +503,75 @@ def test_old_database_migrates_without_changing_saved_messages(settings_factory)
         )
     with sqlite3.connect(settings.database_path) as db:
         assert db.execute("SELECT payload FROM messages").fetchone()[0] == raw
+
+
+async def test_manual_compaction_preserves_originals_and_reuses_memory(settings_factory):
+    settings = budget_settings(settings_factory, context_window_tokens=32768)
+    session_id, originals = await seed(settings, turns=3, padding=5)
+    summary_calls = []
+
+    def provider(request):
+        payload = json.loads(request.content)
+        assert payload["messages"][0]["content"] == SUMMARY_SYSTEM_PROMPT
+        summary_calls.append(payload)
+        return httpx.Response(200, json=reply(MEMORY))
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(provider))) as client:
+        before = client.get(f"/sessions/{session_id}/context").json()
+        assert before["covered_messages"] == 0
+        response = client.post(f"/sessions/{session_id}/context/compact")
+        assert response.status_code == 200, response.text
+        assert response.json()["context"]["summary_calls"] == 1
+        assert response.json()["memory"]["covered_messages"] == 4
+        assert client.get(f"/sessions/{session_id}").json()["messages"] == without_reasoning(
+            originals
+        )
+        after = client.get(f"/sessions/{session_id}/context").json()
+        assert after["summary"] == MEMORY
+        assert after["estimated_input_tokens"] < before["estimated_input_tokens"]
+        repeated = client.post(f"/sessions/{session_id}/context/compact")
+        assert repeated.json()["context"]["summary_calls"] == 0
+        assert len(summary_calls) == 1
+
+
+async def test_manual_compaction_failure_keeps_history_and_releases_lock(settings_factory):
+    settings = budget_settings(settings_factory)
+    session_id, originals = await seed(settings, turns=3, padding=5)
+    with TestClient(
+        create_app(
+            settings,
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=reply(""))),
+        )
+    ) as client:
+        response = client.post(f"/sessions/{session_id}/context/compact")
+        assert response.status_code == 502
+        assert client.get(f"/sessions/{session_id}").json()["messages"] == without_reasoning(
+            originals
+        )
+        assert client.get(f"/sessions/{session_id}/context").json()["covered_messages"] == 0
+        # A failed attempt must not leave the session reserved.
+        response = client.post(f"/sessions/{session_id}/context/compact")
+        assert response.status_code == 502
+
+
+async def test_large_recent_history_is_summarized_without_losing_tool_pairs(settings_factory):
+    settings = budget_settings(settings_factory, context_recent_turns=4)
+    session_id, originals = await seed(settings, turns=6, padding=180)
+
+    def provider(request):
+        payload = json.loads(request.content)
+        if payload["messages"][0]["content"] == SUMMARY_SYSTEM_PROMPT:
+            return httpx.Response(200, json=reply(MEMORY))
+        return httpx.Response(200, json=reply("已恢复记忆"))
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(provider))) as client:
+        response = client.post("/chat", json={"session_id": session_id, "message": "继续"})
+        assert response.status_code == 200, response.text
+        context = response.json()["context"]
+        assert context["summary_used"]
+        assert 1 <= context["retained_turns"] < 4
+        assert context["input_tokens_after"] <= context["input_budget_tokens"]
+        coverage = context["summarized_messages"]
+        second = client.post("/chat", json={"session_id": session_id, "message": "读取记忆"})
+        assert second.status_code == 200, second.text
+        assert second.json()["context"]["summarized_messages"] >= coverage

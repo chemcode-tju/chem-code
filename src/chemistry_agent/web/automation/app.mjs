@@ -32,6 +32,7 @@ async function refreshState() {
   state.servers.forEach((server) => $("server").add(new Option(`${server.label} · ${server.scheduler}`, server.id)));
   $("server").value = state.servers.some((server) => server.id === previous) ? previous : state.servers[0]?.id || "";
   updateCodes();
+  await refreshConfiguration();
   $("system").textContent = state.daemon_running ? "AiiDA 已连接 · daemon 运行中" : "AiiDA 已连接 · daemon 未启动，暂不能提交";
 }
 async function refreshJobs() {
@@ -43,7 +44,7 @@ async function refreshJobs() {
     const title = document.createElement("strong"); title.textContent = `AiiDA #${job.pk} · ${job.id.slice(0, 8)}`;
     const status = document.createElement("p"); status.className = "status";
     status.textContent = `${job.process_state}${job.paused ? " · 已暂停" : ""} · 调度器：${job.scheduler_state || "尚无记录"} · 作业号：${job.scheduler_job_id || "尚未分配"}`;
-    const description = document.createElement("p"); description.textContent = job.process_status || job.exit_message || `退出码：${job.exit_status ?? "尚未退出"}`;
+    const description = document.createElement("p"); description.textContent = (job.submission_state === "rejected_by_scheduler" ? `调度器拒绝提交：${job.recent_process_errors?.[0]?.message || "请查看详情"}。尚未进入队列。` : null) || job.process_status || job.exit_message || `退出码：${job.exit_status ?? "尚未退出"}`;
     const time = document.createElement("p"); time.textContent = `记录更新：${new Date(job.updated_at).toLocaleString()} · 查询：${new Date(job.checked_at).toLocaleTimeString()}`;
     const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "查看任务与结果记录";
     const output = document.createElement("pre"); output.textContent = JSON.stringify(job, null, 2); details.append(summary, output);
@@ -79,5 +80,39 @@ $("job-form").onsubmit = (event) => { event.preventDefault(); perform(async () =
   showPreview(result);
 }); };
 $("submit").onclick = () => perform(async () => { if (!preview) return; const result = await api("submissions", { preview_id: preview.preview_id }); notice(`${result.reused ? "已找到原任务" : "已交给 AiiDA"}：#${result.job.pk}。调度器作业号将在实际提交后出现。`); await refreshJobs(); });
+
+async function refreshConfiguration() {
+  const config = await api("configuration");
+  $("configuration-summary").textContent = [
+    ...config.sources.map((source) => `赝势源 ${source.id} → ${source.family}`),
+    ...config.protocols.map((protocol) => `${protocol.default ? "默认 · " : ""}${protocol.id}：${protocol.description}（最多 ${protocol.max_atoms} 原子）`),
+  ].join("\n") || "尚未配置赝势源和计算方案。";
+  $("protocol-source").replaceChildren(...config.sources.map((source) => new Option(source.id, source.id)));
+}
+$("potential-form").onsubmit = (event) => {
+  event.preventDefault();
+  perform(async () => {
+    await api("potential-sources", { ...Object.fromEntries(new FormData(event.target)), server_id: selectedServer() });
+    await refreshConfiguration(); notice("赝势源已注册，实际计算准备时按需导入。");
+  });
+};
+$("protocol-form").onsubmit = (event) => {
+  event.preventDefault();
+  perform(async () => {
+    const data = new FormData(event.target);
+    await api("protocols", {
+      id: data.get("id"), description: data.get("description"), server_id: selectedServer(), code_id: $("code").value,
+      potential_source_id: $("protocol-source").value, max_atoms: Number(data.get("max_atoms")),
+      allowed_elements: String(data.get("allowed_elements")).trim().split(/\s+/).filter(Boolean), default: data.has("default"),
+      incar: JSON.parse($("incar").value), kmesh: $("kmesh").value.trim().split(/\s+/).map(Number),
+      potential_mapping: JSON.parse($("mapping").value),
+      kpoint_spacing: data.get("kpoint_spacing") ? Number(data.get("kpoint_spacing")) : null,
+      resources: { queue: $("queue").value.trim(), nodes: Number($("nodes").value), ranks_per_node: Number($("ranks").value),
+        wallclock_seconds: Number($("walltime").value), memory_mb: Number($("memory").value),
+        gpus_per_node: Number($("gpus").value), gpu_type: $("gpu-type").value || null },
+    });
+    await refreshConfiguration(); notice("方案已保存，Agent 可通过 calculation_setup 查询并准备预览。");
+  });
+};
 await perform(async () => { await refreshState(); await refreshJobs(); });
 setInterval(() => { if (!busy && !polling && !document.hidden) { polling = true; refreshJobs().catch((error) => notice(error.message)).finally(() => { polling = false; }); } }, 15_000);
