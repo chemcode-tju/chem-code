@@ -60,21 +60,37 @@ function rememberSession(id) {
 function syncDrawerAccessibility() {
   const loginRequired = !$("login-screen").hidden;
   const sidebarHidden = loginRequired || (innerWidth <= 760 && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
-  const inspectorHidden = loginRequired || (innerWidth <= 1120 && !document.body.classList.contains("inspector-open"));
-  document.querySelector(".main-panel").inert = loginRequired;
-  document.querySelector(".main-panel").setAttribute("aria-hidden", String(loginRequired));
+  const inspectorHidden = loginRequired || !document.body.classList.contains("inspector-open");
+  const mainHidden = loginRequired || (innerWidth <= 760 && !inspectorHidden);
+  document.querySelector(".main-panel").inert = mainHidden;
+  document.querySelector(".main-panel").setAttribute("aria-hidden", String(mainHidden));
   $("sidebar").inert = sidebarHidden;
   $("inspector").inert = inspectorHidden;
   $("sidebar").setAttribute("aria-hidden", String(sidebarHidden));
   $("inspector").setAttribute("aria-hidden", String(inspectorHidden));
 }
 
+function setInspectorOpen(open, { focus = true, persist = true } = {}) {
+  const wasFocused = $("inspector").contains(document.activeElement);
+  document.body.classList.toggle("inspector-open", open);
+  $("tools-toggle").setAttribute("aria-expanded", String(open));
+  $("tools-toggle").setAttribute("aria-label", open ? "关闭研究面板" : "打开研究工具");
+  $("tools-toggle").title = open ? "关闭研究面板" : "打开研究工具";
+  if (persist) {
+    try { localStorage.setItem("chemistry.inspectorOpen", String(open)); } catch { /* Optional. */ }
+  }
+  syncDrawerAccessibility();
+  if (focus && open) $("inspector-close").focus();
+  else if (focus && wasFocused) $("tools-toggle").focus();
+}
+
 function setDrawer(name, open) {
+  if (name === "inspector") { setInspectorOpen(open); return; }
   const panel = $(name === "sidebar" ? "sidebar" : "inspector");
   const trigger = $(name === "sidebar" ? "menu-toggle" : "tools-toggle");
   const wasFocused = panel.contains(document.activeElement);
   document.body.classList.toggle(`${name}-open`, open);
-  const anyOpen = document.body.classList.contains("sidebar-open") || document.body.classList.contains("inspector-open");
+  const anyOpen = document.body.classList.contains("sidebar-open");
   $("screen-overlay").hidden = !anyOpen;
   $("menu-toggle").setAttribute("aria-expanded", String(document.body.classList.contains("sidebar-open")));
   $("tools-toggle").setAttribute("aria-expanded", String(document.body.classList.contains("inspector-open")));
@@ -83,7 +99,10 @@ function setDrawer(name, open) {
   else if (wasFocused && trigger.getClientRects().length) trigger.focus();
 }
 
-function closeDrawers() { setDrawer("sidebar", false); setDrawer("inspector", false); }
+function closeDrawers() {
+  setDrawer("sidebar", false);
+  if (innerWidth <= 760) setInspectorOpen(false, { focus:false });
+}
 
 function updateControls() {
   const locked = state.busy || state.loading;
@@ -373,7 +392,7 @@ $("conversation").addEventListener("click", async (event) => {
   const resultButton = event.target.closest("[data-result]");
   if (resultButton) {
     renderResult(state.results.get(resultButton.dataset.result));
-    if (innerWidth <= 1120) setDrawer("inspector", true);
+    setInspectorOpen(true);
   }
   const copyButton = event.target.closest("[data-copy]");
   if (copyButton) {
@@ -404,10 +423,9 @@ $("inspector-close").addEventListener("click", () => setDrawer("inspector", fals
 $("screen-overlay").addEventListener("click", closeDrawers);
 document.addEventListener("keydown", (event) => {
   if ($("project-dialog").open) return;
-  if (event.key === "Escape") { closeDrawers();  }
+  if (event.key === "Escape") { closeDrawers(); setInspectorOpen(false); }
   if (event.key !== "Tab") return;
-  const openPanel = document.body.classList.contains("sidebar-open") ? $("sidebar") :
-    document.body.classList.contains("inspector-open") ? $("inspector") : null;
+  const openPanel = document.body.classList.contains("sidebar-open") ? $("sidebar") : null;
   if (!openPanel) return;
   const focusable = [...openPanel.querySelectorAll("a, button:not(:disabled), input, textarea, summary")]
     .filter((element) => element.getClientRects().length && !element.disabled);
@@ -419,7 +437,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("resize", () => {
-  if (innerWidth > 1120) closeDrawers();
+  if (innerWidth > 760) closeDrawers();
   syncDrawerAccessibility();
 });
 
@@ -503,5 +521,9 @@ $("login-form").addEventListener("submit", async (event) => {
 window.addEventListener("languagechange", () => {
   if (!state.sessionId) $("conversation-title").textContent = t("新对话");
 });
+try {
+  const savedInspector = localStorage.getItem("chemistry.inspectorOpen");
+  setInspectorOpen(savedInspector === null ? innerWidth > 1120 : savedInspector === "true", { focus:false, persist:false });
+} catch { setInspectorOpen(innerWidth > 1120, { focus:false, persist:false }); }
 initialize();
 setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);

@@ -8,28 +8,28 @@ body {
   border-right: 1px solid var(--border);
   background: var(--surface);
 }
-.back { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--muted); padding: 8px 12px; border-radius: 7px; }
-h1 { font-size: 21px; font-weight: 600; margin: 35px 12px 24px; letter-spacing: -.5px; }
+.back { display: flex; align-items: center; gap: 9px; font-size: 15px; color: var(--muted); padding: 8px 12px; border-radius: 7px; }
+h1 { font-size: 24px; font-weight: 600; margin: 35px 12px 24px; letter-spacing: -.5px; }
 .settings-sidebar nav { display: grid; gap: 5px; }
-.settings-sidebar nav button { border: 0; text-align: left; background: transparent; font-size: 14px; padding: 11px 13px; }
+.settings-sidebar nav button { border: 0; text-align: left; background: transparent; font-size: 16px; padding: 11px 13px; }
 .settings-sidebar nav button:hover { background: var(--subtle); }
 .settings-sidebar nav button[aria-selected=true] { background: var(--hover); font-weight: 500; }
 main { width: 100%; max-width: 840px; padding: 52px 64px; }
-.settings-panel h2 { font-size: 23px; font-weight: 600; letter-spacing: -.5px; margin: 0 0 35px; }
-h3 { font-size: 14px; font-weight: 500; margin: 24px 0 16px; }
+.settings-panel h2 { font-size: 26px; font-weight: 600; letter-spacing: -.5px; margin: 0 0 35px; }
+h3 { font-size: 16px; font-weight: 500; margin: 24px 0 16px; }
 p { line-height: 1.7; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 0; border-bottom: 1px solid var(--border); }
-.setting-row label { font-size: 14px; font-weight: 500; }
+.setting-row label { font-size: 16px; font-weight: 500; }
 .setting-row .hint { margin: 5px 0 0; }
-.setting-row select { width: 170px; font-size: 13px; }
+.setting-row select { width: 170px; font-size: 15px; }
 .account-section { margin-top: 32px; }
 .account-row { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
 .account-avatar { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--hover); }
-.account-row strong { font-size: 14px; font-weight: 500; }
+.account-row strong { font-size: 16px; font-weight: 500; }
 .account-row p { margin: 4px 0 0; }
 .account-row button { margin-left: auto; }
 .theme-options { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
-.theme-options button { padding: 7px 7px 12px; border-radius: 10px; border: 2px solid transparent; background: transparent; font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.theme-options button { padding: 7px 7px 12px; border-radius: 10px; border: 2px solid transparent; background: transparent; font-size: 15px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .theme-options button[aria-pressed=true] { border-color: var(--accent); }
 .theme-options button:hover { background: var(--subtle); }
 .theme-mini { position: relative; display: block; width: 100%; height: 90px; border: 1px solid #d8d8dd; border-radius: 6px; background: #fff; overflow: hidden; }
@@ -45,19 +45,19 @@ p { line-height: 1.7; }
 .swatch { background: var(--swatch)!important; width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
 .swatch[aria-pressed=true] { box-shadow: 0 0 0 2px var(--text); }
 input[type=color] { width: 30px; height: 28px; padding: 2px; border-radius: 5px; }
-#model-form>label { display: block; font-weight: 500; font-size: 13px; margin: 22px 0 9px; }
-#model-form input:not([type=checkbox]),#model-form select { width: 100%; padding: 10px; font-size: 13px; }
+#model-form>label { display: block; font-weight: 500; font-size: 15px; margin: 22px 0 9px; }
+#model-form input:not([type=checkbox]),#model-form select { width: 100%; padding: 10px; font-size: 15px; }
 #model-form>section { margin: 22px 0; padding: 20px; border: 1px solid var(--border); border-radius: 9px; }
-#model-form>section h2 { font-size: 15px; margin: 0 0 15px; letter-spacing: 0; }
-#model-form>section label { display: block; font-size: 13px; margin: 18px 0 8px; }
-#model-form>section p { font-size: 12px; color: var(--muted); }
+#model-form>section h2 { font-size: 17px; margin: 0 0 15px; letter-spacing: 0; }
+#model-form>section label { display: block; font-size: 15px; margin: 18px 0 8px; }
+#model-form>section p { font-size: 14px; color: var(--muted); }
 #model-form #thinking-label { display: flex; gap: 8px; align-items: center; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
-button { font-size: 13px; padding: 9px 13px; }
+button { font-size: 15px; padding: 9px 13px; }
 #model-form button:not(.secondary) { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 button.secondary { background: var(--surface); color: var(--text); }
 .footer { border-top: 1px solid var(--border); padding-top: 20px; }
-#notice { min-height: 24px; font-size: 12px; overflow-wrap: anywhere; }
+#notice { min-height: 24px; font-size: 14px; overflow-wrap: anywhere; }
 #notice.error { color: var(--danger); }
 #authorization { border-top: 1px solid var(--border); margin-top: 18px; }
 #authorization-link { text-decoration: underline; text-underline-offset: 3px; }
@@ -65,8 +65,8 @@ button.secondary { background: var(--surface); color: var(--text); }
 @media(max-width:760px) {
   body { grid-template-columns: 128px minmax(0,1fr); }
   .settings-sidebar { padding: 18px 8px; }
-  .back { padding: 8px 4px; font-size: 12px; }
-  h1 { margin: 24px 10px; font-size: 19px; }
+  .back { padding: 8px 4px; font-size: 14px; }
+  h1 { margin: 24px 10px; font-size: 24px; }
   main { padding: 36px 24px; }
   .theme-options { gap: 5px; }
   .theme-mini { height: 62px; }
@@ -74,13 +74,13 @@ button.secondary { background: var(--surface); color: var(--text); }
 @media(max-width:500px) {
   body { grid-template-columns: 96px minmax(0,1fr); }
   .settings-sidebar { padding: 16px 6px; }
-  .settings-sidebar nav button { padding: 10px; font-size: 13px; }
+  .settings-sidebar nav button { padding: 10px; font-size: 15px; }
   main { padding: 28px 16px; }
-  .settings-panel h2 { font-size: 21px; margin-bottom: 24px; }
+  .settings-panel h2 { font-size: 24px; margin-bottom: 24px; }
   .setting-row { align-items: flex-start; flex-direction: column; gap: 14px; }
   .setting-row select { width: 100%; }
   .theme-options { gap: 4px; }
-  .theme-options button { padding: 4px 3px 8px; font-size: 11px; gap: 8px; }
+  .theme-options button { padding: 4px 3px 8px; font-size: 13px; gap: 8px; }
   .theme-mini { height: 52px; }
   .theme-mini b { left: 34%; right: 8%; bottom: 8px; height: 12px; }
   .account-row { flex-wrap: wrap; }
