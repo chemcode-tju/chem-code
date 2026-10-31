@@ -407,7 +407,8 @@ async def test_codex_rejects_empty_answers_and_unregistered_tools(
 def test_missing_codex_is_actionable_without_blocking_api_mode(settings_factory):
     with TestClient(create_app(settings_factory(codex_binary="/missing/codex"))) as client:
         assert client.get("/health").json()["model_configured"]
-        assert not client.get("/api/model/chatgpt/status").json()["available"]
-        result = client.post("/api/model/chatgpt/login", json={"method": "browser"})
+        assert client.get("/api/model/chatgpt/status").json()["available"]
+        assert not client.get("/api/model/chatgpt/status").json()["legacy_available"]
+        result = client.post("/api/model/chatgpt/login", json={"method": "device"})
         assert result.status_code == 503
         assert result.json()["error"]["code"] == "codex_not_installed"

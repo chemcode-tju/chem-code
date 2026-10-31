@@ -24,19 +24,22 @@
       </select>
       <section id="chatgpt-panel">
         <h2>使用 ChatGPT 订阅</h2>
-        <p>由官方 Codex 客户端完成授权，使用账号可用的 Codex 额度。无需填写 OpenAI API Key。</p>
+        <p>授权 Chemistry Agent 使用你的 ChatGPT 套餐，无需 API Key。首次授权的应用名称为 Chemistry Agent，可在 ChatGPT 用量设置中管理。</p>
         <p id="chatgpt-status" role="status">正在检查登录状态…</p>
         <div class="actions">
-          <button id="browser-login" type="button">使用 ChatGPT 登录</button>
-          <button id="device-login" class="secondary" type="button">使用设备码登录</button>
+          <button id="browser-login" type="button">Continue with ChatGPT</button>
+          <button id="add-account" class="secondary" type="button">添加 ChatGPT 账号</button>
           <button id="chatgpt-logout" class="secondary" type="button" hidden>退出 ChatGPT</button>
         </div>
+        <label for="chatgpt-account">ChatGPT 账号</label><select id="chatgpt-account" data-no-i18n><option value="">尚未授权</option></select>
         <div id="authorization" hidden>
           <p><a id="authorization-link" target="_blank" rel="noopener noreferrer">打开官方授权页面 ↗</a></p>
           <p id="device-code-row" hidden>设备码：<strong id="device-code"></strong></p>
           <button id="cancel-login" type="button" class="secondary">取消登录</button>
         </div>
-        <p class="hint">浏览器登录适合在运行服务的电脑上使用；远程访问请选择设备码。设备码登录需要在 ChatGPT 安全设置中启用。登录仅用于本研究空间，不会退出你日常使用的 Codex。</p>
+        <p class="hint">请在运行 Chemistry Agent 的电脑上完成浏览器授权。已保存的账号可切换或重新授权；应用不会读取你日常 Codex 的凭据。</p>
+        <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">管理 ChatGPT 应用用量 ↗</a></p>
+        <details><summary>兼容旧 Codex 登录</summary><p class="hint">此方式仍显示 Codex 名称，供已有连接和设备码登录使用。</p><button id="device-login" class="secondary" type="button">使用设备码登录</button></details>
       </section>
       <section id="api-panel" hidden>
         <h2>使用自己的 API</h2>
@@ -49,9 +52,10 @@
         <button id="clear-key" class="secondary" type="button">删除已保存的 API Key</button>
         <label id="thinking-label" class="checkbox"><input id="thinking" type="checkbox">启用 DeepSeek 思考模式</label>
       </section>
+      <label for="model-choice">默认模型</label><div class="model-choice-row"><select id="model-choice" data-no-i18n><option value="">自动选择</option></select><button id="refresh-models" class="secondary" type="button">刷新模型</button></div><p id="catalog-status" class="hint" role="status"></p>
       <label for="model">模型 ID <span id="model-optional">（可选）</span></label>
-      <input id="model" type="text" maxlength="160" autocomplete="off" placeholder="留空使用 Codex 默认模型">
-      <p id="model-hint" class="hint">可填写当前账号支持的 Codex 模型 ID。</p>
+      <input id="model" type="text" maxlength="160" autocomplete="off" placeholder="留空自动选择可用模型">
+      <p id="model-hint" class="hint">可从列表选择，也可手动填写模型 ID。聊天输入框旁可为每段对话单独选择模型。</p>
       <div class="actions footer">
         <button type="submit">保存设置</button>
         <button id="test-model" type="button" class="secondary">保存并测试连接</button>

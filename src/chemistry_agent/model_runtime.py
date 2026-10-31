@@ -17,6 +17,7 @@ from chemistry_agent.provider import Completion, DeepSeekClient
 class ModelScope:
     user_id: str | None
     configuration: ModelSettings | None = None
+    default_configuration: ModelSettings | None = None
 
 
 current_model_scope: ContextVar[ModelScope | None] = ContextVar("model_scope", default=None)
@@ -35,7 +36,97 @@ class ProviderRouter:
             raise AgentError("model_scope_missing", "缺少用户模型配置上下文。", 500)
         if scope.configuration is None:
             scope.configuration = self.store.load(scope.user_id)
+        if scope.default_configuration is None:
+            scope.default_configuration = scope.configuration.model_copy(deep=True)
         return scope.user_id, scope.configuration
+
+    def select_model(self, model: str | None) -> ModelSettings:
+        """Override only this request; None restores its frozen default configuration."""
+        self.configuration()
+        scope = current_model_scope.get()
+        assert scope is not None and scope.default_configuration is not None
+        default = scope.default_configuration
+        scope.configuration = default.model_copy(
+            update={"model": model if model is not None else default.model}, deep=True
+        )
+        return scope.configuration
+
+    async def list_models(self) -> dict:
+        """Fetch a bounded catalog from the saved destination using only its saved key."""
+        user_id, configuration = self.configuration()
+        if configuration.provider == "chatgpt":
+            entries = await self.chatgpt.list_models(user_id)
+            source = "chatgpt"
+        else:
+            headers = {"Accept": "application/json"}
+            if configuration.api_key:
+                headers["Authorization"] = f"Bearer {configuration.api_key.get_secret_value()}"
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(15, connect=5),
+                    transport=self.transport,
+                    follow_redirects=False,
+                ) as client:
+                    async with client.stream(
+                        "GET", configuration.base_url.rstrip("/") + "/models", headers=headers
+                    ) as response:
+                        if response.status_code in {401, 403}:
+                            raise AgentError(
+                                "model_catalog_auth_failed",
+                                "模型列表认证失败，请检查已保存的登录或密钥。",
+                                502,
+                            )
+                        if response.status_code != 200:
+                            raise AgentError(
+                                "model_catalog_unavailable",
+                                "服务暂未提供可用的模型列表，可手动填写模型 ID。",
+                                502,
+                            )
+                        chunks, size = [], 0
+                        async for chunk in response.aiter_bytes():
+                            size += len(chunk)
+                            if size > 1_000_000:
+                                raise ValueError("catalog too large")
+                            chunks.append(chunk)
+                        import json
+
+                        payload = json.loads(b"".join(chunks))
+                        entries = payload.get("data") if isinstance(payload, dict) else None
+            except (httpx.HTTPError, ValueError) as exc:
+                raise AgentError(
+                    "model_catalog_unavailable", "无法读取模型列表，请检查服务地址或稍后重试。", 502
+                ) from exc
+            source = "api"
+        if not isinstance(entries, list) or len(entries) > 5000:
+            raise AgentError("model_catalog_invalid", "模型列表格式无效。", 502)
+        models, seen = [], set()
+        key = configuration.api_key.get_secret_value() if configuration.api_key else None
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            identifier = entry.get("id")
+            if (
+                not isinstance(identifier, str)
+                or not 1 <= len(identifier) <= 160
+                or any(ord(char) <= 32 or ord(char) == 127 for char in identifier)
+                or identifier in seen
+                or (key and key in identifier)
+            ):
+                continue
+            name = entry.get("name")
+            if (
+                not isinstance(name, str)
+                or not name.strip()
+                or len(name) > 240
+                or any(ord(char) < 32 for char in name)
+                or (key and key in name)
+            ):
+                name = identifier
+            seen.add(identifier)
+            models.append({"id": identifier, "name": name})
+            if len(models) == 1000:
+                break
+        return {"provider": configuration.provider, "models": models, "source": source}
 
     async def ready(self) -> bool:
         user_id, configuration = self.configuration()

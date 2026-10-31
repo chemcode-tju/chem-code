@@ -246,9 +246,20 @@ def create_app(
 
     @app.post("/chat", response_model=ChatResponse, tags=["agent"])
     async def chat(body: ChatRequest, request: Request):
-        if not await request.app.state.provider.ready():
-            raise AgentError("model_not_configured", "请在模型设置中登录 ChatGPT 或配置 API。", 503)
         store: Store = request.app.state.store
+        provider: ProviderRouter = request.app.state.provider
+        _, configuration = provider.configuration()
+        saved_model = None
+        if body.session_id:
+            saved_model = await store.get_session_model(
+                str(body.session_id),
+                request.state.user_id,
+                configuration.provider,
+                configuration.base_url,
+            )
+        provider.select_model(body.model if "model" in body.model_fields_set else saved_model)
+        if not await provider.ready():
+            raise AgentError("model_not_configured", "请在模型设置中登录 ChatGPT 或配置 API。", 503)
         file_context = await attachment_context(store, body.file_ids, request.state.user_id)
         session_id = (
             str(body.session_id)

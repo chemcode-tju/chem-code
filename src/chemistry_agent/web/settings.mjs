@@ -1,7 +1,11 @@
-import { getLanguage, setLanguage, translateUI } from "./i18n.mjs";
+import { t, getLanguage, setLanguage, translateUI } from "./i18n.mjs";
+import { fillModelOptions } from "./models.mjs";
 const $ = (id) => document.getElementById(id);
 let polling;
 let busy = false;
+let savedSettings = null;
+let models = [];
+let lastAuth = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json" } });
@@ -16,6 +20,11 @@ function notice(text, error = false) {
   $("notice").classList.toggle("error", error);
 }
 
+function showModels() {
+  fillModelOptions($("model-choice"), models, $("model").value.trim(), {
+    defaultLabel: $("provider").value === "chatgpt" ? "自动选择" : "请选择模型", manual: true,
+  });
+}
 function togglePanels() {
   const chatgpt = $("provider").value === "chatgpt";
   $("chatgpt-panel").hidden = !chatgpt;
@@ -25,12 +34,13 @@ function togglePanels() {
   $("base-url").required = !chatgpt;
   $("base-url").disabled = chatgpt;
   $("api-key").disabled = chatgpt;
-  $("model").placeholder = chatgpt ? "留空使用 Codex 默认模型" : "填写服务商提供的模型 ID";
-  $("model-hint").textContent = chatgpt ? "可填写当前账号支持的 Codex 模型 ID。" : "模型需要支持 Chat Completions 及工具调用，才能进行自动建模和计算。";
+  $("model").placeholder = chatgpt ? "留空自动选择可用模型" : "填写服务商提供的模型 ID";
+  $("model-hint").textContent = "可从列表选择，也可手动填写模型 ID。聊天输入框旁可为每段对话单独选择模型。";
   $("thinking-label").hidden = $("provider").value !== "deepseek";
+  showModels();
 }
-
 function displaySettings(data) {
+  savedSettings = data;
   $("provider").value = data.provider;
   $("base-url").value = data.base_url;
   $("model").value = data.model;
@@ -39,92 +49,120 @@ function displaySettings(data) {
   $("key-status").textContent = data.has_api_key ? "已保存密钥。留空可保留；更换服务地址或类型时须重新填写。" : "尚未保存 API Key。";
   togglePanels();
 }
-
+async function refreshModels() {
+  if (!savedSettings || $("provider").value !== savedSettings.provider ||
+      (savedSettings.provider !== "chatgpt" && $("base-url").value.trim().replace(/\/$/, "") !== savedSettings.base_url)) {
+    models = []; showModels();
+    $("catalog-status").textContent = "请先保存连接设置，再刷新模型列表。"; return;
+  }
+  $("catalog-status").textContent = "正在读取模型列表…";
+  try {
+    const result = await api("/api/model/models");
+    models = result.models;
+    showModels();
+    $("catalog-status").textContent = models.length ? "模型列表已更新；实际可用性以连接测试为准。" : "未返回模型，可手动填写模型 ID。";
+  } catch (error) {
+    models = []; showModels();
+    $("catalog-status").textContent = error.message;
+  }
+}
 async function save() {
   if (!$("model-form").reportValidity()) throw new Error("请完整填写模型设置。");
-  const data = await api("/api/model/settings", { method: "PUT", body: JSON.stringify({
+  displaySettings(await api("/api/model/settings", { method: "PUT", body: JSON.stringify({
     provider: $("provider").value, model: $("model").value.trim(),
     base_url: $("provider").value === "chatgpt" ? "https://api.deepseek.com" : $("base-url").value.trim(),
     api_key: $("api-key").value || null, thinking: $("thinking").checked,
-  }) });
-  displaySettings(data);
+  }) }));
 }
-
 async function action(operation) {
   if (busy) return;
   busy = true;
-  $("model-form").querySelectorAll("button").forEach((button) => { button.disabled = true; });
+  $("model-form").querySelectorAll("button,select").forEach((node) => { node.disabled = true; });
   try { await operation(); }
   catch (error) { notice(error.message || "无法连接服务，请稍后重试。", true); }
   finally {
     busy = false;
-    $("model-form").querySelectorAll("button").forEach((button) => { button.disabled = false; });
+    $("model-form").querySelectorAll("button,select").forEach((node) => { node.disabled = false; });
+    togglePanels();
   }
 }
-
 async function refreshLogin() {
   const data = await api("/api/model/chatgpt/status");
-  const labels = { starting: "正在启动授权…", waiting: "请在官方页面完成授权。", complete: "授权完成。", failed: "登录失败，请重试。设备码模式需在 ChatGPT 安全设置中启用。", expired: "授权已超时，请重新登录。", cancelled: "已取消登录。", idle: "尚未登录 ChatGPT。" };
-  $("chatgpt-status").textContent = !data.available ? "服务电脑未找到 Codex CLI。安装后重启服务即可使用账号登录。" : data.authenticated ? "已登录 ChatGPT，可以保存设置并测试连接。" : labels[data.login.state] || "尚未登录。";
+  const labels = { starting: "正在启动授权…", waiting: "请在官方页面完成授权。", complete: "授权完成。", failed: "登录失败，请重新授权。", expired: "授权已超时，请重新登录。", cancelled: "已取消登录。", idle: "尚未登录 ChatGPT。" };
+  const pending = ["starting", "waiting"].includes(data.login.state);
+  $("chatgpt-status").textContent = pending ? labels[data.login.state] : data.authenticated
+    ? data.authentication_mode === "codex" ? "当前使用旧 Codex 连接。点击 Continue with ChatGPT 可授权 Chemistry Agent 独立身份。" : "Chemistry Agent 已获 ChatGPT 授权，可以选择模型并测试连接。"
+    : labels[data.login.state] || "尚未登录。";
+  if (data.login.state === "failed" && data.login.error) notice(data.login.error, true);
   $("chatgpt-logout").hidden = !data.authenticated;
+  $("device-login").disabled = busy || data.legacy_available === false;
+  $("chatgpt-account").replaceChildren(new Option(t("选择已保存的账号"), ""), ...(data.accounts || []).map((item) => new Option(item.label, item.id)));
+  $("chatgpt-account").value = data.active_account || "";
   const url = data.login.url;
-  const valid = url && new URL(url).origin === "https://auth.openai.com";
+  let valid = false;
+  try { valid = url && ["https://auth.openai.com", "https://chatgpt.com"].includes(new URL(url).origin); } catch { /* Ignore invalid URLs. */ }
   $("authorization").hidden = !valid;
   if (valid) $("authorization-link").href = url;
   else $("authorization-link").removeAttribute("href");
   $("device-code-row").hidden = !data.login.code;
   $("device-code").textContent = data.login.code || "";
   clearTimeout(polling);
-  if (["starting", "waiting"].includes(data.login.state)) {
-    polling = setTimeout(() => refreshLogin().catch((error) => notice(error.message, true)), 2000);
-  }
+  if (pending) polling = setTimeout(() => refreshLogin().catch((error) => notice(error.message, true)), 2000);
+  const identity = `${data.authentication_mode}:${data.active_account}:${data.authenticated}`;
+  if (lastAuth !== null && lastAuth !== identity) await refreshModels();
+  lastAuth = identity;
 }
-
 $("provider").addEventListener("change", () => {
+  models = [];
   $("api-key").value = "";
   $("model").value = $("provider").value === "deepseek" ? "deepseek-flash" : "";
   if ($("provider").value === "deepseek") $("base-url").value = "https://api.deepseek.com";
   else if ($("provider").value === "openai-compatible") $("base-url").value = "";
+  $("catalog-status").textContent = "请先保存连接设置，再刷新模型列表。";
   $("key-status").textContent = "更换服务时，请填写对应 API Key。";
   togglePanels();
 });
+$("base-url").addEventListener("input", () => { models = []; showModels(); $("catalog-status").textContent = "请先保存连接设置，再刷新模型列表。"; });
+$("model-choice").addEventListener("change", () => {
+  if ($("model-choice").value === "__manual__") { $("model").focus(); return; }
+  $("model").value = $("model-choice").value;
+});
+$("model").addEventListener("input", showModels);
+$("refresh-models").addEventListener("click", () => action(refreshModels));
 $("model-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  action(async () => { await save(); notice("已保存。返回研究空间即可使用新的模型设置。"); });
+  action(async () => { await save(); notice("已保存。返回研究空间即可使用新的模型设置。"); await refreshModels(); });
 });
 $("test-model").addEventListener("click", () => action(async () => {
-  await save();
-  notice("设置已保存，正在测试 AI 响应…");
+  await save(); notice("设置已保存，正在测试 AI 响应…");
   const result = await api("/api/model/test", { method: "POST" });
   notice(`连接成功：${result.answer}`);
 }));
-for (const method of ["browser", "device"]) {
-  $(`${method}-login`).addEventListener("click", () => action(async () => {
-    await save();
-    await api("/api/model/chatgpt/login", { method: "POST", body: JSON.stringify({ method }) });
-    notice("已启动 ChatGPT 授权，请完成官方登录页面上的操作。");
-    await refreshLogin();
-  }));
+async function login(method, newAccount = false) {
+  await save();
+  await api("/api/model/chatgpt/login", { method: "POST", body: JSON.stringify({ method, new_account: newAccount, account_id: newAccount ? null : $("chatgpt-account").value || null }) });
+  notice("已启动 ChatGPT 授权，请完成官方登录页面上的操作。");
+  await refreshLogin();
 }
-$("cancel-login").addEventListener("click", () => action(async () => {
-  await api("/api/model/chatgpt/cancel", { method: "POST" });
+for (const method of ["browser", "device"]) $(`${method}-login`).addEventListener("click", () => action(() => login(method)));
+$("add-account").addEventListener("click", () => action(() => login("browser", true)));
+$("chatgpt-account").addEventListener("change", () => action(async () => {
+  if (!$("chatgpt-account").value) return;
+  await api("/api/model/chatgpt/account", { method: "POST", body: JSON.stringify({ account_id: $("chatgpt-account").value }) });
   await refreshLogin();
 }));
+$("cancel-login").addEventListener("click", () => action(async () => { await api("/api/model/chatgpt/cancel", { method: "POST" }); await refreshLogin(); }));
 $("chatgpt-logout").addEventListener("click", () => action(async () => {
-  await api("/api/model/chatgpt/logout", { method: "POST" });
+  const result = await api("/api/model/chatgpt/logout", { method: "POST" });
   await refreshLogin();
-  notice("已退出本研究空间的 ChatGPT 登录。");
+  notice(result?.remote_revoked === false ? "已退出本地登录，远端撤销未确认；可在 ChatGPT 用量设置中断开应用。" : "已退出本研究空间的 ChatGPT 登录。");
 }));
 $("clear-key").addEventListener("click", () => action(async () => {
   await api("/api/model/settings/key", { method: "DELETE" });
-  displaySettings(await api("/api/model/settings"));
+  displaySettings(await api("/api/model/settings")); await refreshModels();
   notice("已删除保存的 API Key，并切换为 ChatGPT 登录方式。");
 }));
-
-action(async () => {
-  displaySettings(await api("/api/model/settings"));
-  await refreshLogin();
-});
+action(async () => { displaySettings(await api("/api/model/settings")); await refreshLogin(); await refreshModels(); });
 window.addEventListener("pagehide", () => clearTimeout(polling));
 
 const theme = globalThis.chemistryTheme;

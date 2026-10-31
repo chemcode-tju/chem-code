@@ -1,14 +1,16 @@
 """Model settings endpoints, protected by workspace authentication and origin checks."""
 
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_runtime import ProviderRouter
 from chemistry_agent.model_settings import ModelSettings
+from chemistry_agent.schemas import SessionModelUpdate
 
 
 def protect_settings(request: Request) -> None:
@@ -35,6 +37,40 @@ router = APIRouter(tags=["model settings"], dependencies=[Depends(protect_settin
 class ChatGPTLogin(BaseModel):
     model_config = ConfigDict(extra="forbid")
     method: Literal["browser", "device"] = "browser"
+    account_id: str | None = Field(default=None, min_length=1, max_length=160)
+    new_account: bool = False
+
+
+class ChatGPTAccount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account_id: str = Field(min_length=1, max_length=160)
+
+
+@router.get("/api/model/models")
+async def list_models(request: Request) -> dict:
+    return await request.app.state.provider.list_models()
+
+
+@router.get("/sessions/{session_id}/model")
+async def read_session_model(session_id: UUID, request: Request) -> dict:
+    _, configuration = request.app.state.provider.configuration()
+    model = await request.app.state.store.get_session_model(
+        str(session_id), request.state.user_id, configuration.provider, configuration.base_url
+    )
+    return {"provider": configuration.provider, "model": model}
+
+
+@router.put("/sessions/{session_id}/model")
+async def save_session_model(session_id: UUID, body: SessionModelUpdate, request: Request) -> dict:
+    _, configuration = request.app.state.provider.configuration()
+    await request.app.state.store.set_session_model(
+        str(session_id),
+        request.state.user_id,
+        configuration.provider,
+        configuration.base_url,
+        body.model,
+    )
+    return {"provider": configuration.provider, "model": body.model}
 
 
 @router.get("/settings", include_in_schema=False)
@@ -86,7 +122,15 @@ async def chatgpt_status(request: Request) -> dict:
 
 @router.post("/api/model/chatgpt/login")
 async def chatgpt_login(body: ChatGPTLogin, request: Request) -> dict:
-    return await request.app.state.provider.chatgpt.start_login(request.state.user_id, body.method)
+    return await request.app.state.provider.chatgpt.start_login(
+        request.state.user_id, body.method, account_id=body.account_id, new_account=body.new_account
+    )
+
+
+@router.post("/api/model/chatgpt/account")
+async def select_chatgpt_account(body: ChatGPTAccount, request: Request) -> dict:
+    await request.app.state.provider.chatgpt.select_account(request.state.user_id, body.account_id)
+    return {"active_account": body.account_id}
 
 
 @router.post("/api/model/chatgpt/cancel", status_code=204)
@@ -94,6 +138,6 @@ async def cancel_login(request: Request) -> None:
     await request.app.state.provider.chatgpt.cancel_login(request.state.user_id)
 
 
-@router.post("/api/model/chatgpt/logout", status_code=204)
-async def chatgpt_logout(request: Request) -> None:
-    await request.app.state.provider.chatgpt.logout(request.state.user_id)
+@router.post("/api/model/chatgpt/logout")
+async def chatgpt_logout(request: Request) -> dict:
+    return await request.app.state.provider.chatgpt.logout(request.state.user_id)

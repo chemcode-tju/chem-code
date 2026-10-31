@@ -12,7 +12,14 @@ class SessionCreate(StrictModel):
     title: str = Field(default="新对话", min_length=1, max_length=200)
 
 
+class SessionModelUpdate(StrictModel):
+    model: str | None = Field(..., min_length=1, max_length=160, pattern=r"^[^\x00-\x20\x7f]+$")
+
+
 class ChatRequest(StrictModel):
+    model: str | None = Field(
+        default=None, min_length=1, max_length=160, pattern=r"^[^\x00-\x20\x7f]+$"
+    )
     file_ids: list[UUID] = Field(default_factory=list, max_length=10)
     message: str = Field(min_length=1, max_length=20000)
     session_id: UUID | None = None

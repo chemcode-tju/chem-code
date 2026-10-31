@@ -1,3 +1,4 @@
+import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
 import { createFileUploads, renderFiles, contextFiles } from "./files.mjs";
 import { createProjectNavigation } from "./projects.mjs";
@@ -14,6 +15,7 @@ const state = {
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
 let toastTimer;
+let chatModels;
 
 class ApiError extends Error {
   constructor(message, data, status) { super(message); this.data = data; this.status = status; }
@@ -105,7 +107,10 @@ function closeDrawers() {
 }
 
 function updateControls() {
-  const locked = state.busy || state.loading;
+  const locked = state.busy || state.loading || chatModels?.saving;
+  $("chat-model").disabled = Boolean(locked);
+  $("chat-model-apply").disabled = Boolean(locked);
+  $("chat-model-id").disabled = Boolean(locked);
   $("message-input").disabled = locked;
   $("send-button").disabled = locked || uploads.uploading || !state.health?.model_configured;
   $("composer-add").disabled = locked || uploads.uploading;
@@ -120,7 +125,14 @@ function updateControls() {
 
 async function refreshHealth() {
   try {
+    const previousProvider = state.health?.provider;
     state.health = await api("/health");
+    if (chatModels && previousProvider && previousProvider !== state.health.provider) {
+      chatModels.newConversation();
+      if (state.sessionId) await chatModels.loadSession(state.sessionId);
+      await chatModels.refresh();
+    }
+    chatModels?.render();
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
       ? `${names[state.health.model] || state.health.model} · ${state.health.provider === "chatgpt" ? "已登录" : "已配置"}` : "模型未配置";
@@ -138,6 +150,7 @@ function sessionButton(session) {
 }
 
 const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
+chatModels = createChatModelPicker({ api, state, toast, updateControls });
 const uploads = createFileUploads({ state, toast, updateControls, onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
 
 function renderSessions() {
@@ -218,6 +231,8 @@ async function selectSession(id, quiet = false) {
     const session = await api(`/sessions/${encodeURIComponent(id)}`);
     const runs = await api(`/sessions/${encodeURIComponent(id)}/runs?limit=100`).catch(() => []);
     if (navigation !== state.navigation) return;
+    await chatModels.loadSession(id);
+    if (navigation !== state.navigation) return;
     state.sessionId = id;
     state.runs = runs;
     state.turns = buildTurns(session.messages, runs);
@@ -229,6 +244,7 @@ async function selectSession(id, quiet = false) {
     if (navigation !== state.navigation) return;
     if (!quiet) toast(error.message);
     state.sessionId = null;
+    chatModels.newConversation();
     state.turns = [];
     state.runs = [];
     rememberSession(null);
@@ -243,7 +259,8 @@ async function selectSession(id, quiet = false) {
 }
 
 function newConversation() {
-  if (state.busy || state.loading) return;
+  if (state.busy || state.loading || chatModels.saving) return;
+  chatModels.newConversation();
   state.navigation += 1;
   projectNavigation.clearSelection();
   state.sessionId = null;
@@ -262,7 +279,8 @@ function newConversation() {
 }
 
 async function sendChat(message, context = "", files = uploads.files) {
-  if (state.busy || state.loading || uploads.uploading || !message.trim()) return;
+  if (state.busy || state.loading || chatModels.saving || uploads.uploading || !message.trim()) return;
+  const selectedModel = chatModels.value;
   if (!state.health?.model_configured) { toast("请先连接并配置模型。"); return; }
   state.busy = true;
   const accountVersion = state.accountVersion;
@@ -275,12 +293,13 @@ async function sendChat(message, context = "", files = uploads.files) {
       state.sessionId = session.id;
       $("conversation-title").textContent = session.title;
       rememberSession(session.id);
+      await chatModels.saveNewSession(session.id, selectedModel);
       await projectNavigation.assign(session.id);
       if (accountVersion !== state.accountVersion) return;
     }
     const result = await api("/chat", { method: "POST", body: JSON.stringify({
       session_id: state.sessionId, message: message.trim(), context: context.trim() || null,
-      file_ids: files.map((file) => file.id),
+      file_ids: files.map((file) => file.id), model: selectedModel,
     }) });
     if (accountVersion !== state.accountVersion) return;
     state.turns.push({ text: message.trim(), context: context.trim(), files, answer: result.answer,
@@ -452,6 +471,7 @@ function showLogin(message = "") {
   state.pending = null;
   state.results.clear();
   state.auth.user = null;
+  chatModels.reset();
   projectNavigation.reset();
 
   state.busy = false;
@@ -485,6 +505,7 @@ async function startWorkspace() {
   let id = new URL(location.href).searchParams.get("session");
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try { id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
+  if (state.health?.model_configured) await chatModels.refresh();
   if (id) await selectSession(id, true);
   else { $("conversation-title").textContent = t("新对话"); updateControls(); }
 }
