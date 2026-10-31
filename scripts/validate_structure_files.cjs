@@ -8,7 +8,10 @@ const corpusDirectory = 'data/cluster-b-structures';
 
 global.StructureParser = require('../src/chemistry_agent/web/structure/parser.js');
 global.ASETrajectory = require('../src/chemistry_agent/web/structure/ase-traj.js');
-const {local} = require('../src/chemistry_agent/web/structure/trajectory-store.js');
+global.StructureTrajectory = require('../src/chemistry_agent/web/structure/trajectory-store.js');
+global.StructureLammps = require('../src/chemistry_agent/web/structure/lammps-metadata.js');
+const md = require('../src/chemistry_agent/web/structure/md-stream.js');
+const {local} = StructureTrajectory;
 const directory = path.resolve(__dirname, '..', corpusDirectory, 'validation');
 
 function maximumError(actual, expected) {
@@ -20,7 +23,11 @@ async function main() {
   const {cases} = JSON.parse(fs.readFileSync(path.join(directory, 'reference.json'), 'utf8'));
   const results = [];
   for (const entry of cases) {
-    const store = await local(await fs.openAsBlob(entry.path), entry.viewer_name);
+    const blob=await fs.openAsBlob(entry.path);
+    const companions=(entry.companions||[]).map(filename=>({name:path.basename(filename),text:fs.readFileSync(filename,'utf8')}));
+    const store=['gromacs','lammps-dump-text'].includes(entry.format)
+      ? (await md.open(blob,entry.format,companions)).store
+      : await local(blob,entry.viewer_name);
     await store.scan(() => {});
     assert.equal(store.count, entry.count, `${entry.source}: frame count`);
     let coordinateError = 0, cellError = 0;
@@ -35,6 +42,7 @@ async function main() {
     }
     assert.ok(coordinateError < 1e-7, `${entry.source}: coordinate error ${coordinateError} Å`);
     assert.ok(cellError < 1e-7, `${entry.source}: cell error ${cellError} Å`);
+    assert.ok(store.cache.size <= 16, 'Frame cache must remain bounded');
     const result = {source: entry.source, format: entry.format, frames: entry.count,
       atoms_first: entry.atoms_first, sampled_frames: Object.keys(entry.samples).map(Number),
       coordinate_error_angstrom: coordinateError, cell_error_angstrom: cellError, status: 'passed'};

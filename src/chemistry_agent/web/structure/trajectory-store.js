@@ -125,6 +125,6 @@
   }
   async function local(file,name=file.name,options) {const source=new LocalSource(file,name);await source.initialize();const store=new FrameStore(name,source,options);await store.get(0);return store;}
   function host(name,call,batch,options) {const store=new FrameStore(name,new HostSource(call,batch),options);store.put(0,batch.text);return store;}
-  const api={FrameStore,HostSource,LocalSource,local,host};
+  const api={FrameStore,HostSource,LocalSource,ByteLines,local,host};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.StructureTrajectory=api;
 })(typeof window!=='undefined'?window:globalThis);

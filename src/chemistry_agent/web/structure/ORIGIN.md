@@ -6,11 +6,12 @@ Imported from the user's `liyang-tju/extxyz-extension` repository, commit
 - `parser.js`, `appearance.js`, `geometry.js`, `ase-traj.js`, `vasp-stream.js`,
   `trajectory-store.js`, `snapshot.js`, `selection.js`, `scene.js`, `viewport.js`,
   `controls.js`, and `locales.json` are copied from `plugin/web/`.
+  `trajectory-store.js` additionally exports its byte-line reader for local MD formats.
 - `i18n.js` embeds the original locale catalog for standalone static serving.
 - `app.js`, `index.html`, and `style.css` are adapted for Chem-Agent: browser file
   upload, authenticated HTTP conversion, local downloads, and navigation replace
   the Codex MCP host bridge. Native save and FFmpeg animation controls are omitted.
-- `import.js` and the Python conversion API are new integration code.
+- `import.js`, `lammps-metadata.js`, `md-stream.js` and the Python conversion API are new integration code.
 - Core JavaScript regression tests in `tests/structure/` are adapted from upstream
   with module paths changed. `test_import.cjs` is new.
 

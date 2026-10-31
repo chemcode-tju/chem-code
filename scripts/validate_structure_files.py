@@ -6,6 +6,7 @@ import hashlib
 import json
 import subprocess
 from collections.abc import Iterator
+from io import StringIO
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any
@@ -14,19 +15,31 @@ import numpy as np
 from ase import Atoms
 from ase import __version__ as ase_version
 from ase.data import atomic_numbers
-from ase.io import iread
+from ase.io import iread, read
 from ase.io.trajectory import Trajectory
 
 from chemistry_agent.structures import convert_structure, detect_format
 
 # Configuration
 corpus_directory = "data/cluster-b-structures"
-trajectory_source_name = "trajectory.extxyz"
+fixture_directory = "data/structure-tests"
+trajectory_source_name = "XDATCAR"
 
 
 def reference_frames(path: Path, entry: dict[str, Any]) -> Iterator[Atoms]:
     """Read original files with ASE, using recorded LAMMPS type mappings."""
     file_format = entry["format"]
+    if file_format == "gromacs":
+        # ASE's GRO reader reads one structure; split concatenated snapshots by their counts.
+        with path.open() as stream:
+            for title in stream:
+                if not title.strip():
+                    continue
+                count_line = next(stream)
+                block = title + count_line
+                block += "".join(next(stream) for _ in range(int(count_line) + 1))
+                yield read(StringIO(block), format="gromacs")
+        return
     options: dict[str, Any] = {}
     elements = entry.get("type_map", "").split()
     if file_format == "lammps-data":
@@ -79,10 +92,10 @@ def prepare_case(
     for count, atoms in enumerate(reference_frames(path, entry), start=1):
         if count == 1:
             samples[0] = describe(atoms)
-        last = describe(atoms)
+        last = atoms
     if not count:
         raise ValueError(f"No structures found in {path.name}.")
-    samples[count - 1] = last
+    samples[count - 1] = describe(last)
     if count > 2:
         for frame_index, atoms in enumerate(reference_frames(path, entry)):
             if frame_index == count // 2:
@@ -91,7 +104,7 @@ def prepare_case(
     file_format = entry["format"]
     viewer_path = path
     viewer_name = path.name
-    if file_format in {"gromacs", "lammps-data", "lammps-dump-text"}:
+    if file_format == "lammps-data":
         converted, converted_count, _ = convert_structure(
             path.read_bytes(),
             path.name,
@@ -112,6 +125,10 @@ def prepare_case(
         "count": count,
         "samples": samples,
         "atoms_first": len(samples[0]["symbols"]),
+        "companions": [
+            str(Path(__file__).resolve().parents[1] / fixture_directory / relative)
+            for relative in entry.get("companions", [])
+        ],
     }
 
 
@@ -122,18 +139,23 @@ def main() -> None:
     if not manifest_path.is_file():
         raise SystemExit(f"Missing local corpus manifest: {manifest_path}")
     manifest = json.loads(manifest_path.read_text())
+    fixtures = repository / fixture_directory
+    for entry in manifest.get("companions", []):
+        with (fixtures / entry["local_path"]).open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != entry["sha256"]:
+                raise ValueError(f"Companion checksum changed: {entry['local_path']}")
     output_directory = corpus / "validation"
     output_directory.mkdir(exist_ok=True)
     (output_directory / "report.json").write_text(json.dumps({"status": "running"}))
     cases = []
     trajectory_source: tuple[Path, dict[str, Any]] | None = None
     for index, entry in enumerate(manifest["files"]):
-        relative = Path(entry["path"])
+        relative = Path(entry["local_path"])
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("Corpus manifest must contain relative paths.")
         if any("archive" in part.lower() for part in relative.parts):
             raise ValueError("Archive folders are excluded from validation.")
-        path = corpus / "files" / relative
+        path = fixtures / relative
         if not path.is_file():
             raise FileNotFoundError(f"Missing downloaded structure: {path}")
         with path.open("rb") as stream:
@@ -153,13 +175,13 @@ def main() -> None:
             trajectory_source = path, entry
     if trajectory_source is None:
         raise ValueError(f"No source named {trajectory_source_name} in the corpus.")
-    generated_directory = corpus / "generated"
+    generated_directory = fixtures / "ASE_TRAJ"
     generated_directory.mkdir(exist_ok=True)
     generated_path = generated_directory / "ase.traj"
     count = generate_trajectory(trajectory_source[0], generated_path, trajectory_source[1])
     with generated_path.open("rb") as stream:
         generated_hash = hashlib.file_digest(stream, "sha256").hexdigest()
-    (generated_directory / "provenance.json").write_text(
+    (corpus / "generated" / "provenance.json").write_text(
         json.dumps(
             {
                 "source": str(trajectory_source[0]),

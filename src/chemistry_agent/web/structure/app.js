@@ -207,7 +207,8 @@ $("drift-apply").onclick=async()=>{
   }catch(error){$("drift-error").textContent=error.message;}finally{$("drift-apply").disabled=false;}
 };
 $("source-toggle").onclick = () => { stop(); $("source-panel").hidden = !$("source-panel").hidden; if(doc)$("source").value=activeRecord.text; };
-async function openStructure(file) {
+async function openStructure(files) {
+  const file = files[0];
   const generation = ++readGeneration;
   stop(); clearFollow(); resetDisplayState(); discardDocument();
   ++snapshotTicket; snapshotData = null;
@@ -226,11 +227,10 @@ async function openStructure(file) {
   $("filename").textContent = file.name; status("");
   $("import-note").textContent = "正在读取…";
   try {
-    const imported = await StructureImport.open(file, {
-      format: $("import-format").value, typeMap: $("type-map").value,
-      units: $("lammps-units").value, atomStyle: $("atom-style").value,
-    });
+    const imported = await StructureImport.open(files, {format: $("import-format").value});
     if (generation !== readGeneration) { imported.store.dispose(); return; }
+    $("filename").textContent = imported.name;
+    $("source-toggle").hidden = /\.traj$/i.test(imported.name);
     await showDocument(imported.store, generation);
     if (generation === readGeneration) $("import-note").textContent = imported.note;
   } catch (error) {
@@ -239,13 +239,13 @@ async function openStructure(file) {
 }
 $("open-file").onclick = () => $("file-picker").click();
 $("file-picker").onchange = () => {
-  const file = $("file-picker").files[0]; $("file-picker").value = "";
-  if (file) openStructure(file);
+  const files = Array.from($("file-picker").files); $("file-picker").value = "";
+  if (files.length) openStructure(files);
 };
 document.addEventListener("dragover", event => event.preventDefault());
 document.addEventListener("drop", event => {
-  event.preventDefault(); const file = event.dataTransfer.files[0];
-  if (file) openStructure(file);
+  event.preventDefault(); const files = Array.from(event.dataTransfer.files);
+  if (files.length) openStructure(files);
 });
 window.addEventListener("pagehide", () => { stop(); discardDocument(); });
 function snapshotOptions(){return {dpi:Number($("snapshot-dpi").value),format:$("snapshot-format").value,transparent:$("snapshot-transparent").checked,crop:$("snapshot-crop").checked};}
