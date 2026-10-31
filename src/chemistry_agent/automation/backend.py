@@ -11,12 +11,13 @@ from uuid import UUID, uuid4
 
 import numpy as np
 from aiida import orm
+from aiida.common.exceptions import NotExistent
 from aiida.engine import run_get_node, submit
 from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.builder import ProcessBuilder
 from aiida.plugins import CalculationFactory
 from ase import Atoms
-from ase.io import read
+from ase.io import read, write
 from filelock import FileLock
 
 from chemistry_agent.automation.models import (
@@ -64,6 +65,7 @@ def server_record(computer: orm.Computer) -> dict:
         "hostname": computer.hostname,
         "scheduler": computer.scheduler_type,
         "workdir": computer.get_workdir(),
+        "mpi_command": computer.get_mpirun_command(),
     }
 
 
@@ -90,6 +92,8 @@ def status() -> dict:
                     "label": code.label,
                     "server_id": code.computer.uuid,
                     "plugin": code.default_calc_job_plugin,
+                    "executable": str(code.filepath_executable),
+                    "environment": code.prepend_text,
                 }
             )
     return {
@@ -339,6 +343,61 @@ def jobs() -> dict:
     )
     query.order_by({"job": {"ctime": "desc"}}).limit(100)
     return {"jobs": [job_record(node) for node in query.all(flat=True)], "checked_at": now()}
+
+
+def validate_structure(payload: dict) -> dict:
+    specification = StructureInput.model_validate(payload)
+    atoms = read_structure(specification)
+    buffer = io.StringIO()
+    write(buffer, atoms, format="extxyz")
+    return {
+        "structure": specification.model_dump(), "extxyz": buffer.getvalue(),
+        "formula": atoms.get_chemical_formula(), "atoms": len(atoms),
+        "cell_angstrom": atoms.cell.tolist(), "volume_angstrom3": atoms.get_volume(),
+        "input_sha256": hashlib.sha256(specification.content.encode()).hexdigest(),
+    }
+
+
+def catalog() -> dict:
+    from aiida_vasp.data.potcar import PotcarData
+
+    result = status()
+    families = []
+    for group in PotcarData.get_potcar_groups():
+        potentials = [
+            {"element": node.element, "full_name": node.full_name}
+            for node in group.nodes if isinstance(node, PotcarData)
+        ]
+        families.append({"name": group.label, "potentials": potentials})
+    result["potential_families"] = families
+    return result
+
+
+def job_details(payload: dict) -> dict:
+    identifier = payload["job_id"]
+    try:
+        node = orm.load_node(int(identifier) if identifier.isdigit() else str(UUID(identifier)))
+    except (ValueError, NotExistent) as exc:
+        raise AgentError("job_not_found", "没有找到该 AiiDA 任务。", 404) from exc
+    if not isinstance(node, orm.CalcJobNode) or not node.label.startswith(PREFIX):
+        raise AgentError("job_not_owned", "只能查询本模块创建的计算任务。", 404)
+    result = job_record(node)
+    result["retrieved_files"] = []
+    result["diagnostics"] = {}
+    if "retrieved" in node.outputs:
+        repository = node.outputs.retrieved.base.repository
+        allowed = {"OUTCAR", "vasprun.xml", "CONTCAR", "vasp_output",
+                   "_scheduler-stdout.txt", "_scheduler-stderr.txt"}
+        names = set(repository.list_object_names()) & allowed
+        result["retrieved_files"] = sorted(names)
+        for name in ("vasp_output", "_scheduler-stderr.txt"):
+            if name in names:
+                with repository.open(name, mode="rb") as stream:
+                    stream.seek(0, 2)
+                    size = stream.tell()
+                    stream.seek(max(0, size - 8000))
+                    result["diagnostics"][name] = stream.read(8000).decode(errors="replace")
+    return result
 
 
 def execution_fingerprint(builder: ProcessBuilder) -> str:

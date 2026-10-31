@@ -1,4 +1,5 @@
 import { TOOL_LABELS, buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
+import { createCalculations } from "./calculations.mjs";
 
 const $ = (id) => document.getElementById(id);
 const icon = (name, className = "") => `<svg class="icon ${className}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
@@ -11,6 +12,19 @@ const state = {
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
 let toastTimer;
+const calculations = createCalculations({
+  api, getSession: () => state.sessionId, isBusy: () => state.busy || state.loading,
+  ensureSession: async () => {
+    if (!state.sessionId) {
+      const session = await api("/sessions", { method: "POST", body: JSON.stringify({ title: "结构与计算" }) });
+      state.sessionId = session.id; rememberSession(session.id);
+      $("conversation-title").textContent = session.title;
+      await refreshSessions();
+    }
+    return state.sessionId;
+  },
+  toast, onConfirmed: async (id) => { await selectSession(id); await refreshSessions(); },
+});
 
 class ApiError extends Error {
   constructor(message, data, status) { super(message); this.data = data; this.status = status; }
@@ -99,6 +113,7 @@ function updateControls() {
 async function refreshHealth() {
   try {
     state.health = await api("/health");
+    calculations.enabled(Boolean(state.health.automation_enabled));
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
       ? `${names[state.health.model] || state.health.model} · 已连接` : "模型未配置";
@@ -195,6 +210,7 @@ async function selectSession(id, quiet = false) {
     state.turns = buildTurns(session.messages, runs);
     $("conversation-title").textContent = session.title;
     rememberSession(id);
+    await calculations.refresh();
     const lastCall = state.turns.flatMap((turn) => turn.calls).at(-1);
     renderResult(lastCall || null);
   } catch (error) {
@@ -221,6 +237,7 @@ function newConversation() {
   state.turns = [];
   state.runs = [];
   state.pending = null;
+  calculations.reset();
   rememberSession(null);
   $("conversation-title").textContent = "化学助手";
   $("message-input").value = "";
@@ -242,7 +259,7 @@ function setReferenceOpen(open) {
 }
 
 async function sendChat(message, context) {
-  if (state.busy || state.loading || !message.trim()) return;
+  if (state.busy || state.loading || calculations.busy() || !message.trim()) return;
   if (!state.health?.model_configured) { toast("请先连接并配置模型。"); return; }
   state.busy = true;
   const accountVersion = state.accountVersion;
@@ -258,17 +275,20 @@ async function sendChat(message, context) {
     }
     const result = await api("/chat", { method: "POST", body: JSON.stringify({
       session_id: state.sessionId, message: message.trim(), context: context.trim() || null,
+      structure_ids: calculations.selectedIds(),
     }) });
     if (accountVersion !== state.accountVersion) return;
     state.turns.push({ text: message.trim(), context: context.trim(), answer: result.answer,
       calls: result.tool_calls, run: { usage: result.usage, context: result.context } });
     state.pending = null;
+    calculations.clearSelection();
     $("message-input").value = "";
     $("message-input").style.height = "";
     $("reference-input").value = "";
     setReferenceOpen(false);
     if (result.tool_calls.length) renderResult(result.tool_calls.at(-1));
     await refreshSessions().catch(() => {});
+    await calculations.refresh().catch(() => {});
   } catch (error) {
     if (accountVersion !== state.accountVersion) return;
     state.pending = { message: message.trim(), context: context.trim(), error: error.message };
@@ -276,6 +296,7 @@ async function sendChat(message, context) {
     $("reference-input").value = context;
     if (context) setReferenceOpen(true);
     await refreshSessions().catch(() => {});
+    await calculations.refresh().catch(() => {});
   } finally {
     if (accountVersion === state.accountVersion) {
       state.busy = false;
@@ -303,6 +324,8 @@ function renderResult(call) {
   }
   const result = call.result;
   $("result-badge").textContent = "已计算";
+  const calculationBadges = { calculation_preview: "待确认", build_structure: "已建模", import_structure: "已导入", calculation_setup: "配置已读取", calculation_artifacts: "记录已读取", calculation_jobs: "状态已查询", calculation_job: "状态已查询", calculation_submit_confirmed: "已交给 AiiDA" };
+  if (calculationBadges[call.name]) $("result-badge").textContent = calculationBadges[call.name];
   let body;
   if (call.name === "molecular_properties") {
     body = `<div class="calculation-title"><strong>${escapeHtml(result.formula)}</strong><span>分子属性</span></div><div class="canonical-smiles">${escapeHtml(result.canonical_smiles)}</div><div class="metric-grid">${metric("分子量", result.molecular_weight_g_mol, "g/mol")}${metric("Crippen LogP", result.logp_rdkit_crippen)}${metric("TPSA", result.tpsa_angstrom_squared, "Å²")}${metric("精确质量", result.exact_mass_da, "Da")}${metric("氢键供体", result.hydrogen_bond_donors)}${metric("氢键受体", result.hydrogen_bond_acceptors)}${metric("可旋转键", result.rotatable_bonds)}${metric("环数量", result.ring_count)}</div>`;
@@ -311,7 +334,12 @@ function renderResult(call) {
     const percent = Number.isFinite(score) ? Math.max(0, Math.min(100, score * 100)) : 0;
     body = `<div class="calculation-title"><strong>结构相似度</strong><span>TANIMOTO</span></div><div class="canonical-smiles">${escapeHtml(result.canonical_smiles_a)} ↔ ${escapeHtml(result.canonical_smiles_b)}</div><div class="similarity-score"><strong>${escapeHtml(metricValue(score, 6))}</strong><div class="score-track"><span style="width:${percent}%"></span></div><small>0 无指纹重叠 · 1 指纹相同</small></div><div class="result-source">Morgan 指纹 · radius=2 · 2048 bits<br>结构相似度不代表生物活性。</div>`;
   } else {
-    body = `<div class="calculation-title"><strong>${escapeHtml(call.name)}</strong></div>`;
+    body = `<div class="calculation-title"><strong>${escapeHtml(TOOL_LABELS[call.name] || call.name)}</strong></div>`;
+    if (call.name === "calculation_preview") body += '<p>实际输入文件已生成，等待你在聊天预览卡片中确认。尚未提交。</p>';
+    if (call.name === "calculation_job") {
+      const energy = result.results?.total_energies?.energy_extrapolated;
+      body += `<p>AiiDA #${escapeHtml(result.pk)} · ${escapeHtml(result.process_state)}<br>Slurm ${escapeHtml(result.scheduler_job_id || "尚未生成")} · 退出码 ${escapeHtml(result.exit_status ?? "尚未结束")}</p><div class="metric-grid">${metric("能量（外推）", energy, "eV")}</div><p class="result-source">正常退出不代表科学精度已收敛。</p>`;
+    }
   }
   $("result-panel").innerHTML = `<div class="calculation-card">${body}<div class="result-source">${escapeHtml(result.source || "")}</div><details class="raw-result"><summary>查看参数与完整结果</summary><pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, result }, null, 2))}</pre></details></div>`;
 }
@@ -422,6 +450,7 @@ window.addEventListener("resize", () => {
 });
 
 function showLogin(message = "") {
+  calculations.reset();
   state.accountVersion += 1;
   state.navigation += 1;
   rememberSession(null);

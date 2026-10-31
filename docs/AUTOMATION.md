@@ -87,3 +87,33 @@ node --test tests/frontend.test.mjs
 ```
 
 自动化测试使用临时 AiiDA profile，不访问真实集群。覆盖三种调度器 dry-run、结构验证、预览不提交、同一预览幂等、提交结果不明时停止重试，以及 loopback/Origin 限制。真实集群测试报告保留在本地忽略的 `data/`；PBS 仍需连接实际站点验证。
+
+## 在聊天中建模、预览和提交
+
+启动 `scripts/start_automation.py` 后访问 `/`。计算工具只在开启自动化的本地单用户模式注册；共享账号模式不会获得集群工具。模型 API Key 沿用项目现有的 `DEEPSEEK_API_KEY` 配置，不进入计算文件或建模环境。
+
+1. 点击 **添加结构文件**，上传单帧 POSCAR、CIF 或 EXTXYZ；也可以在对话中粘贴结构，让 Agent 调用 `import_structure`。
+2. 需要建模时，让 Agent 编写 ASE Python：参数放文件顶部，使用 `if __name__ == "__main__":`，输出 `structure.extxyz`。修改已有结构时传 `input_structure_id`，代码从 `input.extxyz` 读取。代码与产物分别保存，可以下载复用。
+3. Agent 先用 `calculation_setup` 获取真实服务器、Code、环境与赝势映射，再用 `calculation_preview` 生成实际输入。结构通过 `structure_id` 引用，无需反复把坐标发给模型。
+4. 在聊天下方检查实际 POSCAR、INCAR、KPOINTS、提交脚本及资源，点击 **确认以上参数并提交计算**。此操作独立于模型调用，也不需要模型批准。文字回复“确认”会引导用户点击对应卡片。
+5. 可以继续问“查询 AiiDA #29 的状态和结果”，或在已提交卡片中点击刷新。任务与对话运行是不同记录；对话结束不会停止 AiiDA 作业。
+
+提交确认绑定当前会话与具体预览 ID。模型没有提交工具；另一会话的预览无法确认。同一预览重复确认复用已有作业。服务器/Code 配置变化会使预览失效，需要重新生成。提交失败或网络结果不明时保留预览和提交记录，不通过新建预览盲目重试。
+
+结构、代码与预览保存于独立的会话产物目录，聊天压缩不会删除它们。`calculation_artifacts` 可以恢复引用。`calculation_job` 只查询本模块管理的 AiiDA UUID/PK，返回状态、解析结果、取回文件名与限长诊断日志；不会返回 POTCAR 内容。正常退出、电子收敛和科学精度收敛仍分别判断。
+
+### 建模执行器的范围
+
+当前内置执行器针对 macOS：使用系统 `sandbox-exec`，仅允许读取 Python 环境与必要系统库，工作目录可写，禁止网络、用户私有文件与外部子进程。子进程不继承 API Key、SSH agent 等环境变量；限 20 秒 CPU、30 秒墙钟、单文件 2 MB。无可用沙箱时拒绝执行，保留代码供下载，不回退到无隔离 Python。尚未提供容器执行器或跨平台的硬内存限额，不适合大模型推理、优化器或长期模拟。
+
+上传与建模结果仍受首版结构校验约束：1–10000 原子，完整周期晶胞，有限坐标；约束、初始磁矩或电荷不会被静默丢弃。复杂表面约束及非周期体系需后续显式支持。
+
+### 验证
+
+常规测试包含受控模型的工具调用、结构附件、会话隔离、确认后提交、防重复、服务重启恢复与状态查询。macOS 沙箱集成测试需在可启动系统沙箱的环境执行：
+
+```bash
+CHEM_SANDBOX_TEST=1 AIIDA_PATH=/tmp/chem-agent-tests-aiida .conda/bin/python -m pytest tests/automation/test_chat.py -q
+```
+
+本轮没有使用真实模型 API Key 验证 DeepSeek 的工具选择；受控模型验收不等同于真实模型效果评估。

@@ -78,6 +78,13 @@ async def jobs(service: Annotated[AutomationService, Depends(local_service)]) ->
     return await service.call("jobs")
 
 
+@router.get("/api/automation/jobs/{job_id}")
+async def job_details(
+    job_id: UUID, service: Annotated[AutomationService, Depends(local_service)]
+) -> dict:
+    return await service.call("job_details", {"job_id": str(job_id)})
+
+
 @router.post("/api/automation/codes")
 async def create_code(
     body: CodeCreate, service: Annotated[AutomationService, Depends(local_service)]

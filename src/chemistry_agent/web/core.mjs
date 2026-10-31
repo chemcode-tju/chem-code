@@ -1,6 +1,14 @@
 export const TOOL_LABELS = {
   molecular_properties: "分子属性计算",
   molecular_similarity: "结构相似度比较",
+  calculation_setup: "服务器与程序配置",
+  import_structure: "导入结构",
+  build_structure: "ASE 代码建模",
+  calculation_artifacts: "查找结构与预览",
+  calculation_preview: "生成计算预览",
+  calculation_submit_confirmed: "用户确认提交",
+  calculation_jobs: "查询计算任务",
+  calculation_job: "读取状态与结果",
 };
 
 export function escapeHtml(value) {

@@ -13,8 +13,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from chemistry_agent import __version__
-from chemistry_agent.agent import SYSTEM_PROMPT, ChemistryAgent, RunProgress
+from chemistry_agent.agent import AUTOMATION_PROMPT, SYSTEM_PROMPT, ChemistryAgent, RunProgress
 from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthManager
+from chemistry_agent.automation.chat import CalculationChat
+from chemistry_agent.automation.chat_routes import router as calculation_chat_router
+from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.config import Settings
@@ -53,7 +56,10 @@ def create_app(
     settings: Settings | None = None, *, transport: httpx.AsyncBaseTransport | None = None
 ) -> FastAPI:
     settings = settings or Settings()
-    registry = ToolRegistry()
+    automation = AutomationService(settings)
+    calculation_chat = CalculationChat(automation)
+    calculation_enabled = settings.automation_enabled and not settings.auth_enabled
+    registry = ToolRegistry(calculation_chat.tools() if calculation_enabled else [])
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -69,7 +75,7 @@ def create_app(
                     provider,
                     store,
                     counter,
-                    SYSTEM_PROMPT,
+                    SYSTEM_PROMPT + (AUTOMATION_PROMPT if calculation_enabled else ""),
                     registry.schemas(),
                 )
                 app.state.agent = ChemistryAgent(
@@ -94,8 +100,10 @@ def create_app(
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
 
     app.state.settings = settings
-    app.state.automation = AutomationService(settings)
+    app.state.automation = automation
+    app.state.calculation_chat = calculation_chat
     app.include_router(automation_router)
+    app.include_router(calculation_chat_router)
     app.add_middleware(AuthenticationMiddleware, settings=settings)
 
     @app.get("/auth/status", tags=["accounts"])
@@ -154,6 +162,7 @@ def create_app(
             "context_window_tokens": settings.context_window_tokens,
             "context_input_budget_tokens": settings.context_input_budget,
             "context_recent_turns": settings.context_recent_turns,
+            "automation_enabled": calculation_enabled,
         }
 
     @app.get("/tools", tags=["tools"])
@@ -212,6 +221,10 @@ def create_app(
 
     @app.post("/chat", response_model=ChatResponse, tags=["agent"])
     async def chat(body: ChatRequest, request: Request):
+        if calculation_enabled:
+            local_service(request)
+        if body.structure_ids and not calculation_enabled:
+            raise AgentError("automation_disabled", "结构附件需要本地自动化功能。", 422)
         if not settings.model_configured:
             raise AgentError("model_not_configured", "请先配置 DEEPSEEK_API_KEY。", 503)
         store: Store = request.app.state.store
@@ -221,12 +234,21 @@ def create_app(
             else (await store.create_session(body.message[:80], request.state.user_id))["id"]
         )
         request.state.session_id = session_id
+        attached_structures = [
+            calculation_chat.structure_summary(
+                calculation_chat.load(session_id, "structures", str(identifier))
+            ) for identifier in body.structure_ids
+        ]
         run_id, history = await store.begin_run(session_id, request.state.user_id)
         request.state.run_id = run_id
         content = body.message
         if body.context:
             content += (
                 "\n\n<user_provided_reference>\n" + body.context + ("\n</user_provided_reference>")
+            )
+        if attached_structures:
+            content += "\n\n已验证结构附件（用 ID 调用计算工具）：\n" + json.dumps(
+                attached_structures, ensure_ascii=False
             )
         messages = [*history, {"role": "user", "content": content}]
         progress = RunProgress()

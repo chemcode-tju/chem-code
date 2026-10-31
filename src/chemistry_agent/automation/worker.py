@@ -30,6 +30,9 @@ def dispatch(message: dict) -> dict:
         "preview": backend.preview,
         "submit": backend.submit_preview,
         "jobs": lambda _: backend.jobs(),
+        "validate_structure": backend.validate_structure,
+        "catalog": lambda _: backend.catalog(),
+        "job_details": backend.job_details,
     }
     return actions[message["action"]](message.get("payload", {}))
 

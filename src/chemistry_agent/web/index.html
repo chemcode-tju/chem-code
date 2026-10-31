@@ -97,11 +97,14 @@
           <div class="welcome-note"><span class="small-orbit">✳</span><p>让模型理解问题，让工具核实计算。<br><span>每一项计算，都可以回到具体方法与结果。</span></p></div>
         </section>
         <section id="conversation" class="conversation" aria-label="对话消息" aria-live="polite" aria-relevant="additions text" hidden></section>
+        <section id="calculation-cards" class="calculation-workspace" aria-label="结构与计算预览" hidden></section>
       </div>
     </div>
 
     <div class="composer-area">
       <form class="composer" id="chat-form">
+        <div id="structure-attachments" class="structure-attachments"></div>
+        <div class="structure-upload-row"><button type="button" id="structure-upload" hidden>＋ 添加结构文件</button><span>POSCAR / CIF / EXTXYZ</span><input type="file" id="structure-file" hidden></div>
         <div class="reference-editor" id="reference-editor" hidden>
           <div><label for="reference-input"><svg class="icon"><use href="#i-document"/></svg>参考文献片段</label><button type="button" class="icon-button" id="remove-reference" aria-label="移除文献片段"><svg class="icon"><use href="#i-close"/></svg></button></div>
           <textarea id="reference-input" maxlength="50000" rows="4" placeholder="粘贴需要分析的原文。发送问题时，这段资料也会提供给模型。"></textarea>

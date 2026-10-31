@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -8,8 +9,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rdkit import Chem, DataStructs, rdBase
 from rdkit.Chem import Crippen, Descriptors, Lipinski, rdFingerprintGenerator, rdMolDescriptors
 
+from chemistry_agent.errors import AgentError
 from chemistry_agent.provider import ToolCall
 from chemistry_agent.schemas import ToolExecution
+
+
+@dataclass(frozen=True)
+class ToolContext:
+    session_id: str
+    run_id: str
 
 
 class MoleculeInput(BaseModel):
@@ -72,6 +80,7 @@ class Tool:
     description: str
     input_model: type[BaseModel]
     handler: Callable
+    contextual: bool = False
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -85,7 +94,7 @@ class Tool:
 
 
 class ToolRegistry:
-    def __init__(self):
+    def __init__(self, extra_tools: list[Tool] | None = None):
         tools = [
             Tool(
                 "molecular_properties",
@@ -102,12 +111,12 @@ class ToolRegistry:
                 molecular_similarity,
             ),
         ]
-        self.tools = {tool.name: tool for tool in tools}
+        self.tools = {tool.name: tool for tool in [*tools, *(extra_tools or [])]}
 
     def schemas(self) -> list[dict[str, Any]]:
         return [tool.schema() for tool in self.tools.values()]
 
-    async def execute(self, call: ToolCall) -> ToolExecution:
+    async def execute(self, call: ToolCall, context: ToolContext | None = None) -> ToolExecution:
         arguments: Any = call.function.arguments
         try:
             arguments = json.loads(arguments)
@@ -115,8 +124,17 @@ class ToolRegistry:
             if tool is None:
                 raise ValueError("未知工具，请选择已注册的工具。")
             args = tool.input_model.model_validate(arguments)
-            result = await asyncio.to_thread(tool.handler, args)
+            if tool.contextual and context is None:
+                raise AgentError("chat_context_required", "请在对话中使用此工具。", 422)
+            values = (args, context) if tool.contextual else (args,)
+            if inspect.iscoroutinefunction(tool.handler):
+                result = await tool.handler(*values)
+            else:
+                result = await asyncio.to_thread(tool.handler, *values)
             success = True
+        except AgentError as exc:
+            result = {"error": exc.code, "message": exc.message}
+            success = False
         except (ValueError, ValidationError):
             result = {
                 "error": "invalid_tool_input",

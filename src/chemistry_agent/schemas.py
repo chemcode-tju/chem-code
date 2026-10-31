@@ -17,6 +17,7 @@ class ChatRequest(StrictModel):
     session_id: UUID | None = None
     # User-supplied excerpts only; this endpoint does not read local files or fetch URLs.
     context: str | None = Field(default=None, max_length=50000)
+    structure_ids: list[UUID] = Field(default_factory=list, max_length=8)
 
 
 class TokenUsage(BaseModel):

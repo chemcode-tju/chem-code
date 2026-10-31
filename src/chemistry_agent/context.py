@@ -61,6 +61,15 @@ class ContextManager:
         important = [
             "error",
             "message",
+            "id",
+            "structure_id",
+            "model_id",
+            "preview_id",
+            "confirmation_required",
+            "pk",
+            "process_state",
+            "scheduler_job_id",
+            "exit_status",
             "canonical_smiles",
             "canonical_smiles_a",
             "canonical_smiles_b",
@@ -86,6 +95,10 @@ class ContextManager:
             "inchi",
             "inchikey",
             "cas_number",
+            "id",
+            "structure_id",
+            "model_id",
+            "preview_id",
         }
         for key in keys[:64]:
             value = items[key]
@@ -123,9 +136,21 @@ class ContextManager:
             )
         # Never modify the authoritative transcript or split a call/result pair.
         tail = copy.deepcopy([*history[memory.covered_messages :], *current])
+        current_tools = {
+            call["id"]: call["function"]["name"]
+            for message in current for call in message.get("tool_calls", [])
+        }
+        calculation_tools = {
+            "calculation_setup", "calculation_artifacts", "calculation_preview",
+            "calculation_job", "calculation_jobs", "build_structure", "import_structure",
+        }
         compacted = 0
         for message in tail:
             if message["role"] == "tool":
+                # New calculation results carry IDs needed by the next tool call. Retain them
+                # for this run; the whole-request budget is still enforced below.
+                if current_tools.get(message.get("tool_call_id")) in calculation_tools:
+                    continue
                 message["content"], changed = self.compact_tool_content(message["content"])
                 compacted += int(changed)
         return [*messages, *tail], compacted
