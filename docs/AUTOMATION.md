@@ -90,7 +90,7 @@ node --test tests/frontend.test.mjs
 
 ## 在聊天中建模、预览和提交
 
-启动 `scripts/start_automation.py` 后访问 `/`。计算工具只在开启自动化的本地单用户模式注册；共享账号模式不会获得集群工具。模型 API Key 沿用项目现有的 `DEEPSEEK_API_KEY` 配置，不进入计算文件或建模环境。
+启动 `scripts/start_automation.py` 后访问 `/`。计算工具只在开启自动化的本地单用户模式注册；共享账号模式不会获得集群工具。模型入口位于 `/settings`，支持 ChatGPT 账号授权、DeepSeek API Key 和 OpenAI 兼容接口；保存后下一次请求生效。旧 `DEEPSEEK_API_KEY` 可继续作为默认配置。模型凭据不进入计算文件或建模环境，ChatGPT 授权也不会开启共享账号模式。
 
 1. 点击 **添加结构文件**，上传单帧 POSCAR、CIF 或 EXTXYZ；也可以在对话中粘贴结构，让 Agent 调用 `import_structure`。
 2. 需要建模时，让 Agent 编写 ASE Python：参数放文件顶部，使用 `if __name__ == "__main__":`，输出 `structure.extxyz`。修改已有结构时传 `input_structure_id`，代码从 `input.extxyz` 读取。代码与产物分别保存，可以下载复用。
@@ -116,4 +116,4 @@ node --test tests/frontend.test.mjs
 CHEM_SANDBOX_TEST=1 AIIDA_PATH=/tmp/chem-agent-tests-aiida .conda/bin/python -m pytest tests/automation/test_chat.py -q
 ```
 
-本轮没有使用真实模型 API Key 验证 DeepSeek 的工具选择；受控模型验收不等同于真实模型效果评估。
+登录集成测试模拟 Codex CLI 的结构化响应，实际经过 ProviderRouter、ChatGPT 响应解析、Agent 工具循环、ASE 建模与预览；默认模拟建模执行器，启用 `CHEM_SANDBOX_TEST=1` 时另测真实 macOS 沙箱。集群预览/提交在该集成测试中模拟，不消耗集群资源；已有独立 AiiDA dry-run 与真实 P100 计算验证仍保留。未登录真实 ChatGPT 账号或调用真实模型 API；模拟验收不等同于账号授权和模型效果验证。
