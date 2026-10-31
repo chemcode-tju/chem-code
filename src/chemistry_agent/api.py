@@ -30,6 +30,7 @@ from chemistry_agent.schemas import (
     ToolExecution,
 )
 from chemistry_agent.store import Store
+from chemistry_agent.structures import router as structures_router
 from chemistry_agent.tokens import TokenCounter
 from chemistry_agent.tools import ToolRegistry
 
@@ -90,6 +91,7 @@ def create_app(
         description="本地化学 agent：DeepSeek + LangGraph + RDKit。先配置 Key，再调用 /chat。",
     )
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
+    app.include_router(structures_router)
 
     app.add_middleware(AuthenticationMiddleware, settings=settings)
 
@@ -137,6 +139,10 @@ def create_app(
     @app.get("/", include_in_schema=False)
     async def index():
         return FileResponse(WEB_DIRECTORY / "index.html")
+
+    @app.get("/structures", include_in_schema=False)
+    async def structure_viewer():
+        return FileResponse(WEB_DIRECTORY / "structure" / "index.html")
 
     @app.get("/health", tags=["service"])
     async def health():

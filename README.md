@@ -4,6 +4,8 @@
 
 目前可用：中文聊天前端、基于已知 SMILES 的分子属性计算和分子相似度比较、用户提供的文献片段分析、多轮会话、工具调用记录和运行状态。所有新增代码都在本目录内。
 
+新增结构与轨迹查看器：从左侧“结构与轨迹”或研究面板打开，可读取 XYZ/extxyz、POSCAR/CONTCAR/XDATCAR、ASE `.traj`、LAMMPS 文本 dump/data、GROMACS `.gro` 和 PDB。支持轨迹播放、原子选择与测量、晶胞、Wrap、质心漂移校正，以及 PNG/JPEG/PDF 快照。文件范围、元素映射与限制见 [结构查看器说明](docs/structure-viewer.md)。本功能用于查看，不执行几何优化计算。
+
 远端部署和独立账号模式见 [DEPLOYMENT.md](DEPLOYMENT.md)。提供 Docker 镜像、Caddy HTTPS 入口、持久化数据卷，以及管理员创建账号、会话隔离和数据库备份命令。
 
 ## 安装与启动（Windows PowerShell）

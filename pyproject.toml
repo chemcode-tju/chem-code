@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
+  "ase>=3.27,<4",
   "aiosqlite>=0.20,<1",
   "fastapi>=0.115,<1",
   "filelock>=3.16,<4",

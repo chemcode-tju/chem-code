@@ -61,6 +61,7 @@
     <button class="new-chat" id="new-chat"><svg class="icon"><use href="#i-plus"/></svg>新建对话<span>↗</span></button>
     <div class="nav-section-label"><span>研究空间</span></div>
     <div class="nav-current"><svg class="icon"><use href="#i-chat"/></svg><span>化学助手</span><span class="nav-dot"></span></div>
+    <a class="nav-current" href="/structures"><svg class="icon"><use href="#i-molecule"/></svg><span>结构与轨迹</span><span>↗</span></a>
     <div class="history-heading"><span>最近对话</span><button class="icon-button sidebar-icon" id="refresh-sessions" title="刷新会话" aria-label="刷新会话"><svg class="icon"><use href="#i-refresh"/></svg></button></div>
     <nav class="session-list" id="session-list" aria-label="历史会话"><p class="sidebar-empty">正在读取会话…</p></nav>
     <button class="load-more" id="load-more" hidden>加载更多对话</button>
@@ -117,6 +118,7 @@
     <div class="inspector-heading"><div><svg class="icon"><use href="#i-panel"/></svg><strong>研究面板</strong></div><button class="icon-button inspector-close" id="inspector-close" aria-label="关闭研究面板"><svg class="icon"><use href="#i-close"/></svg></button><span class="live-label">WORKBENCH</span></div>
     <div class="inspector-scroll">
       <div class="section-heading"><h2>分子工具</h2><span>本地计算</span></div>
+      <a class="tool-submit" href="/structures">打开结构与轨迹查看器 ↗</a>
       <details class="tool-form-card" open><summary><span class="tool-icon"><svg class="icon"><use href="#i-flask"/></svg></span><span><strong>分子属性</strong><small>分子量 · LogP · 氢键 · TPSA</small></span><svg class="icon disclosure"><use href="#i-chevron"/></svg></summary>
         <form id="properties-form"><label for="properties-smiles">分子 SMILES</label><input id="properties-smiles" name="smiles" type="text" placeholder="例如 CCO（乙醇）" maxlength="2000" required autocomplete="off" spellcheck="false"><button class="tool-submit" type="submit">计算分子属性 <svg class="icon"><use href="#i-arrow-right"/></svg></button></form>
       </details>
