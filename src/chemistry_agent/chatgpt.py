@@ -82,17 +82,24 @@ class ChatGPTClient:
             )
         return executable
 
-    async def process(self, user_id: str | None, *arguments: str, **options: Any):
-        return await asyncio.create_subprocess_exec(
-            self.executable(),
-            "-c",
-            'forced_login_method="chatgpt"',
-            "-c",
-            'cli_auth_credentials_store="file"',
-            *arguments,
-            env=self.environment(user_id),
-            **options,
-        )
+    async def process(
+        self, user_id: str | None, *arguments: str, **options: Any
+    ) -> asyncio.subprocess.Process:
+        try:
+            return await asyncio.create_subprocess_exec(
+                self.executable(),
+                "-c",
+                'forced_login_method="chatgpt"',
+                "-c",
+                'cli_auth_credentials_store="file"',
+                *arguments,
+                env=self.environment(user_id),
+                **options,
+            )
+        except OSError as exc:
+            raise AgentError(
+                "codex_start_failed", "无法启动 Codex CLI，请检查安装和执行权限。", 503
+            ) from exc
 
     async def authenticated(self, user_id: str | None) -> bool:
         if not shutil.which(self.store.settings.codex_binary):

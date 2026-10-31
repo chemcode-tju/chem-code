@@ -96,11 +96,10 @@ class ModelSettingsStore:
             incoming = incoming.model_copy(update={"api_key": previous.api_key})
         if incoming.provider == "chatgpt":
             incoming = incoming.model_copy(update={"api_key": None})
-        elif not incoming.api_key and urlsplit(incoming.base_url).hostname not in {
-            "localhost",
-            "127.0.0.1",
-            "::1",
-        }:
+        elif not incoming.api_key and (
+            incoming.provider == "deepseek"
+            or urlsplit(incoming.base_url).hostname not in {"localhost", "127.0.0.1", "::1"}
+        ):
             raise AgentError(
                 "key_required", "此服务地址需要填写 API Key。更换服务时请重新填写。", 422
             )
