@@ -21,6 +21,7 @@ from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_routes import router as model_router
 from chemistry_agent.model_runtime import ProviderRouter
+from chemistry_agent.projects import router as projects_router
 from chemistry_agent.provider import ToolCall
 from chemistry_agent.schemas import (
     ChatRequest,
@@ -97,6 +98,7 @@ def create_app(
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
     app.include_router(structures_router)
     app.include_router(model_router)
+    app.include_router(projects_router)
 
     app.add_middleware(AuthenticationMiddleware, settings=settings)
 

@@ -12,6 +12,7 @@ from filelock import Timeout as LockTimeout
 
 from chemistry_agent.auth import init_auth_schema
 from chemistry_agent.errors import AgentError
+from chemistry_agent.projects import init_project_schema
 from chemistry_agent.schemas import ContextMemory, ContextUsage, TokenUsage, ToolExecution
 
 
@@ -85,6 +86,7 @@ class Store:
                 await db.execute(
                     "ALTER TABLE runs ADD COLUMN context_info TEXT NOT NULL DEFAULT '{}'"
                 )
+            await init_project_schema(db)
             # This service runs one worker. A previous worker's active jobs cannot be resumed.
             await db.execute(
                 "UPDATE runs SET status='interrupted', error_code='service_restarted', "

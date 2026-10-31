@@ -1,3 +1,4 @@
+import { createProjectNavigation } from "./projects.mjs";
 import { TOOL_LABELS, buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
 
 const $ = (id) => document.getElementById(id);
@@ -91,6 +92,9 @@ function updateControls() {
   $("new-chat").disabled = locked;
   $("logout-button").disabled = locked;
   $("reference-toggle").disabled = locked;
+  $("chat-project").disabled = locked;
+  $("new-project").disabled = locked;
+  document.querySelectorAll("[data-new-in]").forEach((button) => { button.disabled = locked; });
   $("remove-reference").disabled = locked;
   document.querySelectorAll(".session-button,.suggestion-card").forEach((button) => { button.disabled = locked; });
   $("chat-form").setAttribute("aria-busy", String(state.busy));
@@ -104,7 +108,7 @@ async function refreshHealth() {
       ? `${names[state.health.model] || state.health.model} · ${state.health.provider === "chatgpt" ? "已登录" : "已配置"}` : "模型未配置";
     $("model-status").classList.toggle("unavailable", !state.health.model_configured);
     $("connection-notice").hidden = state.health.model_configured;
-    $("connection-notice").textContent = "模型尚未配置，请打开“模型设置”登录 ChatGPT 或填写 API Key。分子工具仍可使用。";
+    $("connection-notice").textContent = "模型尚未配置，请从左下角账户 → 账户与模型连接完成设置。";
   } catch {
     state.health = null;
     $("model-label").textContent = "服务未连接";
@@ -115,19 +119,26 @@ async function refreshHealth() {
   updateControls();
 }
 
+function sessionButton(session) {
+  return `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}">${icon("chat")}<span>${escapeHtml(session.title)}</span></button>`;
+}
+
+const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
+
 function renderSessions() {
-  $("session-list").innerHTML = state.sessions.length ? state.sessions.map((session) =>
-    `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}">${icon("chat")}<span>${escapeHtml(session.title)}</span></button>`
-  ).join("") : '<p class="sidebar-empty">你的研究，从第一段对话开始。</p>';
+  const chats = state.sessions.filter((session) => !projectNavigation.includes(session.id));
+  $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无独立聊天</p>';
   $("load-more").hidden = !state.hasMore;
+  projectNavigation.render();
   updateControls();
 }
 
 async function refreshSessions(append = false) {
   const accountVersion = state.accountVersion;
   const offset = append ? state.sessions.length : 0;
-  const sessions = await api(`/sessions?limit=50&offset=${offset}`);
+  const [sessions, projects] = await Promise.all([api(`/sessions?limit=50&offset=${offset}`), api("/api/projects")]);
   if (accountVersion !== state.accountVersion) return;
+  projectNavigation.accept(projects);
   state.sessions = append ? [...state.sessions, ...sessions] : sessions;
   state.hasMore = sessions.length === 50;
   renderSessions();
@@ -204,7 +215,7 @@ async function selectSession(id, quiet = false) {
     state.turns = [];
     state.runs = [];
     rememberSession(null);
-    $("conversation-title").textContent = "化学助手";
+    $("conversation-title").textContent = "新对话";
   } finally {
     if (navigation === state.navigation) {
       state.loading = false;
@@ -217,12 +228,13 @@ async function selectSession(id, quiet = false) {
 function newConversation() {
   if (state.busy || state.loading) return;
   state.navigation += 1;
+  projectNavigation.clearSelection();
   state.sessionId = null;
   state.turns = [];
   state.runs = [];
   state.pending = null;
   rememberSession(null);
-  $("conversation-title").textContent = "化学助手";
+  $("conversation-title").textContent = "新对话";
   $("message-input").value = "";
   $("reference-input").value = "";
   setReferenceOpen(false);
@@ -255,6 +267,8 @@ async function sendChat(message, context) {
       state.sessionId = session.id;
       $("conversation-title").textContent = session.title;
       rememberSession(session.id);
+      await projectNavigation.assign(session.id);
+      if (accountVersion !== state.accountVersion) return;
     }
     const result = await api("/chat", { method: "POST", body: JSON.stringify({
       session_id: state.sessionId, message: message.trim(), context: context.trim() || null,
@@ -293,14 +307,17 @@ const emptyResult = $("result-panel").innerHTML;
 function renderResult(call) {
   if (!call) {
     $("result-panel").innerHTML = emptyResult;
-    $("result-badge").textContent = "等待计算";
+    $("result-badge").textContent = "暂无记录";
+    $("result-section").open = false;
     return;
   }
   if (!call.success) {
+    $("result-section").open = true;
     $("result-panel").innerHTML = `<div class="tool-failure">${escapeHtml(call.result?.message || "计算未完成，请检查输入的分子结构。")}</div>`;
     $("result-badge").textContent = "请检查输入";
     return;
   }
+  $("result-section").open = true;
   const result = call.result;
   $("result-badge").textContent = "已计算";
   let body;
@@ -361,15 +378,6 @@ $("reference-toggle").addEventListener("click", () => {
 });
 $("remove-reference").addEventListener("click", () => { $("reference-input").value = ""; setReferenceOpen(false); });
 $("reference-input").addEventListener("input", () => setReferenceOpen(true));
-$("reference-suggestion").addEventListener("click", () => {
-  $("message-input").value = "请分析这段文献的研究方法、关键发现和结论局限，并区分原文证据与推断。";
-  setReferenceOpen(true);
-  $("reference-input").focus();
-});
-document.querySelectorAll("[data-prompt]").forEach((button) => button.addEventListener("click", () => {
-  $("message-input").value = button.dataset.prompt;
-  $("message-input").focus();
-}));
 $("session-list").addEventListener("click", (event) => {
   const button = event.target.closest("[data-session]");
   if (button) selectSession(button.dataset.session);
@@ -402,7 +410,8 @@ $("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false);
 $("inspector-close").addEventListener("click", () => setDrawer("inspector", false));
 $("screen-overlay").addEventListener("click", closeDrawers);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeDrawers();
+  if ($("project-dialog").open) return;
+  if (event.key === "Escape") { closeDrawers(); $("account-menu").open = false; }
   if (event.key !== "Tab") return;
   const openPanel = document.body.classList.contains("sidebar-open") ? $("sidebar") :
     document.body.classList.contains("inspector-open") ? $("inspector") : null;
@@ -432,11 +441,13 @@ function showLogin(message = "") {
   state.pending = null;
   state.results.clear();
   state.auth.user = null;
+  projectNavigation.reset();
+  $("account-menu").open = false;
   state.busy = false;
   state.loading = false;
   $("conversation").replaceChildren();
   $("session-list").replaceChildren();
-  $("conversation-title").textContent = "化学助手";
+  $("conversation-title").textContent = "新对话";
   $("message-input").value = "";
   $("reference-input").value = "";
   $("properties-form").reset();
@@ -457,7 +468,9 @@ async function startWorkspace() {
   $("login-screen").hidden = true;
   document.body.classList.remove("auth-checking");
   $("workspace-name").textContent = state.auth.user?.username || "本地研究空间";
-  $("workspace-note").textContent = state.auth.enabled ? "个人研究空间" : "会话自动保存在本机";
+  $("workspace-note").textContent = "账户与设置";
+  $("account-avatar").textContent = (state.auth.user?.username || "C").slice(0, 1).toUpperCase();
+  $("account-detail").textContent = state.auth.enabled ? `已登录 · ${state.auth.user.username}` : "本地单用户模式";
   $("logout-button").hidden = !state.auth.enabled;
   syncDrawerAccessibility();
   await Promise.all([refreshHealth(), refreshSessions().catch((error) => {

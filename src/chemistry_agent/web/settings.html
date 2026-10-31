@@ -3,17 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>模型登录与配置 · Chemistry Agent</title>
+  <title>设置 · Chemistry Agent</title>
+  <script src="/assets/theme.js"></script>
+  <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/settings.css">
   <script type="module" src="/assets/settings.mjs"></script>
 </head>
 <body>
   <main>
     <a class="back" href="/">← 返回研究空间</a>
-    <p class="eyebrow">CHEMISTRY WORKSPACE</p>
-    <h1>连接你的 AI</h1>
-    <p class="intro">选择 ChatGPT 账号登录，或使用自己的模型 API。保存后即可在对话中使用，无需重启。</p>
-    <form id="model-form">
+    <header class="settings-header"><h1>设置</h1><p class="intro">管理账户、模型连接与外观。</p></header>
+    <nav class="settings-nav" aria-label="设置分类"><a href="#account">账户</a><a href="#appearance">外观</a><a href="#model-form">模型连接</a></nav>
+    <section class="settings-card" id="account"><h2>工作空间账户</h2><div class="account-row"><span class="account-avatar" id="settings-avatar">C</span><div><strong id="settings-username">正在读取…</strong><p id="settings-account-note" class="hint"></p></div><button class="secondary" id="settings-logout" type="button" hidden>退出登录</button></div></section>
+    <section class="settings-card" id="appearance"><h2>外观</h2><p class="hint">仅调整按钮、选中标记和焦点颜色，保持界面底色统一。设置保存在当前浏览器。</p><div class="appearance-row"><label for="theme-mode">显示模式</label><select id="theme-mode"><option value="light">白色</option><option value="dark">深夜</option><option value="system">跟随系统</option></select></div><div class="appearance-row"><label for="accent-color">强调色</label><div class="accent-controls"><button type="button" class="swatch" data-accent="#5865b5" style="--swatch:#5865b5" aria-label="靛蓝"></button><button type="button" class="swatch" data-accent="#477b91" style="--swatch:#477b91" aria-label="雾蓝"></button><button type="button" class="swatch" data-accent="#8a6098" style="--swatch:#8a6098" aria-label="灰紫"></button><button type="button" class="swatch" data-accent="#a36b43" style="--swatch:#a36b43" aria-label="暖棕"></button><input id="accent-color" type="color" value="#5865b5" title="自定义强调色"></div></div><div class="appearance-preview"><span class="preview-selected">选中的对话</span><button class="primary" type="button" id="reset-appearance">恢复默认</button></div><p id="appearance-notice" class="hint" role="status"></p></section>
+    <form id="model-form" class="settings-card"><h2>模型连接</h2><p class="hint">选择账号授权或 API 服务，保存后立即生效。</p>
       <label for="provider">登录方式</label>
       <select id="provider">
         <option value="chatgpt">ChatGPT 账号授权登录</option>

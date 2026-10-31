@@ -125,3 +125,38 @@ action(async () => {
   await refreshLogin();
 });
 window.addEventListener("pagehide", () => clearTimeout(polling));
+
+const theme = globalThis.chemistryTheme;
+function displayAppearance() {
+  const value = theme.read();
+  $("theme-mode").value = value.mode;
+  $("accent-color").value = value.accent;
+  document.querySelectorAll("[data-accent]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.accent === value.accent));
+  });
+}
+function saveAppearance() {
+  const saved = theme.save({ mode: $("theme-mode").value, accent: $("accent-color").value });
+  $("appearance-notice").textContent = saved ? "已保存到当前浏览器。" : "已应用；浏览器禁止存储，刷新后可能恢复默认。";
+  if (saved) displayAppearance();
+}
+$("theme-mode").addEventListener("change", saveAppearance);
+$("accent-color").addEventListener("input", saveAppearance);
+for (const button of document.querySelectorAll("[data-accent]")) {
+  button.addEventListener("click", () => { $("accent-color").value = button.dataset.accent; saveAppearance(); });
+}
+$("reset-appearance").addEventListener("click", () => {
+  $("theme-mode").value = "light"; $("accent-color").value = "#5865b5"; saveAppearance();
+});
+displayAppearance();
+window.addEventListener("storage", (event) => { if (event.key === "chemistry.appearance") displayAppearance(); });
+api("/auth/status").then((data) => {
+  const name = data.user?.username || "本地账户";
+  $("settings-username").textContent = name;
+  $("settings-avatar").textContent = name.slice(0, 1).toUpperCase();
+  $("settings-account-note").textContent = data.enabled ? "个人工作空间 · 已登录" : "本地单用户模式";
+  $("settings-logout").hidden = !data.enabled;
+}).catch((error) => notice(error.message, true));
+$("settings-logout").addEventListener("click", () => action(async () => {
+  await api("/auth/logout", { method: "POST" }); location.assign("/");
+}));
