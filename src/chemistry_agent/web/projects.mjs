@@ -1,3 +1,4 @@
+import { t } from "./i18n.mjs";
 import { escapeHtml } from "./core.mjs";
 
 /** Folder navigation owns only organization; chat execution stays in app.mjs. */
@@ -19,9 +20,7 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
       revealedSession = state.sessionId;
     }
     $("project-list").innerHTML = projects.map((project) => `<details class="project-folder" data-project="${project.id}"${expanded.has(project.id) ? " open" : ""}><summary>${folderIcon}<span title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span><small>${project.sessions.length}</small>${chevron}</summary><div class="project-children">${project.sessions.map(sessionButton).join("") || '<p class="sidebar-empty">暂无对话</p>'}<div class="project-actions"><button data-new-in="${project.id}"${state.busy || state.loading ? " disabled" : ""}>＋ 新对话</button><button data-edit-project="${project.id}">管理项目</button></div></div></details>`).join("") || '<p class="sidebar-empty">按项目整理相关对话</p>';
-    $("chat-project").innerHTML = '<option value="">独立聊天</option>' + projects.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
-    $("chat-project").value = selected;
-    $("chat-project").disabled = state.busy || state.loading;
+
   }
   function reset() {
     projects = []; selected = ""; editing = null; expanded.clear(); accountId = null; revealedSession = null;
@@ -86,17 +85,8 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
     const create = event.target.closest("[data-new-in]");
     if (create && !state.busy && !state.loading) {
       newConversation(); selected = create.dataset.newIn; expanded.add(selected); render();
-      $("conversation-title").textContent = `${projects.find((p) => p.id === selected)?.name} / 新对话`;
+      $("conversation-title").textContent = `${projects.find((p) => p.id === selected)?.name} / ${t("新对话")}`;
     }
-  });
-  $("chat-project").addEventListener("change", async () => {
-    const previous = selected;
-    selected = $("chat-project").value;
-    if (!state.sessionId) return;
-    $("chat-project").disabled = true;
-    try { await assign(state.sessionId); await refreshSessions(); toast("已更新对话所属项目。"); }
-    catch (error) { selected = previous; render(); toast(error.message); }
-    finally { $("chat-project").disabled = state.busy || state.loading; }
   });
   async function assign(sessionId) {
     await api(`/api/projects/sessions/${encodeURIComponent(sessionId)}`, { method: "PUT", body: JSON.stringify({ project_id: selected || null }) });

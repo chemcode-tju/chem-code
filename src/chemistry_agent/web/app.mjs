@@ -1,3 +1,5 @@
+import { t } from "./i18n.mjs";
+import { createFileUploads, renderFiles, contextFiles } from "./files.mjs";
 import { createProjectNavigation } from "./projects.mjs";
 import { TOOL_LABELS, buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
 
@@ -57,7 +59,7 @@ function rememberSession(id) {
 
 function syncDrawerAccessibility() {
   const loginRequired = !$("login-screen").hidden;
-  const sidebarHidden = loginRequired || (innerWidth <= 760 && !document.body.classList.contains("sidebar-open"));
+  const sidebarHidden = loginRequired || (innerWidth <= 760 && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
   const inspectorHidden = loginRequired || (innerWidth <= 1120 && !document.body.classList.contains("inspector-open"));
   document.querySelector(".main-panel").inert = loginRequired;
   document.querySelector(".main-panel").setAttribute("aria-hidden", String(loginRequired));
@@ -86,16 +88,13 @@ function closeDrawers() { setDrawer("sidebar", false); setDrawer("inspector", fa
 function updateControls() {
   const locked = state.busy || state.loading;
   $("message-input").disabled = locked;
-  $("reference-input").disabled = locked;
-  $("send-button").disabled = locked || !state.health?.model_configured;
+  $("send-button").disabled = locked || uploads.uploading || !state.health?.model_configured;
+  $("composer-add").disabled = locked || uploads.uploading;
+  $("sidebar-add").disabled = locked || uploads.uploading;
   $("send-button").setAttribute("aria-label", state.busy ? "正在生成回答" : "发送消息");
   $("new-chat").disabled = locked;
-  $("logout-button").disabled = locked;
-  $("reference-toggle").disabled = locked;
-  $("chat-project").disabled = locked;
   $("new-project").disabled = locked;
   document.querySelectorAll("[data-new-in]").forEach((button) => { button.disabled = locked; });
-  $("remove-reference").disabled = locked;
   document.querySelectorAll(".session-button,.suggestion-card").forEach((button) => { button.disabled = locked; });
   $("chat-form").setAttribute("aria-busy", String(state.busy));
 }
@@ -107,14 +106,10 @@ async function refreshHealth() {
     $("model-label").textContent = state.health.model_configured
       ? `${names[state.health.model] || state.health.model} · ${state.health.provider === "chatgpt" ? "已登录" : "已配置"}` : "模型未配置";
     $("model-status").classList.toggle("unavailable", !state.health.model_configured);
-    $("connection-notice").hidden = state.health.model_configured;
-    $("connection-notice").textContent = "模型尚未配置，请从左下角账户 → 账户与模型连接完成设置。";
   } catch {
     state.health = null;
     $("model-label").textContent = "服务未连接";
     $("model-status").classList.add("unavailable");
-    $("connection-notice").hidden = false;
-    $("connection-notice").textContent = "暂时无法连接本地服务，恢复连接后将自动更新。";
   }
   updateControls();
 }
@@ -124,6 +119,7 @@ function sessionButton(session) {
 }
 
 const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
+const uploads = createFileUploads({ state, toast, updateControls, onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
 
 function renderSessions() {
   const chats = state.sessions.filter((session) => !projectNavigation.includes(session.id));
@@ -144,9 +140,10 @@ async function refreshSessions(append = false) {
   renderSessions();
 }
 
-function renderUser(text, context) {
-  return `<div class="user-message"><div class="user-bubble">${escapeHtml(text)}${context ?
-    `<details class="attached-reference"><summary>${icon("document")} 已附参考文献片段 · ${context.length.toLocaleString()} 字符</summary><pre>${escapeHtml(context)}</pre></details>` : ""}</div></div>`;
+function renderUser(text, context, files = []) {
+  const attachedFiles = files.length ? files : contextFiles(context);
+  return `<div class="user-message"><div class="user-bubble"><span data-no-i18n>${escapeHtml(text)}</span>${renderFiles(attachedFiles)}${context && !attachedFiles.length ?
+    `<details class="attached-reference"><summary>${icon("document")} ${t("附件与上下文")}</summary><pre>${escapeHtml(context)}</pre></details>` : ""}</div></div>`;
 }
 
 function renderToolTrace(calls, turnIndex) {
@@ -174,13 +171,13 @@ function renderConversation(scroll = true) {
     return;
   }
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    `<article class="turn">${renderUser(turn.text, turn.context)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div><div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    `<article class="turn">${renderUser(turn.text, turn.context, turn.files)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div><div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
   if (state.pending) {
     const pending = state.pending;
     const article = document.createElement("article");
     article.className = "turn";
-    article.innerHTML = `${renderUser(pending.message, pending.context)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${pending.error ? `<div class="message-error">${escapeHtml(pending.error)}<br><button class="retry-button" id="retry-message">${icon("refresh")}重试这条消息</button></div>` : '<div class="thinking-indicator"><span></span><span></span><span></span>正在分析问题…</div>'}</div></div>`;
+    article.innerHTML = `${renderUser(pending.message, pending.context, pending.files)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${pending.error ? `<div class="message-error">${escapeHtml(pending.error)}<br><button class="retry-button" id="retry-message">${icon("refresh")}重试这条消息</button></div>` : '<div class="thinking-indicator"><span></span><span></span><span></span>正在分析问题…</div>'}</div></div>`;
     $("conversation").append(article);
   }
   if (scroll) requestAnimationFrame(() => {
@@ -191,6 +188,7 @@ function renderConversation(scroll = true) {
 
 async function selectSession(id, quiet = false) {
   if (state.busy) return;
+  uploads.clear();
   const navigation = ++state.navigation;
   state.loading = true;
   state.pending = null;
@@ -215,7 +213,7 @@ async function selectSession(id, quiet = false) {
     state.turns = [];
     state.runs = [];
     rememberSession(null);
-    $("conversation-title").textContent = "新对话";
+    $("conversation-title").textContent = t("新对话");
   } finally {
     if (navigation === state.navigation) {
       state.loading = false;
@@ -234,10 +232,9 @@ function newConversation() {
   state.runs = [];
   state.pending = null;
   rememberSession(null);
-  $("conversation-title").textContent = "新对话";
+  $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
-  $("reference-input").value = "";
-  setReferenceOpen(false);
+  uploads.clear();
   renderConversation(false);
   renderSessions();
   renderResult(null);
@@ -245,20 +242,12 @@ function newConversation() {
   $("message-input").focus();
 }
 
-function setReferenceOpen(open) {
-  $("reference-editor").hidden = !open;
-  $("reference-toggle").setAttribute("aria-expanded", String(open));
-  const length = $("reference-input").value.length;
-  $("reference-count").textContent = length.toLocaleString();
-  $("reference-count").hidden = length === 0;
-}
-
-async function sendChat(message, context) {
-  if (state.busy || state.loading || !message.trim()) return;
+async function sendChat(message, context = "", files = uploads.files) {
+  if (state.busy || state.loading || uploads.uploading || !message.trim()) return;
   if (!state.health?.model_configured) { toast("请先连接并配置模型。"); return; }
   state.busy = true;
   const accountVersion = state.accountVersion;
-  state.pending = { message: message.trim(), context: context.trim() };
+  state.pending = { message: message.trim(), context: context.trim(), files };
   renderConversation();
   try {
     if (!state.sessionId) {
@@ -272,23 +261,21 @@ async function sendChat(message, context) {
     }
     const result = await api("/chat", { method: "POST", body: JSON.stringify({
       session_id: state.sessionId, message: message.trim(), context: context.trim() || null,
+      file_ids: files.map((file) => file.id),
     }) });
     if (accountVersion !== state.accountVersion) return;
-    state.turns.push({ text: message.trim(), context: context.trim(), answer: result.answer,
+    state.turns.push({ text: message.trim(), context: context.trim(), files, answer: result.answer,
       calls: result.tool_calls, run: { usage: result.usage, context: result.context } });
     state.pending = null;
     $("message-input").value = "";
     $("message-input").style.height = "";
-    $("reference-input").value = "";
-    setReferenceOpen(false);
+    uploads.clear();
     if (result.tool_calls.length) renderResult(result.tool_calls.at(-1));
     await refreshSessions().catch(() => {});
   } catch (error) {
     if (accountVersion !== state.accountVersion) return;
-    state.pending = { message: message.trim(), context: context.trim(), error: error.message };
+    state.pending = { message: message.trim(), context: context.trim(), files, error: error.message };
     $("message-input").value = message;
-    $("reference-input").value = context;
-    if (context) setReferenceOpen(true);
     await refreshSessions().catch(() => {});
   } finally {
     if (accountVersion === state.accountVersion) {
@@ -359,7 +346,7 @@ async function runLocalTool(name, form) {
 
 $("chat-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  sendChat($("message-input").value, $("reference-input").value);
+  sendChat($("message-input").value);
 });
 $("message-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
@@ -372,12 +359,6 @@ $("message-input").addEventListener("input", () => {
   $("message-input").style.height = `${Math.min($("message-input").scrollHeight, 180)}px`;
 });
 $("new-chat").addEventListener("click", newConversation);
-$("reference-toggle").addEventListener("click", () => {
-  setReferenceOpen($("reference-editor").hidden);
-  if (!$("reference-editor").hidden) $("reference-input").focus();
-});
-$("remove-reference").addEventListener("click", () => { $("reference-input").value = ""; setReferenceOpen(false); });
-$("reference-input").addEventListener("input", () => setReferenceOpen(true));
 $("session-list").addEventListener("click", (event) => {
   const button = event.target.closest("[data-session]");
   if (button) selectSession(button.dataset.session);
@@ -400,18 +381,30 @@ $("conversation").addEventListener("click", async (event) => {
     catch { toast("复制不可用，请选中文字后手动复制。"); }
   }
   if (event.target.closest("#retry-message") && state.pending && !state.busy) {
-    sendChat(state.pending.message, state.pending.context);
+    sendChat(state.pending.message, state.pending.context, state.pending.files);
   }
 });
 $("properties-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_properties", event.currentTarget); });
 $("similarity-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_similarity", event.currentTarget); });
+function setSidebarCollapsed(collapsed, reveal = false) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  $("sidebar-collapse").setAttribute("aria-expanded", String(!collapsed));
+  $("sidebar-collapse").setAttribute("aria-label", collapsed ? "展开侧栏" : "折叠侧栏");
+  $("sidebar-collapse").title = collapsed ? "展开侧栏" : "折叠侧栏";
+  try { localStorage.setItem("chemistry.sidebarCollapsed", String(collapsed)); } catch { /* Optional. */ }
+  if (reveal && innerWidth <= 760) setDrawer("sidebar", !collapsed);
+  syncDrawerAccessibility();
+}
+try { setSidebarCollapsed(localStorage.getItem("chemistry.sidebarCollapsed") === "true"); } catch { /* Default expanded. */ }
+$("sidebar-collapse").addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"), true));
+$("rail-projects").addEventListener("click", () => { setSidebarCollapsed(false, true); $("new-project").focus(); });
 $("menu-toggle").addEventListener("click", () => { setDrawer("inspector", false); setDrawer("sidebar", !document.body.classList.contains("sidebar-open")); });
 $("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false); setDrawer("inspector", !document.body.classList.contains("inspector-open")); });
 $("inspector-close").addEventListener("click", () => setDrawer("inspector", false));
 $("screen-overlay").addEventListener("click", closeDrawers);
 document.addEventListener("keydown", (event) => {
   if ($("project-dialog").open) return;
-  if (event.key === "Escape") { closeDrawers(); $("account-menu").open = false; }
+  if (event.key === "Escape") { closeDrawers();  }
   if (event.key !== "Tab") return;
   const openPanel = document.body.classList.contains("sidebar-open") ? $("sidebar") :
     document.body.classList.contains("inspector-open") ? $("inspector") : null;
@@ -442,17 +435,16 @@ function showLogin(message = "") {
   state.results.clear();
   state.auth.user = null;
   projectNavigation.reset();
-  $("account-menu").open = false;
+
   state.busy = false;
   state.loading = false;
   $("conversation").replaceChildren();
   $("session-list").replaceChildren();
-  $("conversation-title").textContent = "新对话";
+  $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
-  $("reference-input").value = "";
+  uploads.clear();
   $("properties-form").reset();
   $("similarity-form").reset();
-  setReferenceOpen(false);
   renderResult(null);
   closeDrawers();
   $("login-screen").hidden = false;
@@ -467,11 +459,6 @@ function showLogin(message = "") {
 async function startWorkspace() {
   $("login-screen").hidden = true;
   document.body.classList.remove("auth-checking");
-  $("workspace-name").textContent = state.auth.user?.username || "本地研究空间";
-  $("workspace-note").textContent = "账户与设置";
-  $("account-avatar").textContent = (state.auth.user?.username || "C").slice(0, 1).toUpperCase();
-  $("account-detail").textContent = state.auth.enabled ? `已登录 · ${state.auth.user.username}` : "本地单用户模式";
-  $("logout-button").hidden = !state.auth.enabled;
   syncDrawerAccessibility();
   await Promise.all([refreshHealth(), refreshSessions().catch((error) => {
     $("session-list").innerHTML = '<p class="sidebar-empty">暂时无法读取会话，请点击刷新。</p>';
@@ -481,7 +468,7 @@ async function startWorkspace() {
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try { id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
   if (id) await selectSession(id, true);
-  else updateControls();
+  else { $("conversation-title").textContent = t("新对话"); updateControls(); }
 }
 
 async function initialize() {
@@ -512,12 +499,9 @@ $("login-form").addEventListener("submit", async (event) => {
     $("login-submit").disabled = false;
   }
 });
-$("logout-button").addEventListener("click", async () => {
-  try {
-    await api("/auth/logout", { method: "POST" });
-    showLogin();
-  } catch (error) { toast(error.message); }
-});
 
+window.addEventListener("languagechange", () => {
+  if (!state.sessionId) $("conversation-title").textContent = t("新对话");
+});
 initialize();
 setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);

@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from chemistry_agent import __version__
 from chemistry_agent.agent import SYSTEM_PROMPT, ChemistryAgent, RunProgress
+from chemistry_agent.attachments import attachment_context
+from chemistry_agent.attachments import router as attachments_router
 from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthManager
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
@@ -99,6 +101,7 @@ def create_app(
     app.include_router(structures_router)
     app.include_router(model_router)
     app.include_router(projects_router)
+    app.include_router(attachments_router)
 
     app.add_middleware(AuthenticationMiddleware, settings=settings)
 
@@ -246,6 +249,7 @@ def create_app(
         if not await request.app.state.provider.ready():
             raise AgentError("model_not_configured", "请在模型设置中登录 ChatGPT 或配置 API。", 503)
         store: Store = request.app.state.store
+        file_context = await attachment_context(store, body.file_ids, request.state.user_id)
         session_id = (
             str(body.session_id)
             if body.session_id
@@ -255,9 +259,10 @@ def create_app(
         run_id, history = await store.begin_run(session_id, request.state.user_id)
         request.state.run_id = run_id
         content = body.message
-        if body.context:
+        context = "\n\n".join(part for part in (body.context, file_context) if part)
+        if context:
             content += (
-                "\n\n<user_provided_reference>\n" + body.context + ("\n</user_provided_reference>")
+                "\n\n<user_provided_reference>\n" + context + ("\n</user_provided_reference>")
             )
         messages = [*history, {"role": "user", "content": content}]
         progress = RunProgress()

@@ -1,3 +1,4 @@
+import { getLanguage, setLanguage, translateUI } from "./i18n.mjs";
 const $ = (id) => document.getElementById(id);
 let polling;
 let busy = false;
@@ -52,12 +53,12 @@ async function save() {
 async function action(operation) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+  $("model-form").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try { await operation(); }
   catch (error) { notice(error.message || "无法连接服务，请稍后重试。", true); }
   finally {
     busy = false;
-    document.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+    $("model-form").querySelectorAll("button").forEach((button) => { button.disabled = false; });
   }
 }
 
@@ -129,34 +130,62 @@ window.addEventListener("pagehide", () => clearTimeout(polling));
 const theme = globalThis.chemistryTheme;
 function displayAppearance() {
   const value = theme.read();
-  $("theme-mode").value = value.mode;
+  selectedMode = value.mode;
+  document.querySelectorAll("[data-mode]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === value.mode)));
   $("accent-color").value = value.accent;
   document.querySelectorAll("[data-accent]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.accent === value.accent));
   });
 }
+let selectedMode = theme.read().mode;
 function saveAppearance() {
-  const saved = theme.save({ mode: $("theme-mode").value, accent: $("accent-color").value });
+  const saved = theme.save({ mode: selectedMode, accent: $("accent-color").value });
   $("appearance-notice").textContent = saved ? "已保存到当前浏览器。" : "已应用；浏览器禁止存储，刷新后可能恢复默认。";
   if (saved) displayAppearance();
 }
-$("theme-mode").addEventListener("change", saveAppearance);
+document.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => { selectedMode = button.dataset.mode; saveAppearance(); }));
 $("accent-color").addEventListener("input", saveAppearance);
 for (const button of document.querySelectorAll("[data-accent]")) {
   button.addEventListener("click", () => { $("accent-color").value = button.dataset.accent; saveAppearance(); });
 }
-$("reset-appearance").addEventListener("click", () => {
-  $("theme-mode").value = "light"; $("accent-color").value = "#5865b5"; saveAppearance();
-});
 displayAppearance();
 window.addEventListener("storage", (event) => { if (event.key === "chemistry.appearance") displayAppearance(); });
 api("/auth/status").then((data) => {
   const name = data.user?.username || "本地账户";
+  if (data.user) $("settings-username").setAttribute("data-no-i18n", "");
   $("settings-username").textContent = name;
-  $("settings-avatar").textContent = name.slice(0, 1).toUpperCase();
+  $("settings-avatar").textContent = data.user ? name.slice(0, 1).toUpperCase() : "C";
   $("settings-account-note").textContent = data.enabled ? "个人工作空间 · 已登录" : "本地单用户模式";
   $("settings-logout").hidden = !data.enabled;
 }).catch((error) => notice(error.message, true));
 $("settings-logout").addEventListener("click", () => action(async () => {
   await api("/auth/logout", { method: "POST" }); location.assign("/");
 }));
+
+function showSettingsPanel() {
+  const aliases = { account: "general", "model-form": "model" };
+  const hash = location.hash.slice(1);
+  const selected = aliases[hash] || (["general", "appearance", "model"].includes(hash) ? hash : "general");
+  document.querySelectorAll("[data-panel]").forEach((panel) => { panel.hidden = panel.dataset.panel !== selected; });
+  document.querySelectorAll("[data-tab]").forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.tab === selected));
+    tab.tabIndex = tab.dataset.tab === selected ? 0 : -1;
+  });
+  $("notice").hidden = selected !== "model";
+}
+const tabs = [...document.querySelectorAll("[data-tab]")];
+tabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => { history.replaceState(null, "", `#${tab.dataset.tab}`); showSettingsPanel(); });
+  tab.addEventListener("keydown", (event) => {
+    const offset = {ArrowDown:1, ArrowRight:1, ArrowUp:-1, ArrowLeft:-1}[event.key];
+    if (!offset && !["Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + offset + tabs.length) % tabs.length;
+    tabs[next].click(); tabs[next].focus();
+  });
+});
+window.addEventListener("hashchange", showSettingsPanel);
+showSettingsPanel();
+$("language").value = getLanguage();
+$("language").addEventListener("change", () => setLanguage($("language").value));
+window.addEventListener("languagechange", () => { $("language").value = getLanguage(); translateUI(); });

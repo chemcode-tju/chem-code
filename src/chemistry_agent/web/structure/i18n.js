@@ -294,7 +294,7 @@
   const api={translate,catalog,language:'zh-CN'};
   if(typeof module!=='undefined'&&module.exports){module.exports=api;return;}
   root.StructureI18n=api;
-  try{api.language=localStorage.getItem('structure-viewer.language')==='en'?'en':'zh-CN';}catch{}
+  try{api.language=(localStorage.getItem('chemistry.language')||localStorage.getItem('structure-viewer.language'))==='en'?'en':'zh-CN';}catch{}
   const textStates=new WeakMap(),attributeStates=new WeakMap();
   const excluded='script,style,textarea,#filename,#atom-list,[data-no-i18n]';
   function textNode(node){
@@ -324,7 +324,7 @@
   }
   api.setLanguage=language=>{
     api.language=language==='en'?'en':'zh-CN';document.documentElement.lang=api.language;
-    try{localStorage.setItem('structure-viewer.language',api.language);}catch{}
+    try{localStorage.setItem('structure-viewer.language',api.language);localStorage.setItem('chemistry.language',api.language);}catch{}
     visit(document.body);
     const selector=document.getElementById('language');selector.value=api.language;
     selector.options[0].textContent=api.language==='en'?'Chinese (Simplified)':'简体中文';

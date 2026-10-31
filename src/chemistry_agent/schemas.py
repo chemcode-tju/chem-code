@@ -13,6 +13,7 @@ class SessionCreate(StrictModel):
 
 
 class ChatRequest(StrictModel):
+    file_ids: list[UUID] = Field(default_factory=list, max_length=10)
     message: str = Field(min_length=1, max_length=20000)
     session_id: UUID | None = None
     # User-supplied excerpts only; this endpoint does not read local files or fetch URLs.

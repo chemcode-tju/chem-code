@@ -8,6 +8,7 @@
   <title>Chemistry Agent · 化学研究工作空间</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <script src="/assets/theme.js"></script>
+  <script type="module" src="/assets/i18n.mjs"></script>
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/styles.css">
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
@@ -17,6 +18,8 @@
   <svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <symbol id="i-molecule" viewBox="0 0 24 24"><path d="m7 5 10 0 5 7-5 7H7l-5-7Z"/><path d="m8 8 8 0 3 4-3 4H8l-3-4Z"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L21 7l-4-4L5 15Z"/></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
       <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2V12a9 9 0 0 1 18-.5Z"/><path d="M7 9h8M7 13h5"/></symbol>
       <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
@@ -56,12 +59,14 @@
 
   <button class="screen-overlay" id="screen-overlay" aria-label="关闭侧栏" hidden></button>
   <aside class="sidebar" id="sidebar" aria-label="会话导航">
-    <a class="brand" href="/" aria-label="Chemistry Agent 首页">
+    <div class="sidebar-header"><a class="brand" href="/" aria-label="Chemistry Agent 首页">
       <span class="brand-mark"><svg class="icon"><use href="#i-molecule"/></svg></span>
       <span><strong>Chemistry<span class="brand-period">.</span></strong><small>你的化学研究助手</small></span>
-    </a>
-    <button class="new-chat" id="new-chat"><svg class="icon"><use href="#i-plus"/></svg>新建对话<span>↗</span></button>
-    <a class="nav-current" href="/structures"><svg class="icon"><use href="#i-molecule"/></svg><span>结构与轨迹</span><span>↗</span></a>
+    </a><button class="icon-button" id="sidebar-collapse" title="折叠侧栏" aria-label="折叠侧栏" aria-expanded="true"><svg class="icon"><use href="#i-panel"/></svg></button></div>
+    <button class="new-chat" id="new-chat" title="新建对话" aria-label="新建对话"><svg class="icon"><use href="#i-edit"/></svg><span class="nav-label">新建对话</span></button>
+    <a class="nav-current" href="/structures" title="结构与轨迹" aria-label="结构与轨迹"><svg class="icon"><use href="#i-molecule"/></svg><span>结构与轨迹</span><span>↗</span></a>
+    <div class="add-menu sidebar-add"><button class="nav-current" id="sidebar-add" aria-label="添加文件" title="添加文件" aria-expanded="false"><svg class="icon"><use href="#i-plus"/></svg><span class="nav-label">添加文件</span></button><div class="upload-menu" id="sidebar-upload-menu" hidden><button type="button" data-upload>上传文件</button></div></div>
+    <button class="nav-current rail-projects" id="rail-projects" title="项目与聊天" aria-label="项目与聊天"><svg class="icon"><use href="#i-folder"/></svg></button>
     <div class="sidebar-scroll">
     <div class="history-heading"><span>项目</span><button class="icon-button" id="new-project" aria-label="新建项目" title="新建项目"><svg class="icon"><use href="#i-plus"/></svg></button></div>
     <nav id="project-list" aria-label="项目文件夹"></nav>
@@ -69,19 +74,15 @@
     <nav class="session-list" id="session-list" aria-label="历史会话"><p class="sidebar-empty">正在读取会话…</p></nav>
     <button class="load-more" id="load-more" hidden>加载更多对话</button>
     </div>
-    <details class="account-menu" id="account-menu">
-      <summary><span class="workspace-avatar" id="account-avatar">C</span><span class="account-text"><strong id="workspace-name">本地账户</strong><small id="workspace-note">账户与设置</small></span><span>⌃</span></summary>
-      <div class="account-popover"><p id="account-detail">本地单用户模式</p><a href="/settings">账户与模型连接 <span>↗</span></a><a href="/settings#appearance">外观设置 <span>◐</span></a><button id="logout-button" type="button" hidden>退出工作空间</button></div>
-    </details>
+    <a class="settings-entry" href="/settings" title="设置" aria-label="设置"><svg class="icon"><use href="#i-settings"/></svg><span>设置</span></a>
   </aside>
 
   <main class="main-panel">
     <header class="topbar">
       <div class="breadcrumb"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="打开会话导航" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button><strong id="conversation-title">新对话</strong></div>
-      <div class="topbar-actions"><label class="sr-only" for="chat-project">对话所属项目</label><select id="chat-project" title="移动对话到项目"><option value="">独立聊天</option></select><span class="model-status" id="model-status"><span class="status-dot"></span><span id="model-label">正在连接…</span></span><button class="icon-button tools-toggle" id="tools-toggle" aria-label="打开研究工具" aria-expanded="false"><svg class="icon"><use href="#i-panel"/></svg></button></div>
+      <div class="topbar-actions"><button class="icon-button tools-toggle" id="tools-toggle" aria-label="打开研究工具" aria-expanded="false"><svg class="icon"><use href="#i-panel"/></svg></button></div>
     </header>
 
-    <div class="connection-notice" id="connection-notice" role="status" hidden></div>
     <div class="chat-scroll" id="chat-scroll">
       <div class="content-frame">
         <section class="welcome" id="welcome" aria-label="新对话"><svg class="icon"><use href="#i-molecule"/></svg><h1>新对话</h1><p>输入问题，开始研究。</p></section>
@@ -91,15 +92,12 @@
 
     <div class="composer-area">
       <form class="composer" id="chat-form">
-        <div class="reference-editor" id="reference-editor" hidden>
-          <div><label for="reference-input"><svg class="icon"><use href="#i-document"/></svg>参考文献片段</label><button type="button" class="icon-button" id="remove-reference" aria-label="移除文献片段"><svg class="icon"><use href="#i-close"/></svg></button></div>
-          <textarea id="reference-input" maxlength="50000" rows="4" placeholder="粘贴需要分析的原文。发送问题时，这段资料也会提供给模型。"></textarea>
-        </div>
+        <div id="attachment-list" class="attachment-list" aria-live="polite" hidden></div>
         <label class="sr-only" for="message-input">输入化学问题</label>
         <textarea id="message-input" rows="2" maxlength="20000" placeholder="输入问题，或描述你的研究任务…" required></textarea>
-        <div class="composer-toolbar"><button type="button" class="reference-toggle" id="reference-toggle" aria-expanded="false"><svg class="icon"><use href="#i-document"/></svg><span>文献片段</span><span class="reference-count" id="reference-count" hidden></span></button><div class="composer-right"><span class="keyboard-hint">Enter 发送 <span>↵</span></span><button class="send-button" id="send-button" type="submit" aria-label="发送消息"><svg class="icon"><use href="#i-arrow"/></svg></button></div></div>
+        <div class="composer-toolbar"><div class="add-menu"><button type="button" class="icon-button" id="composer-add" aria-label="添加文件" title="添加文件" aria-expanded="false"><svg class="icon"><use href="#i-plus"/></svg></button><div class="upload-menu" id="composer-upload-menu" hidden><button type="button" data-upload>上传文件</button></div></div><div class="composer-right"><a href="/settings#model" class="model-status" id="model-status" title="模型设置"><span class="status-dot"></span><span id="model-label">正在连接…</span></a><button class="send-button" id="send-button" type="submit" aria-label="发送消息"><svg class="icon"><use href="#i-arrow"/></svg></button></div></div>
       </form>
-      <p class="composer-note">AI 回答请结合文献核实 · 分子描述符为工具计算值</p>
+      <input type="file" id="file-picker" multiple hidden>
     </div>
   </main>
 
