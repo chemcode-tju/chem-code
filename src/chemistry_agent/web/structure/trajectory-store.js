@@ -83,20 +83,21 @@
   class LocalSource {
     constructor(file,name) {
       this.file=file;this.name=name;this.lines=new ByteLines(file);this.offsets=[];this.ends=[];this.count=0;this.complete=false;
-      this.vasp=/^(POSCAR|CONTCAR|XDATCAR)$/i.test(name)||/\.vasp$/i.test(name);this.header='';
+      this.vasp=/^(POSCAR|CONTCAR|XDATCAR)$/i.test(name)||/\.vasp$/i.test(name);this.header='';this.frameHeaders=[];
     }
     async required(){const row=await this.lines.next();if(!row)throw Error('轨迹末尾存在不完整帧');return row;}
     async initialize() {
       if(/\.traj$/i.test(this.name)) {this.binary=await ASETrajectory.open(this.file);this.count=this.binary.count;this.complete=true;return;}
-      if(this.vasp) {
-        const rows=[];for(let i=0;i<7;i++)rows.push((await this.required()).text);
+      if(this.vasp) await this.readHeader(await this.required());
+      await this.advance(1);
+    }
+    async readHeader(first) {
+        const rows=[first.text];for(let i=1;i<7;i++)rows.push((await this.required()).text);
         const counts=rows[6].trim().split(/\s+/).map(Number);this.atomCount=counts.reduce((a,b)=>a+b,0);
         if(counts.some(n=>!Number.isSafeInteger(n)||n<0)||this.atomCount<1)throw Error('VASP 元素计数无效');
         this.mode=await this.required();if(/^s/i.test(this.mode.text.trim())){rows.push(this.mode.text);this.mode=await this.required();}
         this.trajectory=/^XDATCAR$/i.test(this.name)||/configuration/i.test(this.mode.text);
         this.header=rows.join('\n')+'\n';
-      }
-      await this.advance(1);
     }
     async advance(limit=4096) {
       const initial=this.lines.offset;
@@ -104,6 +105,10 @@
         let row=this.mode||await this.lines.next();this.mode=null;
         while(row&&!row.text.trim())row=await this.lines.next();
         if(!row){this.complete=true;break;}
+        if(this.vasp && this.trajectory && this.count && !/^(direct|cartesian)(?:\s+configuration\s*=.*)?$/i.test(row.text.trim())) {
+          await this.readHeader(row);
+          row=this.mode;this.mode=null;
+        }
         const start=row.start;
         let count=this.atomCount;
         if(this.vasp) {if(!/^[dck]/i.test(row.text.trim()))throw Error('无法识别 VASP 坐标模式');}
@@ -113,6 +118,7 @@
           await this.required();
         }
         for(let j=0;j<count;j++)if(!(await this.required()).text.trim())throw Error('轨迹末尾存在不完整帧');
+        if(this.vasp)this.frameHeaders.push(this.header);
         this.offsets.push(start);this.ends.push(this.lines.offset);this.count++;
         this.complete=this.lines.offset>=this.file.size||(this.vasp&&!this.trajectory);
         if(this.lines.offset-initial>=1048576)break;
@@ -120,7 +126,7 @@
     }
     async read(index) {
       if(this.binary)return this.binary.frameText(index);
-      return this.header+await this.file.slice(this.offsets[index],this.ends[index]).text();
+      return (this.frameHeaders[index] || '')+await this.file.slice(this.offsets[index],this.ends[index]).text();
     }
   }
   async function local(file,name=file.name,options) {const source=new LocalSource(file,name);await source.initialize();const store=new FrameStore(name,source,options);await store.get(0);return store;}

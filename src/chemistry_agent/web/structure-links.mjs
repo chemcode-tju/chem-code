@@ -6,8 +6,7 @@ export function structureButton(kind, id, name, label = '查看结构') {
 }
 
 // Files, never model-supplied URLs, cross the same-origin viewer boundary.
-export function createStructureBridge({selectTab, toast}) {
-  const frame = document.getElementById('structure-viewer-frame');
+export function createStructureBridge({selectTab, toast, frame = document.getElementById('structure-viewer-frame')}) {
   let ready = false, generation = 0, pending = null, timer;
   function dispatch() {
     if (!ready || !pending || !frame.contentWindow) return;
@@ -27,7 +26,7 @@ export function createStructureBridge({selectTab, toast}) {
       try {
         const blob = await fetchBlob();
         if (version !== generation) return;
-        pending = new File([blob], name, {type:blob.type});
+        pending = blob instanceof File ? blob : new File([blob], name, {type:blob.type});
         timer = setTimeout(() => {if (version === generation && pending) toast('查看器未就绪，请重新打开结构。');}, 15000);
         dispatch();
       } catch(error) { if (version === generation) toast(error.message); }

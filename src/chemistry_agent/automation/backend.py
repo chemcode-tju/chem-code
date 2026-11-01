@@ -238,6 +238,7 @@ def build_job(body: PreviewRequest, label: str) -> tuple[ProcessBuilder, Atoms]:
         builder.parameters = orm.Dict(
             dict={key.lower(): value for key, value in body.incar.items()}
         )
+        builder.settings = orm.Dict(dict={"ADDITIONAL_RETRIEVE_LIST": ["OSZICAR", "XDATCAR"]})
         builder.kpoints = orm.KpointsData()
         builder.kpoints.set_kpoints_mesh(body.kmesh)
         if atoms.constraints:

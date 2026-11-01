@@ -61,6 +61,54 @@ async def artifacts(session_id: UUID, request: Request) -> dict:
     }
 
 
+@router.get("/{session_id}/plans/{preview_id}/steps/{stage}/{file}")
+async def inspect_step(
+    session_id: UUID,
+    preview_id: UUID,
+    stage: str,
+    file: Literal["info", "POSCAR", "CONTCAR", "XDATCAR"],
+    request: Request,
+):
+    chat = await session_chat(request, session_id)
+    session, identifier = str(session_id), str(preview_id)
+    plan = chat.load(session, "previews", identifier)
+    stages = plan.get("stages") or [{"stage": "single"}]
+    step = next((item for item in stages if item["stage"] == stage), None)
+    if not step or stage == "energies":
+        raise AgentError("step_not_found", "此方案没有对应的计算步骤。", 404)
+    path = chat.directory(session, "submissions") / f"{identifier}.json"
+    root = json.loads(path.read_text())["job"]["id"] if path.is_file() else None
+    preview = plan["files"].get("POSCAR" if stage == "single" else f"{stage}/POSCAR")
+    preview_source = "方案预览"
+    if stage == "singlepoint" and not preview:
+        preview = plan["files"].get("relax/POSCAR")
+        preview_source = "前序初始结构示意，实际输入取自优化结果"
+    info = {"files": {}, "points": [], "ionic_step": None, "terminal": False, "note": ""}
+    if root or step.get("reused_pk"):
+        args = {"root_id": root, "reused_pk": step.get("reused_pk"), "stage": stage, "file": file}
+        try:
+            info = await chat.service.call("step_data", args)
+        except AgentError as exc:
+            if file != "POSCAR" or not preview or exc.status_code != 404:
+                raise
+    if file == "info":
+        if preview:
+            info["files"].setdefault("POSCAR", preview_source)
+        return info
+    content = info.get("content") or (preview if file == "POSCAR" else None)
+    if not content:
+        raise AgentError("step_file_missing", "此步骤尚无对应结构。", 404)
+    return Response(
+        content,
+        media_type="text/plain",
+        headers={
+            "X-Structure-Name": info.get("name", file),
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.post("/{session_id}/jobs/{job_id}/structure")
 async def import_result(session_id: UUID, job_id: str, request: Request) -> dict:
     chat = await session_chat(request, session_id)

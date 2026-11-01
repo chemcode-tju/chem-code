@@ -22,9 +22,11 @@ def dispatch(message: dict) -> dict:
         ) from exc
     from chemistry_agent.automation import backend
     from chemistry_agent.automation.branch_retry import preview_retry
+    from chemistry_agent.automation.step_data import step_data
     from chemistry_agent.automation.surface import job_structure
 
     actions = {
+        "step_data": step_data,
         "branch_retry": preview_retry,
         "status": lambda _: backend.status(),
         "create_server": backend.create_server,

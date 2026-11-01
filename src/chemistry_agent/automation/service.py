@@ -18,11 +18,12 @@ class AutomationService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.lock = asyncio.Lock()
+        self.step_readers = asyncio.Semaphore(2)
 
     async def call(self, action: str, payload: dict | None = None) -> dict[str, Any]:
         if not self.settings.automation_enabled:
             raise AgentError("automation_disabled", "请先配置并启用 AiiDA 自动化。", 503)
-        async with self.lock:
+        async with self.step_readers if action == "step_data" else self.lock:
             environment = os.environ.copy()
             environment["PATH"] = (
                 f"{Path(sys.executable).parent}{os.pathsep}{environment.get('PATH', '')}"

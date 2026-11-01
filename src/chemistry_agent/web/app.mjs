@@ -1,6 +1,6 @@
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
-import { createCalculations } from "./calculations.mjs?v=20261101-plans";
+import { createCalculations } from "./calculations.mjs?v=20261101-step-detail";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
@@ -237,7 +237,7 @@ function artifactLinks(calls) {
     const id = isStructure ? r.id : r.surface_structure_id || r.structure_id;
     if (id) links.set(id, structureButton("artifact",id,(r.name || "structure")+".extxyz","查看"+(r.name || "输入结构")));
     if (r.finished_ok && r.output_structure && r.id) links.set(r.id,structureButton("job",r.id,"optimized.extxyz","查看优化结构"));
-    if (call.name.startsWith("calculation_") && !isStructure) links.set("task",'<button class="view-result" data-task-panel>查看计算</button>');
+    if (call.name.startsWith("calculation_") && !isStructure) links.set("task",'<button class="view-result" data-task-panel>查看方案</button>');
   }
   return [...links.values()].join(" ");
 }

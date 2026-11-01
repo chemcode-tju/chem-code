@@ -1,3 +1,4 @@
+import {createStepDetail} from "./step-detail.mjs";
 import {workflowPlan} from "./workflow-plan.mjs";
 import { escapeHtml as esc } from './core.mjs';
 import { structureButton, getFileBlob, isStructureName } from './structure-links.mjs';
@@ -34,6 +35,16 @@ export function renderTaskCard(item, job, recovery, sessionPath, policy={}) {
 
 export function createCalculations({ api, getSession, ensureSession, isBusy, toast, onConfirmed, viewer, chatFiles, syncReport, reviseStep }) {
   const panel = document.getElementById("calculation-cards");
+  const knownSteps = new Map();
+  function displayCount(preview,key,count) {
+    const target = panel.querySelector(`[data-task="${CSS.escape(preview)}"] [data-open-step="${CSS.escape(key)}"] [data-ionic-step]`);
+    if (target && count!=null) target.textContent = ' · '+count+' 步';
+  }
+  function rememberCount(id,key,count) {
+    knownSteps.set(id+'/'+key,{count,checked:Date.now()});
+    displayCount(id,key,count);
+  }
+  const detail = createStepDetail({api,reviseStep,rememberCount});
   const attachments = document.getElementById("structure-attachments");
   const input = document.getElementById("structure-file");
   const button = document.getElementById("structure-upload");
@@ -66,9 +77,11 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     const cards = (records?.previews || []).map(item => {
       const ref = records.submissions[item.preview_id]?.job;
       const job = ref ? (records.live_jobs?.[ref.id] || ref) : null;
+      detail.update(item,job);
       return renderTaskCard(item, job, records.recovery?.[ref?.id], path(session),records.policies?.[ref?.id] || {});
     }).join('');
     panel.innerHTML = cards || '<p class="empty-result">本对话暂无计算任务</p>';
+    for (const [id,value] of knownSteps) displayCount(...id.split('/'),value.count);
     for (const e of panel.querySelectorAll("[data-retry-limit]")) if (limits.has(e.dataset.retryLimit)) e.value = limits.get(e.dataset.retryLimit);
     for (const d of panel.querySelectorAll('details')) d.open = savedFolds.has(`${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`);
     for (const el of panel.querySelectorAll('[data-auto-recovery]')) el.checked = approved.has(el.dataset.autoRecovery);
@@ -118,7 +131,16 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   });
   async function onAction(event) {
     const target = event.target.closest("button");
-    if (!target || target.dataset.openKind || isBusy() || pending) return;
+    if (!target || target.dataset.openKind) return;
+    if (target.dataset.openStep) {
+      const item = records?.previews.find(p=>p.preview_id===target.closest('[data-task]').dataset.task);
+      if (item) {
+        const submitted=records.submissions[item.preview_id]?.job;
+        detail.open(item,records.live_jobs?.[submitted?.id]||submitted,target.dataset.openStep,path(session));
+      }
+      return;
+    }
+    if (isBusy() || pending) return;
     if (target.dataset.stepOutput) {
       const url = path(getSession())+'/jobs/'+encodeURIComponent(target.dataset.parentJob)+'/steps/'+encodeURIComponent(target.dataset.stepOutput)+'/structure.extxyz';
       return viewer.open("optimized-step.extxyz",()=>getFileBlob(url));
@@ -168,6 +190,27 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   panel.addEventListener('click', onAction);
   structureList.addEventListener('click', onAction);
 
+  async function refreshVisibleCount(sessionId) {
+    if (!panel.getClientRects().length) return;
+    const candidates = [];
+    for (const item of records.previews) {
+      const ref = records.submissions[item.preview_id]?.job;
+      const job = records.live_jobs?.[ref?.id];
+      if (!job || job.finished_ok || job.exit_status!=null) continue;
+      for (const child of job.steps || [job]) {
+        if (child.scheduler_state!=='running' || child.exit_status!=null || child.paused) continue;
+        const key = job.steps ? child.label.split(':').at(-1) : 'single';
+        const last = knownSteps.get(item.preview_id+'/'+key)?.checked || 0;
+        if (Date.now()-last>25000) candidates.push({id:item.preview_id,key,last});
+      }
+    }
+    const candidate=candidates.sort((a,b)=>a.last-b.last)[0];
+    if (!candidate) return;
+    const {id,key}=candidate;
+    const info=await api(`${path(sessionId)}/plans/${encodeURIComponent(id)}/steps/${encodeURIComponent(key)}/info`);
+    if (sessionId===getSession()) rememberCount(id,key,info.ionic_step);
+  }
+
   let polling = false;
   async function refreshLive() {
     const id = getSession();
@@ -184,6 +227,8 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
       });
       records.live_jobs = data.jobs; records.recovery = data.recovery;
       if (changes) render();
+      await refreshVisibleCount(id);
+      if (id !== getSession() || !records) return;
       const known = new Set(Object.values(records.submissions).map((value) => value.job.id));
       const previewIds = new Set(records.previews.map((value) => value.preview_id));
       if (Object.keys(data.jobs).some((id) => !known.has(id)) || Object.values(data.recovery || {}).some((value) => value?.result?.preview_id && !previewIds.has(value.result.preview_id))) await refresh();
@@ -194,11 +239,11 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
 
   return {
     refresh, drawStructures,
-    enabled(value) { enabled = value; button.hidden = !enabled; if (!enabled) { selected = []; records = null; drawAttachments(); render(); } },
+    enabled(value) { enabled = value; button.hidden = !enabled; if (!enabled) { detail.close(); selected = []; records = null; drawAttachments(); render(); } },
     selection() { return [...selected]; },
     selectedIds() { return selected.map((item) => item.id); },
     clearSelection() { selected = []; drawAttachments(); },
-    reset() { selected = []; records = null; session = null; drawAttachments(); render(); },
+    reset() { knownSteps.clear(); detail.close(); selected = []; records = null; session = null; drawAttachments(); render(); },
     busy() { return pending; },
   };
 }

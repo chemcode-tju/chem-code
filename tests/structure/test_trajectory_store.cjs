@@ -25,6 +25,11 @@ async function main(){
     assert.equal(indexed.count,parsed.count);
     for(let i=indexed.count-1;i>=0;i--)assert.deepEqual((await indexed.get(i)).frame,parsed.frame(i));
   }
+  const cellFrame = size => `Cu\n1\n${size} 0 0\n0 2 0\n0 0 2\nCu\n1\nDirect configuration= 1\n.5 0 0\n`;
+  const variable = await local(new Blob([cellFrame(2),cellFrame(3)]),'XDATCAR',{maxFrames:1});
+  await variable.scan(()=>{});
+  assert.equal((await variable.get(1)).frame.atoms[0].x,1.5);
+  assert.equal((await variable.get(0)).frame.atoms[0].x,1);
   const boundary=await local(new Blob(['1\n'+'a'.repeat(65532)+'中文\nH 2 3 4\n',frame(1)]),'boundary.xyz');
   await boundary.scan(()=>{});assert.equal((await boundary.get(1)).frame.atoms[0].x,1);
   let reads=0;
