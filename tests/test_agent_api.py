@@ -526,3 +526,28 @@ def test_nullable_tool_calls_are_valid_final_responses(settings_factory):
         )
     ) as client:
         assert client.post("/chat", json={"message": "你好"}).status_code == 200
+
+
+def test_auto_research_retains_tools_after_normal_chat_limit(settings_factory):
+    calls = 0
+
+    def provider(request):
+        nonlocal calls
+        calls += 1
+        payload = json.loads(request.content)
+        assert payload.get("tools")
+        reply = (
+            completion(content=None, calls=[tool_call(call_id=f"step_{calls}")])
+            if calls <= 7
+            else completion("研究流程已恢复。")
+        )
+        return httpx.Response(200, json=reply)
+
+    app = create_app(
+        settings_factory(automation_enabled=True, max_tool_rounds=2),
+        transport=httpx.MockTransport(provider),
+    )
+    with TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 27123)) as client:
+        response = client.post("/chat", json={"message": "/auto low\n测试多轮工具处理"})
+        assert response.status_code == 200, response.text
+        assert len(response.json()["tool_calls"]) == 7

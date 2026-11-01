@@ -597,7 +597,10 @@ class CalculationPlans:
                 "resources=...,kmesh=...,require_ionic=...); p.analysis(id,fn,inputs=...,"
                 "result_files=['OUTCAR']); p.ref(id,'structure' or 'result'); p.write(). "
                 "Use previous_id to stage a saved generator as previous.py: patch or reuse its "
-                "source in Python and execute the corrected program to emit result.json.",
+                "source in Python and execute the corrected program to emit result.json. For an "
+                "unterminated multiline literal you can opt in to the helper: import runpy; "
+                "from pathlib import Path; h=runpy.run_path('plan_writer.py'); "
+                "exec(h['repair_literal_newlines'](Path('previous.py').read_text())).",
                 PlanProgram,
                 self.compile_program,
                 True,

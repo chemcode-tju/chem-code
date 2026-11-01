@@ -131,7 +131,7 @@ class PlanProgram(StrictModel):
 class ProgramSource(StrictModel):
     program_id: UUID | None = None
     first_line: int = Field(default=1, ge=1)
-    lines: int = Field(default=30, ge=1, le=200)
+    lines: int = Field(default=150, ge=1, le=200)
 
 
 class NodeRepair(StrictModel):

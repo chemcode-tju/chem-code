@@ -64,6 +64,7 @@ class AgentState(TypedDict):
     tool_calls: Annotated[list[ToolExecution], operator.add]
     usage: TokenUsage
     tool_rounds: int
+    tool_limit: int | None
     progress: "RunProgress"
     session_id: str
     run_id: str
@@ -100,7 +101,7 @@ class ChemistryAgent:
         self.graph = workflow.compile()
 
     async def _model(self, state: AgentState) -> dict[str, Any]:
-        allow_tools = state["tool_rounds"] < self.max_tool_rounds
+        allow_tools = state["tool_limit"] is None or state["tool_rounds"] < state["tool_limit"]
         progress = state["progress"]
         messages = await self.context_manager.prepare(
             state["messages"],
@@ -151,6 +152,10 @@ class ChemistryAgent:
         run_id: str,
         history_count: int,
     ) -> AgentState:
+        from chemistry_agent.automation.plan_authority import auto_queue, repair_target
+
+        autonomous = bool(auto_queue.get() or repair_target.get())
+        limit = None if autonomous else self.max_tool_rounds
         final_state = None
         async for state in self.graph.astream(
             {
@@ -158,12 +163,13 @@ class ChemistryAgent:
                 "tool_calls": [],
                 "usage": TokenUsage(),
                 "tool_rounds": 0,
+                "tool_limit": limit,
                 "progress": progress,
                 "session_id": session_id,
                 "run_id": run_id,
                 "history_count": history_count,
             },
-            config={"recursion_limit": 2 * self.max_tool_rounds + 4},
+            config={"recursion_limit": 2 * limit + 4 if limit is not None else 2**31 - 1},
             stream_mode="values",
         ):
             progress.tool_calls = state["tool_calls"]
