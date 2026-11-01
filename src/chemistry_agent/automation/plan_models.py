@@ -125,6 +125,13 @@ class PlanControl(StrictModel):
 
 class PlanProgram(StrictModel):
     code: str = Field(min_length=1, description="Python writes full PlanDraft JSON to result.json")
+    previous_id: UUID | None = None
+
+
+class ProgramSource(StrictModel):
+    program_id: UUID | None = None
+    first_line: int = Field(default=1, ge=1)
+    lines: int = Field(default=30, ge=1, le=200)
 
 
 class NodeRepair(StrictModel):

@@ -239,6 +239,8 @@ ASE 的 `FixAtoms` 不再被一律拒绝：转换为独立的 AiiDA `dynamics.po
 结果不明的保留原 ID 并报告错误，不新建重复作业。暂停只停止启动后续节点，不取消已提交作业。
 要让 Agent 自行设计并启动计算，聊天消息首行单独写 `/auto low`（也可指定其他已注册服务器支持的队列），下一行写研究目标、参数与资源。授权只适用于这一条消息和它创建的图，其他对话和普通草稿仍需确认；同一请求不会因重复保存而启动两张图。大型流程可以使用 `calculation_plan_program` 编写 Python 循环生成 PlanDraft，保存后展示和执行相同的节点及依赖。
 
+大型图可以在生成程序里用 runpy.run_path("plan_writer.py")["PlanWriter"] 定义模型、计算和分析节点。建模/分析直接传入带内部 import 的普通 Python 函数，帮助器保存函数源码，避免手工嵌套多行字符串。生成器失败返回 program_id；calculation_plan_source 可分段读源码，下一次 program 调用通过 previous_id 将原程序暂存为 previous.py，允许局部修复。
+
 自动图的失败节点会唤醒当前会话模型，提供失败代码、错误和作业编号，可调用计算文件工具查证，再用 `calculation_plan_repair` 修改建模/分析代码或 VASP 设置。修复沿用输入、依赖、资源与队列，保留成功节点和原尝试；最多两次/节点。未确认退出或提交归属不明时不另起作业。隐藏唤醒提示，只保存分析回复和可审计的工具记录。
 
 文件访问不依赖扩展名白名单：`calculation_files` 支持会话所属任务的 retrieved/remote 目录列举、

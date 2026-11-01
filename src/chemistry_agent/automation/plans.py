@@ -20,7 +20,13 @@ from chemistry_agent.automation.events import utc_now
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import StructureInput
 from chemistry_agent.automation.plan_authority import auto_queue, auto_request
-from chemistry_agent.automation.plan_models import NodeRepair, PlanDraft, PlanProgram, PlanQuery
+from chemistry_agent.automation.plan_models import (
+    NodeRepair,
+    PlanDraft,
+    PlanProgram,
+    PlanQuery,
+    ProgramSource,
+)
 from chemistry_agent.automation.plan_repair import diagnose, eligible, replace_node
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
@@ -181,13 +187,69 @@ class CalculationPlans:
 
     async def compile_program(self, args: PlanProgram, context: ToolContext) -> dict:
         """Expand model-written loops locally so repeated branches do not consume context."""
-        directory = self.chat.directory(context.session_id, "plan_programs") / str(uuid4())
+        root = self.chat.directory(context.session_id, "plan_programs")
+        directory = root / str(uuid4())
         directory.mkdir(mode=0o700)
-        content = await execute_model(directory, args.code, output_format="json")
-        plan = await self.draft(PlanDraft.model_validate_json(content), context)
+        if args.previous_id:
+            source = self.program_text(root, str(args.previous_id))
+            (directory / "previous.py").write_text(source)
+        (directory / "plan_writer.py").write_text(
+            Path(__file__).with_name("plan_writer.py").read_text()
+        )
+        try:
+            content = await execute_model(directory, args.code, output_format="json")
+            plan = await self.draft(PlanDraft.model_validate_json(content), context)
+        except AgentError as exc:
+            raise AgentError(
+                exc.code, f"program_id={directory.name}\n{exc.message}", exc.status_code
+            ) from exc
+        except ValueError as exc:
+            from pydantic import ValidationError
+
+            detail = (
+                [
+                    {"field": e["loc"], "reason": e["msg"]}
+                    for e in exc.errors(include_input=False)[:8]
+                ]
+                if isinstance(exc, ValidationError)
+                else str(exc)[:1000]
+            )
+            raise AgentError(
+                "plan_program_invalid", f"program_id={directory.name}\n{detail}", 422
+            ) from exc
         return {k: plan[k] for k in ("id", "title", "revision", "status", "max_parallel")} | {
             "nodes": len(plan["nodes"]),
             "calculations": sum(n["kind"] == "vasp" for n in plan["nodes"]),
+        }
+
+    @staticmethod
+    def program_text(root: Path, identifier: str) -> str:
+        path = root / str(UUID(identifier)) / "model.py"
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or not path.resolve().is_relative_to(root.resolve())
+        ):
+            raise AgentError("program_missing", "此对话中没有可读取的方案程序。", 404)
+        return path.read_text()
+
+    async def program_source(self, args: ProgramSource, context: ToolContext) -> dict:
+        root = self.chat.directory(context.session_id, "plan_programs")
+        if args.program_id is None:
+            return {
+                "program_ids": [
+                    p.name
+                    for p in sorted(root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+                    if p.is_dir()
+                ]
+            }
+        lines = self.program_text(root, str(args.program_id)).splitlines()
+        first = args.first_line - 1
+        return {
+            "program_id": str(args.program_id),
+            "total_lines": len(lines),
+            "first_line": first + 1,
+            "source": "\n".join(lines[first : first + args.lines])[:16000],
         }
 
     async def query(self, args: PlanQuery, context: ToolContext) -> dict:
@@ -528,9 +590,25 @@ class CalculationPlans:
                 "that generates the entire calculation_plan_save JSON document in result.json. "
                 "Use loops/functions for site, facet, molecule and frequency branches; the "
                 "expanded graph is validated, displayed and executed like any other plan. "
-                "When /auto is active omit max_parallel. Return only compact metadata.",
+                "Avoid nested code strings: import runpy; "
+                "W=runpy.run_path('plan_writer.py')['PlanWriter']; "
+                "p=W(title,goal); define standalone normal functions with imports inside. "
+                "p.model(id,fn,inputs={},arguments={}); p.vasp(id,source_id,protocol_id,incar=...,"
+                "resources=...,kmesh=...,require_ionic=...); p.analysis(id,fn,inputs=...,"
+                "result_files=['OUTCAR']); p.ref(id,'structure' or 'result'); p.write(). "
+                "Use previous_id to stage a saved generator as previous.py: patch or reuse its "
+                "source in Python and execute the corrected program to emit result.json.",
                 PlanProgram,
                 self.compile_program,
+                True,
+            ),
+            Tool(
+                "calculation_plan_source",
+                "List saved plan programs or read their source lines, "
+                "including failed attempts. Use previous_id in calculation_plan_program to repair "
+                "without regenerating the entire workflow.",
+                ProgramSource,
+                self.program_source,
                 True,
             ),
             Tool(
