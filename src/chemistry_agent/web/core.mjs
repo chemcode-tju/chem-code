@@ -56,7 +56,10 @@ export function buildTurns(messages, runs = []) {
   let turn = null;
   let pendingCalls = new Map();
   for (const message of messages) {
-    if (message.role === "user") {
+    if (message.role === "assistant" && message.task_event) {
+      turns.push({event:message.task_event,text:"",context:"",calls:[],answer:message.content,run:null});
+      turn = null;
+    } else if (message.role === "user") {
       turn = { ...splitReference(message.content || ""), answer: "", calls: [], run: completed[turns.length] || null };
       turns.push(turn);
       pendingCalls = new Map();
@@ -73,8 +76,9 @@ export function buildTurns(messages, runs = []) {
     }
   }
   // The latest run page contains the latest completed turns, even with failed runs mixed in.
-  const offset = turns.length - completed.length;
-  turns.forEach((item, index) => { item.run = offset >= 0 ? completed[index - offset] || null : null; });
+  const chatTurns = turns.filter(item=>!item.event);
+  const offset = chatTurns.length - completed.length;
+  chatTurns.forEach((item, index) => { item.run = offset >= 0 ? completed[index - offset] || null : null; });
   return turns;
 }
 

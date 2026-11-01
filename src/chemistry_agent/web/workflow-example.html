@@ -1,0 +1,29 @@
+<!DOCTYPE html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CO 吸附能 · 流程示例</title><link rel="stylesheet" href="/assets/theme.css"><link rel="stylesheet" href="/assets/styles.css">
+<style>
+body{display:block;overflow:auto;height:auto;padding:24px;background:var(--subtle);color:var(--text)}
+main{margin:auto;max-width:480px}.calculation-preview{padding:20px}.plan-nodes>small{margin:3px 0}select{font:inherit}
+header{display:flex;gap:8px;align-items:center;justify-content:space-between}.plan-step button{display:none}
+</style><main><header><strong>CO / Cu(100)</strong><select aria-label="示例阶段" id="stage"><option value="draft">方案预览</option><option value="surface">表面优化</option><option value="parallel" selected>位点并行</option><option value="failed">分支失败</option></select></header>
+<p>交互示例 · 非实际作业。点击步骤查看参数。</p><section class="calculation-preview" id="plan"></section></main>
+<script type="module">
+import {workflowPlan} from '/assets/workflow-plan.mjs';
+const sites=['top','bridge','hollow'];
+const incar={ENCUT:520,ISIF:2,NSW:100,EDIFFG:-0.03},kmesh=[9,9,1];
+const item={surface_plan:{size:[2,2],layers:4,fixed_layers:2,vacuum_angstrom:20,gas_cell:18,co_height:1.85,co_bond:1.14},stages:[
+ {stage:'bulk',title:'优化体相晶格',incar:{ENCUT:520,ISIF:7,NSW:100},kmesh:[12,12,12]},
+ {stage:'surface',title:'优化洁净 Cu(100)',incar,kmesh},
+ ...['gas',...sites].map(key=>({stage:key,title:key==='gas'?'气相 CO 参照':'CO · '+key,parallel:true,incar,kmesh:key==='gas'?[1,1,1]:kmesh})),
+ {stage:'energies',title:'汇总各位点吸附能',formula:'E(slab+CO) − E(slab) − E(CO)'}]};
+const done=key=>({label:'示例:'+key,finished_ok:true,process_state:'finished'});
+function draw(){
+ const phase=document.querySelector('select').value;
+ const steps=[done('bulk')];
+ if(phase==='surface')steps.push({label:'示例:surface',scheduler_state:'running'});
+ else if(phase!=='draft')steps.push(done('surface'),done('gas'),done('top'),
+ phase==='failed'?{label:'示例:bridge',process_state:'finished',exit_status:1}:{label:'示例:bridge',scheduler_state:'running'},
+ phase==='failed'?done('hollow'):{label:'示例:hollow',scheduler_job_id:'示例'});
+ document.querySelector('#plan').innerHTML=workflowPlan(item,phase==='draft'?null:{steps,process_state:phase==='failed'?'finished':'waiting'});
+}
+document.querySelector('select').addEventListener('change',draw);draw();
+</script></html>

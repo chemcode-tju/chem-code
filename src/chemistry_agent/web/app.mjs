@@ -1,6 +1,6 @@
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
-import { createCalculations } from "./calculations.mjs?v=20261101-inspector";
+import { createCalculations } from "./calculations.mjs?v=20261101-plans";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
@@ -27,6 +27,24 @@ const selectInspectorTab = initInspectorTabs(() => {
 });
 const viewer = createStructureBridge({selectTab:selectInspectorTab, toast});
 const calculations = createCalculations({
+  async syncReport(id,event) {
+    if (state.busy || state.loading || state.turns.some(t=>t.event===event)) return;
+    const generation = state.navigation;
+    const [session,runs] = await Promise.all([api("/sessions/"+id),api("/sessions/"+id+"/runs?limit=100")]);
+    if (!state.busy && !state.loading && generation===state.navigation && state.sessionId===id) {
+      state.runs = runs;
+      state.turns = buildTurns(session.messages,runs);
+      renderConversation(false);
+    }
+  },
+  reviseStep(id,title) {
+    const field = $("message-input");
+    if (innerWidth<=760) setInspectorOpen(false);
+    state.revision = {id,title};
+    $("revision-chip").hidden=false;
+    $("revision-chip").textContent="修改："+title+" ×";
+    field.focus();
+  },
   viewer, chatFiles: () => [...state.turns.flatMap(turn => turn.files?.length ? turn.files : contextFiles(turn.context)), ...uploads.files],
   api, getSession: () => state.sessionId,
   isBusy: () => state.busy || state.loading || chatModels?.saving || uploads.uploading,
@@ -249,7 +267,7 @@ function renderConversation(scroll = true) {
     return;
   }
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
   if (state.pending) {
     const pending = state.pending;
@@ -293,7 +311,7 @@ function renderConversation(scroll = true) {
 
 async function selectSession(id, quiet = false) {
   if (state.busy) return;
-  if (id !== state.sessionId) { state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
+  if (id !== state.sessionId) { clearRevision(); state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
   uploads.clear();
   calculations.clearSelection();
   const navigation = ++state.navigation;
@@ -336,11 +354,17 @@ async function selectSession(id, quiet = false) {
   }
 }
 
+function clearRevision() {
+  state.revision = null;
+  $("revision-chip").hidden = true;
+}
+$("revision-chip").addEventListener("click",clearRevision);
+
 function newConversation() {
   if (state.busy || state.loading || chatModels.saving) return;
   chatModels.newConversation();
   state.navigation += 1;
-  projectNavigation.clearSelection();
+  clearRevision(); projectNavigation.clearSelection();
   state.sessionId = null;
   state.turns = [];
   state.runs = [];
@@ -388,6 +412,7 @@ async function sendChat(message, context = "", files = uploads.files) {
       calls: result.tool_calls, run: { usage: result.usage, context: result.context } });
     state.pending = null;
     calculations.clearSelection();
+    clearRevision();
     $("message-input").value = "";
     $("message-input").style.height = "";
     uploads.clear();
@@ -471,7 +496,8 @@ async function runLocalTool(name, form) {
 
 $("chat-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  sendChat($("message-input").value);
+  const revision = state.revision;
+  sendChat($("message-input").value,revision ? "修改步骤："+revision.title+"；用 calculation_prepare.revises_preview_id 替换草案 "+revision.id : "");
 });
 $("message-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
@@ -550,7 +576,7 @@ window.addEventListener("resize", () => {
 });
 
 function showLogin(message = "") {
-  viewer.reset(); calculations.reset(); notifications.enabled(false);
+  clearRevision(); viewer.reset(); calculations.reset(); notifications.enabled(false);
   $("context-panel").hidden = true;
   state.accountVersion += 1;
   state.navigation += 1;

@@ -21,9 +21,11 @@ def dispatch(message: dict) -> dict:
             "aiida_profile_missing", "请先运行 scripts/setup_automation.py 初始化独立配置。", 503
         ) from exc
     from chemistry_agent.automation import backend
+    from chemistry_agent.automation.branch_retry import preview_retry
     from chemistry_agent.automation.surface import job_structure
 
     actions = {
+        "branch_retry": preview_retry,
         "status": lambda _: backend.status(),
         "create_server": backend.create_server,
         "test_server": backend.test_server,

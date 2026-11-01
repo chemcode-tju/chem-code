@@ -1,6 +1,7 @@
 """Constraint fidelity and the real AiiDA surface outline, without SSH or VASP execution."""
 
 import io
+import sys
 
 import numpy as np
 import pytest
@@ -240,3 +241,51 @@ if __name__ == "__main__":
     atoms = read(io.StringIO(text), format="vasp")
     assert len(atoms) == 16
     assert sum(not any(row) for row in positions_dof(atoms)) == 8
+
+
+def test_co_workflow_parallel_outputs_and_branch_only_repair(profile, monkeypatch) -> None:
+    from chemistry_agent.automation import adsorption
+
+    class CoTestOutline(adsorption.CoAdsorptionWorkChain):
+        pass
+
+    # AiiDA persists process classes by importable name.
+    CoTestOutline.__qualname__ = "CoTestOutline"
+    monkeypatch.setattr(sys.modules[__name__], "CoTestOutline", CoTestOutline, raising=False)
+    monkeypatch.setattr(adsorption, "CalculationFactory", lambda _: FakeSurfaceVasp)
+    bulk_structure = orm.StructureData(ase=bulk("Cu", "fcc", a=3.6, cubic=True))
+    plan = SurfacePlan(co_sites=["top", "bridge", "hollow"])
+    default = {"structure": bulk_structure, "parameters": orm.Dict(dict={"ediffg": -0.03})}
+    inputs = {key: dict(default) for key in ["bulk", "surface", "top", "bridge", "hollow", "gas"]}
+    inputs["gas"]["structure"] = orm.StructureData(ase=adsorption.gas_co(plan))
+    inputs["bridge"]["parameters"] = orm.Dict(dict={"unconverged": True})
+    inputs["plan"] = orm.Dict(dict=plan.model_dump(mode="json"))
+    outputs, parent = run_get_node(CoTestOutline, **inputs, metadata={"label": "co-test"})
+    assert parent.exit_status == 434
+    children = {
+        node.label.split(":")[-1]: node
+        for node in parent.called
+        if isinstance(node, orm.WorkChainNode)
+    }
+    assert set(children) == {"bulk", "surface", "gas", "top", "bridge", "hollow"}
+    for key in plan.co_sites:
+        atoms = children[key].inputs.structure.get_ase()
+        assert atoms.get_chemical_symbols() == ["Cu"] * 16 + ["C", "O"]
+        assert atoms.cell[0, 0] == pytest.approx(3.7 * np.sqrt(2))
+        assert (
+            sum(not any(row) for row in children[key].inputs.dynamics.get_dict()["positions_dof"])
+            == 8
+        )
+    assert (
+        len({tuple(children[k].inputs.structure.sites[-2].position[:2]) for k in plan.co_sites})
+        == 3
+    )
+    reuse = {key: outputs[key] for key in ("structure", "results", "summary", "dynamics")}
+    reuse.update({key: children[key].outputs.misc for key in ("top", "hollow", "gas")})
+    inputs["bridge"] = default
+    final, retry = run_get_node(CoTestOutline, **inputs, reuse=reuse, metadata={"label": "repair"})
+    assert retry.is_finished_ok
+    assert [node.label for node in retry.called if isinstance(node, orm.WorkChainNode)] == [
+        "repair:bridge"
+    ]
+    assert final["adsorption"].get_dict()["adsorption_ev"] == dict.fromkeys(plan.co_sites, 0)

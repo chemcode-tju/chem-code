@@ -40,12 +40,27 @@ class Resources(StrictModel):
     gpu_type: Name | None = None
 
 
+class BranchSettings(StrictModel):
+    """Optional step-specific numerical settings, without changing the energy reference."""
+
+    nelm: int | None = Field(default=None, ge=1, le=400)
+    nsw: int | None = Field(default=None, ge=1, le=1000)
+    ediffg: float | None = Field(default=None, ge=-1, lt=0)
+
+
 class SurfacePlan(StrictModel):
     surface: Literal["fcc100"] = "fcc100"
     size: tuple[int, int] = (2, 2)
     layers: int = Field(default=4, ge=2, le=30)
     fixed_layers: int = Field(default=2, ge=0, le=29)
     vacuum_angstrom: float = Field(default=20, ge=5, le=100)
+    co_sites: list[Literal["top", "bridge", "hollow"]] = Field(default_factory=list, max_length=3)
+    branch_settings: dict[Literal["gas", "top", "bridge", "hollow"], BranchSettings] = Field(
+        default_factory=dict
+    )
+    co_height: float = Field(default=1.85, ge=0.8, le=4)
+    co_bond: float = Field(default=1.14, ge=0.9, le=1.5)
+    gas_cell: float = Field(default=18, ge=12, le=40)
     bulk_job_id: str | None = Field(default=None, max_length=80)
     incar: dict = Field(
         default_factory=lambda: {"ISIF": 2, "IBRION": 2, "NSW": 100, "EDIFFG": -0.03}
@@ -54,6 +69,12 @@ class SurfacePlan(StrictModel):
 
     @model_validator(mode="after")
     def validate_surface(self):
+        if set(self.branch_settings) - set(["gas", *self.co_sites]) or (
+            self.branch_settings and not self.co_sites
+        ):
+            raise ValueError("局部参数必须对应方案中实际存在的 CO 计算。")
+        if len(set(self.co_sites)) != len(self.co_sites):
+            raise ValueError("吸附位点不能重复。")
         if not 0 <= self.fixed_layers < self.layers:
             raise ValueError("固定层数必须小于总层数。")
         if (

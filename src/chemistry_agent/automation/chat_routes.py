@@ -43,6 +43,12 @@ async def artifacts(session_id: UUID, request: Request) -> dict:
         "recovery": {job_id: monitor.events.recovery(job_id) for job_id in snapshots}
         if monitor
         else {},
+        "policies": {
+            identifier: monitor.events.policy(job.get("recovery_root_id", identifier))
+            for identifier, job in snapshots.items()
+        }
+        if monitor
+        else {},
         "structures": [
             chat.structure_summary(item) for item in chat.list_records(identifier, "structures")
         ],
@@ -68,6 +74,27 @@ async def download_output(session_id: UUID, job_id: UUID, request: Request) -> R
     chat = await session_chat(request, session_id)
     data = await chat.output_structure(str(session_id), str(job_id))
     filename = f"optimized-job-{int(data['source_job_pk'])}.extxyz"
+    return Response(
+        data["extxyz"],
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/{session_id}/jobs/{job_id}/steps/{child_id}/structure.extxyz")
+async def download_step(
+    session_id: UUID, job_id: UUID, child_id: UUID, request: Request
+) -> Response:
+    chat = await session_chat(request, session_id)
+    chat.require_session_job(str(session_id), str(job_id))
+    parent = await chat.service.call("job_details", {"job_id": str(job_id)})
+    if not any(step["id"] == str(child_id) for step in parent.get("steps", [])):
+        raise AgentError("step_not_found", "此步骤不属于所选流程。", 404)
+    data = await chat.service.call("job_structure", {"job_id": str(child_id)})
+    filename = f"optimized-step-{int(data['source_job_pk'])}.extxyz"
     return Response(
         data["extxyz"],
         media_type="text/plain",
@@ -120,7 +147,13 @@ async def confirm(
             root_id = preview.get("recovery_root_id", job["id"])
             if policy is not None and not result["reused"]:
                 monitor.events.set_policy(root_id, policy.model_dump())
-            monitor.events.observe(session, str(preview_id), job)
+            monitor.events.observe(
+                session,
+                str(preview_id),
+                job,
+                report=True,
+                diagnose=monitor.events.policy(root_id)["mode"] != "off",
+            )
         call_id = str(uuid4())
         execution = ToolExecution(
             call_id=call_id,
@@ -183,6 +216,7 @@ async def session_events(session_id: UUID, request: Request) -> dict:
     snapshots = monitor.events.snapshots(str(session_id))
     return {
         **monitor.events.inbox(str(session_id)),
+        "latest_report": monitor.events.latest_report(str(session_id)),
         "jobs": snapshots,
         "recovery": {job_id: monitor.events.recovery(job_id) for job_id in snapshots},
     }

@@ -116,3 +116,25 @@ test('history separates attached structure links from user text and references',
   const text = '查看\n\n<user_provided_reference>\nnotes\n</user_provided_reference>\n\n已验证结构附件（用 ID 调用计算工具）：\n'+JSON.stringify([structure]);
   assert.deepEqual(splitReference(text),{text:'查看',context:'notes',structures:[structure]});
 });
+
+test('assistant-only result reports do not overwrite user turns or shift token usage',()=>{
+  const turns=buildTurns([{role:'user',content:'原问题'},{role:'assistant',content:'原回答'},
+    {role:'assistant',content:'运行结果',task_event:'e1'},{role:'user',content:'继续'},{role:'assistant',content:'新回答'}],
+    [{status:'completed',started_at:'1',id:1},{status:'completed',started_at:'2',id:2}]);
+  assert.deepEqual(turns.map(t=>[t.answer,t.run?.id]),[['原回答',1],['运行结果',undefined],['新回答',2]]);
+  assert.equal(turns[1].event,'e1');
+});
+
+test('parallel steps follow actual child status, not the position of the last submission',async()=>{
+  const {workflowPlan}=await import('../src/chemistry_agent/web/workflow-plan.mjs');
+  const item={surface_plan:{co_height:1.85,co_bond:1.14},stages:[
+    {stage:'bulk',title:'体相',reused_pk:60},{stage:'surface',title:'表面'},
+    ...['top','bridge','hollow'].map(stage=>({stage,title:stage,parallel:true})),{stage:'energies',title:'汇总'}]};
+  const job={steps:[{label:'x:surface',pk:74,finished_ok:true},{label:'x:bridge',pk:80,scheduler_state:'running'},
+    {label:'x:hollow',pk:82,scheduler_job_id:'32'}]};
+  const html=workflowPlan(item,job);
+  assert.equal((html.match(/class="plan-group"/g)||[]).length,4);
+  assert.match(html,/bridge<\/span><small>运行中/); assert.match(html,/hollow<\/span><small>已交调度器/);
+  assert.match(html,/汇总<\/span><small>等待前序/); assert.doesNotMatch(html,/提出修改/);
+  assert.match(workflowPlan(item,null),/提出修改/);
+});

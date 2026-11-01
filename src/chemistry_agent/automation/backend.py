@@ -449,9 +449,20 @@ def job_record(node: orm.ProcessNode) -> dict:
             or node.process_type == "aiida.workflows:chemistry.bulk_surface"
             else "relax_static"
         )
-        result["steps"] = [
-            job_record(child) for child in node.called if isinstance(child, orm.CalcJobNode)
-        ]
+        children = [child for child in node.called if isinstance(child, orm.CalcJobNode)]
+        result["steps"] = [job_record(child) for child in children]
+        if result["workflow"] == "co_adsorption" and node.exit_status == 434:
+            from chemistry_agent.automation.adsorption import valid_branch
+
+            for step, child in zip(result["steps"], children, strict=True):
+                if step["label"].split(":")[-1] in {"gas", "top", "bridge", "hollow"}:
+                    step["branch_valid"] = bool(valid_branch(child))
+        if "adsorption" in node.outputs:
+            result["adsorption"] = node.outputs.adsorption.get_dict()
+        if "co_adsorption" in (node.process_type or "") or "CoAdsorption" in (
+            node.process_type or ""
+        ):
+            result["workflow"] = "co_adsorption"
         if "summary" in node.outputs:
             result["summary"] = node.outputs.summary.get_dict()
         if "results" in node.outputs:
@@ -644,8 +655,14 @@ def resolve_calculation(payload: dict) -> dict:
         configuration.get("sources", protocol.potential_source_id)
     )
     atoms = read_structure(StructureInput.model_validate(payload["structure"]))
-    elements = sorted(set(atoms.get_chemical_symbols()))
-    if len(atoms) > protocol.max_atoms or (
+    elements = set(atoms.get_chemical_symbols())
+    plan = payload.get("surface_plan") or {}
+    atom_limit = len(atoms)
+    if plan.get("co_sites"):
+        elements.update(("C", "O"))
+        atom_limit = max(atom_limit, int(np.prod(plan["size"])) * plan["layers"] + 2)
+    elements = sorted(elements)
+    if atom_limit > protocol.max_atoms or (
         protocol.allowed_elements and not set(elements) <= set(protocol.allowed_elements)
     ):
         raise AgentError(

@@ -38,6 +38,8 @@ def task_state(job: dict) -> tuple[str, str]:
         return "paused", "任务已暂停"
     for child in job.get("steps", []):
         state, title = task_state(child)
+        if state in {"failed", "unconverged", "needs_review"} and job.get("workflow"):
+            return "active", f"子任务 #{child['pk']} 已结束，等待流程汇总"
         if state in FAILURE_STATES:
             return state, f"流程子任务 #{child['pk']}：{title}"
     if job.get("scheduler_state") == "running":
@@ -72,6 +74,10 @@ class EventStore:
                     job_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, preview_id TEXT NOT NULL,
                     state TEXT NOT NULL, decision TEXT, result TEXT, updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS reports (
+                    event_key TEXT PRIMARY KEY REFERENCES events(event_key),
+                    preview_id TEXT NOT NULL,
+                    answer TEXT, delivered INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS policies (
                     job_id TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS retry_budget (
@@ -119,7 +125,15 @@ class EventStore:
                 ),
             )
 
-    def observe(self, session: str, preview_id: str, job: dict, *, diagnose: bool = False) -> bool:
+    def observe(
+        self,
+        session: str,
+        preview_id: str,
+        job: dict,
+        *,
+        diagnose: bool = False,
+        report: bool = False,
+    ) -> bool:
         state, title = task_state(job)
         snapshot = {**job, "display_state": state, "display_title": title}
         with self.connect() as db:
@@ -154,12 +168,54 @@ class EventStore:
                         utc_now(),
                     ),
                 )
+                if report or (before and state != before["state"]):
+                    db.execute(
+                        "INSERT OR IGNORE INTO reports(event_key,preview_id) VALUES(?,?)",
+                        (key, preview_id),
+                    )
                 if diagnose and state in FAILURE_STATES:
+                    if before and before["state"] in FAILURE_STATES and state == "failed":
+                        # A previously paused child may have stopped the first diagnosis.
+                        db.execute(
+                            "DELETE FROM recoveries WHERE job_id=? AND state='needs_user' "
+                            "AND NOT EXISTS(SELECT 1 FROM retry_budget WHERE source_job_id=?) "
+                            "AND json_extract(result,'$.preview_id') IS NULL",
+                            (job["id"], job["id"]),
+                        )
                     db.execute(
                         "INSERT OR IGNORE INTO recoveries VALUES (?,?,?,'queued',NULL,NULL,?)",
                         (job["id"], session, preview_id, utc_now()),
                     )
         return changed
+
+    def pending_reports(self) -> list[dict]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT e.*,r.preview_id,r.answer FROM reports r "
+                "JOIN events e USING(event_key) WHERE delivered=0 ORDER BY created_at LIMIT 50"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_report(self, key: str, answer: str) -> None:
+        with self.connect() as db:
+            db.execute("UPDATE reports SET answer=? WHERE event_key=?", (answer, key))
+
+    def deliver_report(self, key: str) -> None:
+        with self.connect() as db:
+            db.execute(
+                "UPDATE reports SET delivered=(SELECT MAX(delivered)+1 FROM reports) "
+                "WHERE event_key=? AND delivered=0",
+                (key,),
+            )
+
+    def latest_report(self, session: str) -> str | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT r.event_key FROM reports r JOIN events e USING(event_key) "
+                "WHERE e.session_id=? AND delivered>0 ORDER BY delivered DESC LIMIT 1",
+                (session,),
+            ).fetchone()
+        return row[0] if row else None
 
     def snapshots(self, session: str) -> dict:
         with self.connect() as db:

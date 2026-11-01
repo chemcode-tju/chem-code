@@ -37,6 +37,11 @@ AUTOMATION_PROMPT = """
 surface_plan 包含 size=[nx,ny]、layers、fixed_layers、vacuum_angstrom（相邻slab总真空间隔）、
 incar（表面 ISIF=2、IBRION=1或2、NSW>0、EDIFFG<0）、kmesh=[kx,ky,1]。
 用户没有另行指定时可建议4层、固定底部2层；说明并在预览中显示，不把默认方案称为精度已收敛。
+计算 CO 在 fcc(100) 不同位点的吸附能时，生成一个 bulk_surface 预览，
+surface_plan.co_sites 指定 top、bridge、hollow；co_height、co_bond、gas_cell 可调整。
+此流程会从收敛洁净表面并行提交各位点和气相 CO，再汇总吸附能。
+用户提出修改时用 calculation_prepare.revises_preview_id 替代旧预览，
+可通过 branch_settings 调整各位点的 NSW、NELM、EDIFFG。必须重新确认，不能声称已经提交。
 已有成功体相时传 surface_plan.bulk_job_id 复用，不能重算；所有新增计算仍需完整预览确认。
 其他晶面/晶型暂不支持这一自动模板，必须如实说明；可用 calculation_import_result 取回实际输出结构，
 再让 build_structure 执行 ASE 代码建模和预览。不能把“发完成通知”说成“自动继续建模”。

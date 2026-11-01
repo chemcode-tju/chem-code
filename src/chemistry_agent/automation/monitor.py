@@ -17,12 +17,26 @@ class TaskMonitor:
         self.chat = chat
         self.events = EventStore(chat.service.settings.aiida_path / "task-monitor.sqlite3")
         self.recovery = RecoveryAgent(chat, self.events, provider, session_store=session_store)
+        self.session_store = session_store
         self.interval = interval
         self.tasks: list[asyncio.Task] = []
         self.lock = asyncio.Lock()
 
     def start(self) -> None:
         self.tasks = [asyncio.create_task(self.watch()), asyncio.create_task(self.recover())]
+
+        if self.session_store is not None:
+            self.tasks.append(asyncio.create_task(self.report_results()))
+
+    async def report_results(self) -> None:
+        from chemistry_agent.automation.reporting import deliver_pending
+
+        while True:
+            try:
+                await deliver_pending(self)
+            except Exception as exc:
+                logger.warning("Result report delayed (%s)", type(exc).__name__)
+            await asyncio.sleep(5)
 
     async def close(self) -> None:
         for task in self.tasks:
@@ -60,10 +74,12 @@ class TaskMonitor:
                     root = self.chat.load(session, "previews", preview).get(
                         "recovery_root_id", job["id"]
                     )
+                    job["recovery_root_id"] = root
                     self.events.observe(
                         session,
                         preview,
                         job,
+                        report=not initial,
                         diagnose=not initial and self.events.policy(root)["mode"] != "off",
                     )
             self.events.set_meta("initialized", "true")

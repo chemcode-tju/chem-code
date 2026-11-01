@@ -91,6 +91,12 @@ class Store:
                 await db.execute(
                     "ALTER TABLE runs ADD COLUMN context_info TEXT NOT NULL DEFAULT '{}'"
                 )
+            async with db.execute("PRAGMA table_info(messages)") as cursor:
+                if "task_event" not in {row["name"] for row in await cursor.fetchall()}:
+                    await db.execute("ALTER TABLE messages ADD COLUMN task_event TEXT")
+            await db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS messages_task_event ON messages(task_event)"
+            )
             await init_project_schema(db)
             await init_attachment_schema(db)
             # This service runs one worker. A previous worker's active jobs cannot be resumed.
@@ -128,11 +134,37 @@ class Store:
         async with self.db.execute(sql, parameters) as cursor:
             return await cursor.fetchone()
 
-    async def _history(self, session_id: str) -> list[dict[str, Any]]:
+    async def _history(self, session_id: str, *, display: bool = False) -> list[dict[str, Any]]:
         async with self.db.execute(
-            "SELECT payload FROM messages WHERE session_id=? ORDER BY seq", (session_id,)
+            "SELECT payload,task_event FROM messages WHERE session_id=? ORDER BY seq", (session_id,)
         ) as cursor:
-            return [json.loads(row["payload"]) for row in await cursor.fetchall()]
+            return [
+                json.loads(row["payload"])
+                | ({"task_event": row["task_event"]} if display and row["task_event"] else {})
+                for row in await cursor.fetchall()
+            ]
+
+    async def append_task_report(self, session: str, event: str, answer: str) -> bool:
+        """Commit an assistant-only message once, between user turns."""
+        async with self.transaction():
+            row = await self._one(
+                "SELECT active_run_id FROM sessions WHERE id=? AND owner_id IS NULL", (session,)
+            )
+            if row is None or row["active_run_id"]:
+                return False
+            cursor = await self.db.execute(
+                "INSERT OR IGNORE INTO messages(session_id,payload,task_event) VALUES(?,?,?)",
+                (
+                    session,
+                    json.dumps({"role": "assistant", "content": answer}, ensure_ascii=False),
+                    event,
+                ),
+            )
+            if cursor.rowcount:
+                await self.db.execute(
+                    "UPDATE sessions SET updated_at=? WHERE id=?", (utc_now(), session)
+                )
+        return True
 
     async def create_session(self, title: str, owner_id: str | None = None) -> dict[str, Any]:
         session_id, now = str(uuid4()), utc_now()
@@ -166,7 +198,7 @@ class Store:
             )
             if row is None:
                 raise AgentError("session_not_found", "会话不存在。", 404)
-            history = await self._history(session_id)
+            history = await self._history(session_id, display=True)
         # Internal model reasoning is persisted only for the provider continuation protocol.
         messages = [
             {k: v for k, v in message.items() if k != "reasoning_content"} for message in history

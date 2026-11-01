@@ -1285,3 +1285,25 @@ body.inspector-open { grid-template-columns:var(--sidebar) minmax(0,1fr) var(--i
 .structure-item { padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
 .structure-item > span { flex: 1 1 110px; overflow-wrap: anywhere; }
 #structure-list { max-height: 26dvh; overflow: auto; }
+.workflow-plan { margin: 16px 0; }
+.plan-group { position: relative; display:grid; grid-template-columns:24px minmax(0,1fr); gap:8px; padding-bottom:9px; }
+.plan-group:not(:last-child)::before { content:""; position:absolute; left:10px; top:21px; bottom:-1px; border-left:1px solid var(--strong-border); }
+.plan-number { display:grid; place-items:center; align-self:start; width:22px; height:22px; border-radius:50%; background:var(--subtle); border:1px solid var(--strong-border); font-size:12px; }
+.plan-nodes { min-width:0; display:grid; gap:4px; }
+.plan-nodes > small,.plan-step small { color:var(--muted); }
+.calculation-preview .plan-step { margin:0; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.plan-step > summary { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:7px 9px; }
+.plan-step summary::after { content:"⌄"; color:var(--muted); }
+.plan-step summary small { margin-left:auto; white-space:nowrap; }
+.plan-step[data-state="active"] { border-left:3px solid var(--accent); background:var(--hover); }
+.plan-step[data-state="done"] summary small::before {content:"✓ ";}
+.plan-step[data-state="failed"] summary small::before {content:"! ";}
+.plan-step dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:3px 10px; margin:8px 10px; font-size:12px; }
+.plan-step dd { margin:0; overflow-wrap:anywhere; }
+.plan-step dt { color:var(--muted); }
+.plan-step button { margin:4px 9px 9px; }
+.assistant-update { border-left:2px solid var(--strong-border); padding-left:14px; }
+
+.plan-heading { display:flex; align-items:baseline; justify-content:space-between; margin:0 0 10px; font-size:13px; }
+.plan-heading small { color:var(--muted); }
+.plan-group[aria-current="step"] .plan-number { background:var(--accent); color:var(--surface); border-color:var(--accent); }

@@ -47,6 +47,7 @@ class JobInput(StrictModel):
 
 
 class PrepareInput(StrictModel):
+    revises_preview_id: UUID | None = None
     workflow: Literal["single", "relax_static", "bulk_surface"] = "single"
     surface_plan: SurfacePlan | None = None
     structure_id: UUID
@@ -70,6 +71,7 @@ class CalculationChat:
     def __init__(self, service: AutomationService):
         self.service = service
         self.root = service.settings.aiida_path / "chat"
+        self.review_lock = asyncio.Lock()
         self.model_lock = asyncio.Lock()
         self.import_lock = asyncio.Lock()
 
@@ -224,11 +226,25 @@ class CalculationChat:
         return data
 
     async def prepare(self, args: PrepareInput, context: ToolContext) -> dict:
+        if args.revises_preview_id is None:
+            return await self.prepare_version(args, context)
+        previous = str(args.revises_preview_id)
+        async with self.review_lock:
+            old = self.load(context.session_id, "previews", previous)
+            submitted = self.directory(context.session_id, "submissions") / f"{previous}.json"
+            if old.get("replaced_by") or submitted.exists():
+                raise AgentError("plan_locked", "旧方案已提交或已替换，请基于当前方案继续。", 409)
+            result = await self.prepare_version(args, context)
+            old["replaced_by"] = result["preview_id"]
+            self.save(context.session_id, "previews", previous, old)
+            return result
+
+    async def prepare_version(self, args: PrepareInput, context: ToolContext) -> dict:
         structure = self.load(context.session_id, "structures", str(args.structure_id))
         resolved = await self.service.call(
             "resolve_calculation",
             {
-                **args.model_dump(mode="json", exclude={"structure_id"}),
+                **args.model_dump(mode="json", exclude={"structure_id", "revises_preview_id"}),
                 "structure": structure["structure"],
             },
         )
@@ -335,7 +351,12 @@ class CalculationChat:
         return inbox
 
     async def confirm(self, session_id: str, preview_id: str) -> dict:
-        self.load(session_id, "previews", preview_id)
+        async with self.review_lock:
+            if self.load(session_id, "previews", preview_id).get("replaced_by"):
+                raise AgentError("plan_replaced", "该方案已被修改，请确认新版。", 409)
+            return await self.submit_reviewed(session_id, preview_id)
+
+    async def submit_reviewed(self, session_id: str, preview_id: str) -> dict:
         # AiiDA handles stale previews and persistent idempotency, including uncertain submissions.
         result = await self.service.call("submit", {"preview_id": preview_id})
         self.save(session_id, "submissions", preview_id, result)
@@ -399,6 +420,8 @@ class CalculationChat:
                 "Optional INCAR/kmesh overrides are shown in preview. Never submits. "
                 "For bulk to fcc(100) slab relaxation use workflow=bulk_surface and surface_plan; "
                 "this persists the whole plan and automatically advances after approval. "
+                "Set surface_plan.co_sites for parallel CO adsorption energies. "
+                "Use revises_preview_id when replacing a draft. "
                 "Check protocol scope using calculation_setup first.",
                 PrepareInput,
                 self.prepare,

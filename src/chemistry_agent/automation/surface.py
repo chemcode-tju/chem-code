@@ -186,6 +186,46 @@ def preview_surface(body: PreviewRequest) -> dict:
             "fixed_atoms": sum(not any(row) for row in positions_dof(slab)),
         }
     )
+    if plan.co_sites:
+        from chemistry_agent.automation.adsorption import decorate_co, gas_co
+
+        if source and set(bulk_atoms.get_chemical_symbols()) != set(
+            backend.read_structure(body.structure).get_chemical_symbols()
+        ):
+            raise AgentError("bulk_element_mismatch", "复用体相与请求元素不一致。", 422)
+        for key in ["gas", *plan.co_sites]:
+            atoms = gas_co(plan) if key == "gas" else decorate_co(slab, plan, key)
+            incar = dict(surface_incar)
+            if key == "gas":
+                incar.update(ISMEAR=0, SIGMA=0.05, ISYM=0)
+            if key in plan.branch_settings:
+                incar.update(
+                    {
+                        k.upper(): v
+                        for k, v in plan.branch_settings[key].model_dump(exclude_none=True).items()
+                    }
+                )
+            branch = {
+                **child,
+                "incar": incar,
+                "kmesh": [1, 1, 1] if key == "gas" else child["kmesh"],
+                "structure": {"format": "extxyz", "content": structure_text(atoms)},
+            }
+            dry = backend.preview(branch)
+            requests[key] = branch
+            files.update({f"{key}/{name}": content for name, content in dry["files"].items()})
+            stages.append(
+                {
+                    "stage": key,
+                    "title": "气相 CO 参照" if key == "gas" else f"CO · {key}",
+                    "incar": incar,
+                    "kmesh": branch["kmesh"],
+                    "parallel": True,
+                }
+            )
+        stages.append(
+            {"stage": "energies", "title": "汇总吸附能", "formula": "E(slab+CO) − E(slab) − E(CO)"}
+        )
     identifier = str(uuid4())
     record = {
         **result,
@@ -228,12 +268,22 @@ def surface_builder(record: dict, label: str):
     from chemistry_agent.automation import backend
     from chemistry_agent.automation.workflows import BulkSurfaceWorkChain
 
-    builder = BulkSurfaceWorkChain.get_builder()
+    if record["surface_plan"].get("co_sites"):
+        from chemistry_agent.automation.adsorption import CoAdsorptionWorkChain
+
+        builder = CoAdsorptionWorkChain.get_builder()
+    else:
+        builder = BulkSurfaceWorkChain.get_builder()
     fingerprints = []
     for stage, request in record["stage_requests"].items():
         child, _ = backend.build_job(PreviewRequest.model_validate(request), f"{label}:{stage}")
         builder[stage] = child._inputs(prune=True)
         fingerprints.append(backend.execution_fingerprint(child))
+    if record.get("reuse_nodes"):
+        builder.reuse = {
+            key: orm.load_node(uuid=uuid) for key, uuid in record["reuse_nodes"].items()
+        }
+        fingerprints.append(json.dumps(record["reuse_nodes"], sort_keys=True))
     if record.get("bulk_source_uuid"):
         source = completed_bulk(record["bulk_source_uuid"])
         builder.bulk_structure = source.outputs.structure

@@ -45,7 +45,10 @@ class AutomationService:
                 }
             ).encode()
             try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(message), timeout=90)
+                timeout = 360 if action in {"preview", "branch_retry"} else 90
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(message), timeout=timeout
+                )
             except (TimeoutError, asyncio.CancelledError) as exc:
                 if process.returncode is None:
                     process.kill()

@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/styles.css">
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
-  <script type="module" src="/assets/app.mjs?v=20261101-inspector"></script>
+  <script type="module" src="/assets/app.mjs?v=20261101-plans"></script>
 </head>
 <body class="auth-checking">
   <svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -102,6 +102,7 @@
       <p>接近预算时自动压缩，也可手动生成摘要（会调用当前模型）。保留最近对话，原文、结构、参数和任务记录不会删除。</p>
     </details>
       <form class="composer" id="chat-form">
+        <button id="revision-chip" type="button" hidden title="移除修改目标"></button>
         <div id="structure-attachments" class="structure-attachments"></div>
         <div id="attachment-list" class="attachment-list" aria-live="polite" hidden></div>
         <label class="sr-only" for="message-input">输入化学问题</label>

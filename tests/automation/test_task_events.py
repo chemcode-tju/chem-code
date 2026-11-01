@@ -302,3 +302,59 @@ async def test_background_diagnosis_uses_saved_session_model(tmp_path, settings_
         "model": "saved-session-model",
     }
     assert configuration.model == "default-model"
+
+
+async def test_report_is_an_assistant_message_once_without_prompt_or_interleaving(tmp_path):
+    from types import SimpleNamespace
+
+    from chemistry_agent.automation.reporting import RESULT_PROMPT, deliver_pending
+    from chemistry_agent.store import Store
+
+    session_store = await Store.open(tmp_path / "chat.sqlite3")
+    try:
+        session = (await session_store.create_session("CO"))["id"]
+        events = EventStore(tmp_path / "monitor.sqlite3")
+        job = {
+            "id": "job",
+            "pk": 123,
+            "finished_ok": True,
+            "process_state": "finished",
+            "results": {"run_status": {"electronic_converged": True}},
+        }
+        events.observe(session, "draft", job, report=True)
+
+        class Provider(FakeProvider):
+            def configuration(self):
+                return None, SimpleNamespace(provider="chatgpt", base_url="")
+
+            def select_model(self, model):
+                pass
+
+            async def complete(self, messages, tools, **kwargs):
+                self.calls += 1
+                assert messages[0]["content"] == RESULT_PROMPT
+                assert not tools and not kwargs["allow_tools"]
+                return SimpleNamespace(
+                    message=SimpleNamespace(content="电子已收敛。建议比较参考能量。", tool_calls=[])
+                )
+
+        provider = Provider()
+        monitor = SimpleNamespace(
+            events=events, recovery=SimpleNamespace(provider=provider), session_store=session_store
+        )
+        run, _ = await session_store.begin_run(session)
+        await deliver_pending(monitor)
+        assert not (await session_store.get_session(session))["messages"]
+        await session_store.fail_run(session, run, "test", tool_calls=[], usage=TokenUsage())
+        await deliver_pending(monitor)
+        events.observe(session, "draft", job, report=True)
+        await deliver_pending(monitor)
+        history = (await session_store.get_session(session))["messages"]
+        assert len(history) == 1 and history[0]["role"] == "assistant"
+        assert history[0]["task_event"] == events.latest_report(session)
+        assert "建议" in history[0]["content"] and RESULT_PROMPT not in str(history)
+        _, hidden_free = await session_store.begin_run(session)
+        assert "task_event" not in hidden_free[0]
+        assert provider.calls == 1
+    finally:
+        await session_store.close()
