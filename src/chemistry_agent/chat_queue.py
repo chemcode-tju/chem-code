@@ -23,6 +23,7 @@ class ChatQueue:
         self.provider = provider
         self.tasks: set[asyncio.Task] = set()
         self.session_locks: dict[str, asyncio.Lock] = {}
+        self.account_locks: dict[str | None, asyncio.Lock] = {}
 
     async def enqueue(
         self, identifier: str, body: ChatRequest, request: Request, retry: bool
@@ -86,16 +87,24 @@ class ChatQueue:
         lock = self.session_locks.setdefault(session, asyncio.Lock())
         try:
             async with lock:
-                while True:
-                    try:
-                        await self.execute(body, request)
-                        return
-                    except AgentError as exc:
-                        if exc.code != "session_busy":
-                            raise
-                        # A legacy HTTP chat or submission can already own the session.
-                        # Keep the durable message queued until that short turn finishes.
-                        await asyncio.sleep(0.5)
+                user_id, config = self.provider.configuration()
+                # ChatGPT inference is serialized per account. Queue complete turns before
+                # begin_run/its timeout, rather than interleaving five turns behind that lock.
+                slot = (
+                    self.account_locks.setdefault(user_id, asyncio.Lock())
+                    if config.provider == "chatgpt"
+                    else asyncio.Lock()
+                )
+                async with slot:
+                    while True:
+                        try:
+                            await self.execute(body, request)
+                            return
+                        except AgentError as exc:
+                            if exc.code != "session_busy":
+                                raise
+                            # Legacy chat/submission can own this session temporarily.
+                            await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             await self.fail(identifier, "服务已重启，消息已保存，可点击重试。")
             raise

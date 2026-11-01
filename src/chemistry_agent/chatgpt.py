@@ -413,7 +413,12 @@ class ChatGPTClient:
                     "IDs and JSON-encoded arguments; the application executes and returns results. "
                     "If no tool is needed, return content and an empty tool_calls array. "
                     "Never claim a computation succeeded without a supplied tool result. "
-                    f"Keep the response within approximately {max_tokens or 4096} tokens.\n"
+                    + (
+                        f"Keep the response within approximately {max_tokens} tokens.\n"
+                        if max_tokens is not None
+                        else "Keep prose concise; include complete code and tool arguments. "
+                        "Do not truncate executable plans to shorten the response.\n"
+                    )
                     + json.dumps(
                         {"messages": messages, "tools": tools if allow_tools else []},
                         ensure_ascii=False,

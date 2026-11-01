@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     deepseek_timeout_seconds: float = Field(default=60, gt=0, le=300)
     codex_binary: str = Field(default="codex", validation_alias="CHEMISTRY_CODEX_BINARY")
     codex_timeout_seconds: float = Field(
-        default=150, gt=0, le=1800, validation_alias="CHEMISTRY_CODEX_TIMEOUT_SECONDS"
+        default=300, gt=0, le=1800, validation_alias="CHEMISTRY_CODEX_TIMEOUT_SECONDS"
     )
     host: str = Field(default="127.0.0.1", validation_alias="CHEMISTRY_HOST")
     port: int = Field(default=8765, ge=1, le=65535, validation_alias="CHEMISTRY_PORT")
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
         default=6, ge=1, le=20, validation_alias="CHEMISTRY_MAX_TOOL_ROUNDS"
     )
     run_timeout_seconds: float = Field(
-        default=180, gt=0, le=1800, validation_alias="CHEMISTRY_RUN_TIMEOUT_SECONDS"
+        default=900, gt=0, le=1800, validation_alias="CHEMISTRY_RUN_TIMEOUT_SECONDS"
     )
     database_path: Path = Field(
         default=PROJECT_ROOT / "data" / "agent.sqlite3",

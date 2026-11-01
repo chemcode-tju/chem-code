@@ -79,7 +79,12 @@ class PlanResponses:
             "Request only listed functions with unique call IDs and JSON-encoded arguments; "
             "Chemistry Agent executes them and provides results on the next request. "
             "Never claim that a calculation succeeded without a supplied result. "
-            f"Aim for at most {max_tokens or 4096} response tokens."
+            + (
+                f"Aim for at most {max_tokens} response tokens."
+                if max_tokens is not None
+                else "Keep prose concise; include complete code and tool arguments. "
+                "Do not truncate executable plans to shorten the response."
+            )
         )
         body = {
             "model": model,

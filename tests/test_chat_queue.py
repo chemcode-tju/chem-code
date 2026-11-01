@@ -108,3 +108,58 @@ async def test_receipt_conflict_and_unknown_session(settings_factory):
             response = await client.post("/chat/requests", json={**body, "message": "不同内容"})
             assert response.status_code == 409
             assert (await client.get(f"/sessions/{uuid4()}/chat-requests")).status_code == 404
+
+
+async def test_subscription_turns_wait_before_starting_run(settings_factory, monkeypatch):
+    """Five sessions must not burn their run timeout waiting for one account's inference."""
+    from chemistry_agent.chatgpt import ChatGPTClient
+    from chemistry_agent.model_settings import ModelSettings
+    from chemistry_agent.provider import AssistantMessage, Completion
+    from chemistry_agent.schemas import TokenUsage
+
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def authenticated(self, user_id):
+        return True
+
+    async def respond(self, user_id, config, messages, tools, **kwargs):
+        calls.append(messages[-1]["content"])
+        if len(calls) == 1:
+            started.set()
+            await release.wait()
+        return Completion(
+            message=AssistantMessage(role="assistant", content="done", tool_calls=[]),
+            usage=TokenUsage(),
+        )
+
+    monkeypatch.setattr(ChatGPTClient, "authenticated", authenticated)
+    monkeypatch.setattr(ChatGPTClient, "complete", respond)
+    app = create_app(settings_factory())
+    async with app.router.lifespan_context(app):
+        app.state.provider.store.save(None, ModelSettings(provider="chatgpt", model="test"))
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            first = (await client.post("/sessions", json={})).json()["id"]
+            second = (await client.post("/sessions", json={})).json()["id"]
+            for sid in (first, second):
+                await client.post(
+                    "/chat/requests",
+                    json={
+                        "session_id": sid,
+                        "request_id": str(uuid4()),
+                        "message": sid,
+                    },
+                )
+            await asyncio.wait_for(started.wait(), 3)
+            await asyncio.sleep(0.02)
+            pending = (await client.get(f"/sessions/{second}/chat-requests")).json()
+            assert pending["active_run_id"] is None
+            assert pending["requests"][0]["status"] == "queued"
+            assert calls == [first]
+            release.set()
+            await asyncio.wait_for(asyncio.gather(*app.state.chat_queue.tasks), 5)
+            assert calls == [first, second]
+            done = (await client.get(f"/sessions/{second}/chat-requests")).json()
+            assert done["requests"][0]["status"] == "completed"
