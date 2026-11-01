@@ -256,7 +256,8 @@ async def test_logout_retains_registration_and_does_not_fall_back_to_codex(setti
     assert client.plan.selected(None)
 
 
-async def test_response_catalog_and_completed_tool_plan(settings_factory):
+@pytest.mark.parametrize("stream_item", [False, True])
+async def test_response_catalog_and_completed_tool_plan(settings_factory, stream_item):
     requests = []
     result = {
         "role": "assistant",
@@ -299,7 +300,15 @@ async def test_response_catalog_and_completed_tool_plan(settings_factory):
                 "usage": {"input_tokens": 20, "output_tokens": 10},
             },
         }
-        return httpx.Response(200, text=f"data: {json.dumps(payload)}\n\n")
+        events = []
+        if stream_item:
+            item = payload["response"]["output"].pop()
+            item["role"] = "assistant"
+            events.append({"type": "response.output_item.done", "output_index": 0, "item": item})
+        events.append(payload)
+        return httpx.Response(
+            200, text="".join(f"data: {json.dumps(event)}\n\n" for event in events)
+        )
 
     plan = ChatGPTPlan(ModelSettingsStore(settings_factory()), transport=httpx.MockTransport(mock))
     save_account(plan)

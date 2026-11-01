@@ -145,6 +145,7 @@ class PlanResponses:
 
 async def read_completed(response: httpx.Response) -> dict:
     """Only a completed terminal event proves success; partial text is not a result."""
+    completed_items: dict[int, dict] = {}
     data: list[str] = []
     size = 0
     async for line in response.aiter_lines():
@@ -157,10 +158,16 @@ async def read_completed(response: httpx.Response) -> dict:
             event = json.loads("\n".join(data))
             data.clear()
             kind = event.get("type")
+            if kind == "response.output_item.done":
+                item = event.get("item") or {}
+                if item.get("type") == "message" and item.get("role") == "assistant":
+                    completed_items[event["output_index"]] = item
             if kind == "response.completed":
                 result = event["response"]
                 if result.get("status") != "completed":
                     raise ValueError("Missing completed status")
+                if not result.get("output"):
+                    result["output"] = [completed_items[i] for i in sorted(completed_items)]
                 return result
             if kind in {"response.failed", "response.incomplete", "error"}:
                 error = event.get("response", {}).get("error") or event.get("error") or {}
