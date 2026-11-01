@@ -503,3 +503,60 @@ async def test_model_can_use_structure_as_input_alias(graph, monkeypatch):
     assert read(io.StringIO(saved["extxyz"]), format="extxyz").cell.lengths()[0] == pytest.approx(
         3.96
     )
+
+
+async def test_auto_large_plan_is_idempotent_and_queue_scoped(graph):
+    from chemistry_agent.automation.plan_authority import authorized_queue, auto_queue
+
+    chat, context, engine, structure = graph
+    assert authorized_queue("/auto low\n直接运行") == "low"
+    assert authorized_queue("解释一下 /auto low") is None
+    nodes = [vasp(f"site_{i}", {"structure_id": structure}) for i in range(105)]
+    spec = draft(nodes)
+    token = auto_queue.set("low")
+    try:
+        with pytest.raises(AgentError, match="low"):
+            await chat.plans.draft(spec, context)
+        auto_queue.set("batch")
+        plan = await chat.plans.draft(spec, context)
+        again = await chat.plans.draft(spec, context)
+        assert plan["status"] == "running" and plan["max_parallel"] is None
+        assert again["id"] == plan["id"]
+        await chat.plans.tick_plan(context.session_id, plan["id"])
+        assert len(set(engine.submits)) == 105
+    finally:
+        auto_queue.reset(token)
+
+
+async def test_repair_preserves_completed_sibling_and_reopens_descendants(graph):
+    from chemistry_agent.automation.plan_authority import auto_queue, repair_target
+    from chemistry_agent.automation.plan_models import NodeRepair
+
+    chat, ctx, engine, structure = graph
+    ref = {"structure_id": structure}
+    spec = draft([vasp("good", ref), vasp("bad", ref), vasp("child", {"node": "bad"})])
+    grant = auto_queue.set("batch")
+    try:
+        p = await chat.plans.draft(spec, ctx)
+    finally:
+        auto_queue.reset(grant)
+    await chat.plans.tick_plan(ctx.session_id, p["id"])
+    good, bad = engine.submits
+    engine.finish(good)
+    engine.finish(bad, success=False)
+    await chat.plans.tick_plan(ctx.session_id, p["id"])
+    args = NodeRepair(plan_id=p["id"], node=vasp("bad", ref, incar={"NELM": 100}), reason="SCF")
+    with pytest.raises(AgentError, match="故障处理"):
+        await chat.plans.repair_node(args, ctx)
+    grant = repair_target.set((ctx.session_id, p["id"]))
+    try:
+        await chat.plans.repair_node(args, ctx)
+        with pytest.raises(AgentError):
+            await chat.plans.repair_node(args, ctx)
+    finally:
+        repair_target.reset(grant)
+    await chat.plans.tick_plan(ctx.session_id, p["id"])
+    fixed = chat.load(ctx.session_id, "plans", p["id"])
+    assert len(engine.submits) == 3 and fixed["runtime"]["good"]["status"] == "completed"
+    assert fixed["runtime"]["bad"]["attempts"][0]["state"]["preview_id"] == bad
+    assert fixed["runtime"]["child"]["status"] == "pending"

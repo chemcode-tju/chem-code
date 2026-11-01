@@ -71,16 +71,16 @@ class TaskMonitor:
                     if job["id"] not in tracked:
                         continue
                     session, preview = tracked[job["id"]]
-                    root = self.chat.load(session, "previews", preview).get(
-                        "recovery_root_id", job["id"]
-                    )
+                    artifact = self.chat.load(session, "previews", preview)
+                    root = artifact.get("recovery_root_id", job["id"])
+                    individual = not initial and not artifact.get("plan_auto")
                     job["recovery_root_id"] = root
                     self.events.observe(
                         session,
                         preview,
                         job,
-                        report=not initial,
-                        diagnose=not initial and self.events.policy(root)["mode"] != "off",
+                        report=individual,
+                        diagnose=individual and self.events.policy(root)["mode"] != "off",
                     )
             self.events.set_meta("initialized", "true")
             self.events.set_meta("last_success", utc_now())

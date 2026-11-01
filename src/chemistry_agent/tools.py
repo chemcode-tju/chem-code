@@ -148,7 +148,17 @@ class ToolRegistry:
         except AgentError as exc:
             result = {"error": exc.code, "message": exc.message}
             success = False
-        except (ValueError, ValidationError):
+        except ValidationError as exc:
+            result = {
+                "error": "invalid_tool_input",
+                "message": "参数校验失败；根据字段位置修改后重试。",
+                "fields": [
+                    {"field": ".".join(map(str, issue["loc"])), "reason": issue["msg"]}
+                    for issue in exc.errors(include_input=False, include_context=False)[:12]
+                ],
+            }
+            success = False
+        except ValueError:
             result = {
                 "error": "invalid_tool_input",
                 "message": "工具名、参数或 SMILES 无效，请根据工具定义修正后重试。",

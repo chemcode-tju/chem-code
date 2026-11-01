@@ -45,7 +45,13 @@ analysis 返回 passed=false 会阻止下游。
 修改草稿传 plan_id+expected_revision，保持节点 ID；右侧显示版本变更。确认后不可修改，需新方案。
 用户点击确认覆盖该版本全部步骤，后台按依赖自动建模、并行提交、分析，无需逐步重复确认。
 单任务用 calculation_prepare/preview；已有 bulk_surface 和 relax_static 仍兼容。
-续算资源遵循用户最新要求和当前配置，不盲从历史预览。没有提交工具，不能声称草稿已提交。
+续算资源遵循用户最新要求和当前配置，不盲从历史预览。
+普通草稿等待确认；用户消息首行 /auto 队列名 是本轮自动执行授权。
+save 或 program 成功返回 running 即已启动方案，无需等待确认。
+只有实际作业号才能报告已交到调度器。
+大型流程请优先 calculation_plan_program，以 Python 循环生成完整节点，不逐个重复输出 JSON。
+不设置 max_parallel，就绪即提交。
+自动故障处理用 calculation_plan_repair 修复原节点，保留已成功计算。
 上下文压缩后，用 calculation_artifacts/artifact 或 calculation_plan_get 找回参数、代码与输出。
 不要让用户重新提供已有资料。
 任务状态必须查工具；区分未提交、被拒绝、排队、运行、退出、电子/离子收敛和精度验证。

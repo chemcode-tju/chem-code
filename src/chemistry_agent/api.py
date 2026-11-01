@@ -107,7 +107,7 @@ def create_app(
                 if monitor:
                     monitor.start()
                 if calculation_enabled:
-                    calculation_chat.plans.start(store)
+                    calculation_chat.plans.start(store, app.state.agent, provider)
                 try:
                     yield
                 finally:
@@ -427,6 +427,14 @@ def create_app(
                 context=progress.context,
             )
 
+        from chemistry_agent.automation.plan_authority import (
+            authorized_queue,
+            auto_queue,
+            auto_request,
+        )
+
+        source_request = auto_request.set(getattr(request.state, "chat_request_id", run_id))
+        grant = auto_queue.set(authorized_queue(body.message) if calculation_enabled else None)
         try:
             async with asyncio.timeout(settings.run_timeout_seconds):
                 result = await request.app.state.agent.run(
@@ -460,6 +468,9 @@ def create_app(
             # Only log the exception type, never an upstream body, prompt, or credential.
             logger.error("Agent run failed (%s)", type(exc).__name__)
             raise AgentError("internal_error", "任务执行失败，请重试。", 500) from exc
+        finally:
+            auto_queue.reset(grant)
+            auto_request.reset(source_request)
         return ChatResponse(
             session_id=session_id,
             run_id=run_id,

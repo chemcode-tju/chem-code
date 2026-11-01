@@ -10,7 +10,7 @@ import io
 import json
 import logging
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from ase.io import read
 
@@ -19,7 +19,9 @@ from chemistry_agent.automation.constraints import poscar_text, restore_constrai
 from chemistry_agent.automation.events import utc_now
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import StructureInput
-from chemistry_agent.automation.plan_models import PlanDraft, PlanQuery
+from chemistry_agent.automation.plan_authority import auto_queue, auto_request
+from chemistry_agent.automation.plan_models import NodeRepair, PlanDraft, PlanProgram, PlanQuery
+from chemistry_agent.automation.plan_repair import diagnose, eligible, replace_node
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
 
@@ -56,6 +58,8 @@ class CalculationPlans:
         self.locks: dict[str, asyncio.Lock] = {}
         self.task: asyncio.Task | None = None
         self.store = None
+        self.agent = self.provider = None
+        self.repair_tasks: dict[tuple[str, str], asyncio.Task] = {}
 
     def lock(self, session: str, plan: str) -> asyncio.Lock:
         return self.locks.setdefault(f"{session}/{plan}", asyncio.Lock())
@@ -74,13 +78,22 @@ class CalculationPlans:
 
     async def draft(self, args: PlanDraft, context: ToolContext) -> dict:
         session, identifier = context.session_id, str(args.plan_id or uuid4())
+        if auto_queue.get() and not args.plan_id:
+            identifier = str(
+                uuid5(NAMESPACE_URL, f"plan:{session}:{auto_request.get() or context.run_id}")
+            )
         async with self.lock(session, identifier):
+            if auto_queue.get() and not args.plan_id:
+                path = self.chat.directory(session, "plans") / f"{identifier}.json"
+                if path.is_file():
+                    return self.public(self.chat.load(session, "plans", identifier))
             old = self.chat.load(session, "plans", identifier) if args.plan_id else None
             if old and (old["status"] != "draft" or old["revision"] != args.expected_revision):
                 raise AgentError(
                     "plan_revision_conflict", "方案已确认或版本已变化，请读取当前方案。", 409
                 )
-            snapshots = {}
+            snapshots, identities = {}, {}
+            queue = auto_queue.get()
             configuration = CalculationConfiguration(self.chat.service.settings.aiida_path)
             for node in args.nodes:
                 for reference in node.inputs.values():
@@ -98,7 +111,12 @@ class CalculationPlans:
                     if settings.resources:
                         protocol["resources"] = settings.resources.model_dump(mode="json")
                     source = configuration.get("sources", protocol["potential_source_id"])
-                    identity = await self.chat.service.call("plan_identity", protocol)
+                    if queue and protocol["resources"]["queue"] != queue:
+                        raise AgentError("wrong_queue", f"本轮只授权 {queue} 队列。", 422)
+                    key = (protocol["server_id"], protocol["code_id"])
+                    if key not in identities:
+                        identities[key] = await self.chat.service.call("plan_identity", protocol)
+                    identity = identities[key]
                     snapshots[node.id] = {"protocol": protocol, "source": source, **identity}
             nodes = [node.model_dump(mode="json") for node in args.nodes]
             for node in nodes:
@@ -124,8 +142,18 @@ class CalculationPlans:
                 "revision": revision,
                 "title": args.title,
                 "goal": args.goal,
-                "status": "draft",
-                "max_parallel": args.max_parallel,
+                "status": "running" if queue else "draft",
+                "max_parallel": None if queue else args.max_parallel,
+                **(
+                    {
+                        "auto_queue": queue,
+                        "approved_at": utc_now(),
+                        "approved_revision": revision,
+                        "authorized_run": context.run_id,
+                    }
+                    if queue
+                    else {}
+                ),
                 "nodes": nodes,
                 "snapshots": snapshots,
                 "changed_nodes": changed,
@@ -147,6 +175,20 @@ class CalculationPlans:
                 self.chat.save(session, "plan_versions", str(uuid4()), old)
             self.save(session, plan)
             return self.public(plan)
+
+    async def repair_node(self, args: NodeRepair, context: ToolContext) -> dict:
+        return await replace_node(self, args, context)
+
+    async def compile_program(self, args: PlanProgram, context: ToolContext) -> dict:
+        """Expand model-written loops locally so repeated branches do not consume context."""
+        directory = self.chat.directory(context.session_id, "plan_programs") / str(uuid4())
+        directory.mkdir(mode=0o700)
+        content = await execute_model(directory, args.code, output_format="json")
+        plan = await self.draft(PlanDraft.model_validate_json(content), context)
+        return {k: plan[k] for k in ("id", "title", "revision", "status", "max_parallel")} | {
+            "nodes": len(plan["nodes"]),
+            "calculations": sum(n["kind"] == "vasp" for n in plan["nodes"]),
+        }
 
     async def query(self, args: PlanQuery, context: ToolContext) -> dict:
         if args.plan_id:
@@ -291,7 +333,10 @@ class CalculationPlans:
             state.update(preview_id=preview["preview_id"], input_structure_id=structure_id)
             artifact = self.chat.load(session, "previews", preview["preview_id"])
             artifact.update(
-                plan_id=plan["id"], plan_node=node["id"], plan_revision=plan["revision"]
+                plan_id=plan["id"],
+                plan_node=node["id"],
+                plan_revision=plan["revision"],
+                plan_auto=bool(plan.get("auto_queue")),
             )
             self.chat.save(session, "previews", preview["preview_id"], artifact)
             # Persist BEFORE submission. Recovery always uses this same preview.
@@ -353,7 +398,11 @@ class CalculationPlans:
                             bool(s.get("job_id")) and s["status"] == "running"
                             for s in plan["runtime"].values()
                         )
-                        if node["kind"] == "vasp" and active >= plan["max_parallel"]:
+                        if (
+                            node["kind"] == "vasp"
+                            and plan.get("max_parallel")
+                            and active >= plan["max_parallel"]
+                        ):
                             continue
                         state.update(
                             status="preparing", started_at=state.get("started_at", utc_now())
@@ -386,6 +435,8 @@ class CalculationPlans:
             if (
                 plan["status"] in {"completed", "failed"}
                 and not plan.get("reported")
+                and not (plan.get("auto_queue") and self.agent and eligible(plan))
+                and (session, identifier) not in self.repair_tasks
                 and self.store
             ):
                 labels = {"completed": "已完成", "failed": "失败", "blocked": "上游失败，未执行"}
@@ -414,6 +465,18 @@ class CalculationPlans:
                     plan["reported"] = True
                     self.save(session, plan)
 
+            key = (session, identifier)
+            if (
+                self.agent
+                and plan.get("auto_queue")
+                and plan["status"] != "paused"
+                and eligible(plan)
+                and key not in self.repair_tasks
+            ):
+                task = asyncio.create_task(diagnose(self, session, identifier))
+                self.repair_tasks[key] = task
+                task.add_done_callback(lambda _: self.repair_tasks.pop(key, None))
+
     async def watch(self) -> None:
         while True:
             for path in self.chat.root.glob("*/plans/*.json"):
@@ -425,11 +488,14 @@ class CalculationPlans:
                     logger.exception("Plan scheduling delayed")
             await asyncio.sleep(5)
 
-    def start(self, store) -> None:
-        self.store = store
+    def start(self, store, agent=None, provider=None) -> None:
+        self.store, self.agent, self.provider = store, agent, provider
         self.task = asyncio.create_task(self.watch())
 
     async def close(self) -> None:
+        for task in self.repair_tasks.values():
+            task.cancel()
+        await asyncio.gather(*self.repair_tasks.values(), return_exceptions=True)
         if self.task:
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -440,7 +506,8 @@ class CalculationPlans:
             Tool(
                 "calculation_plan_save",
                 "Create or revise a general executable calculation DAG. "
-                "Never submits. Nodes: model (ASE Python writes structure.vasp), vasp (registered "
+                "An explicit /auto QUEUE user header starts it immediately. Otherwise draft. "
+                "Nodes: model (ASE Python writes structure.vasp), vasp (registered "
                 "protocol plus overrides), analysis (Python writes result.json; passed=false "
                 "blocks descendants). inputs map aliases to structure_id OR upstream node/output. "
                 "Code reads alias.vasp and inputs.json (alias: {result} or {structure_id,file}). "
@@ -448,11 +515,31 @@ class CalculationPlans:
                 "file_source selects retrieved or remote. inputs.json alias.files maps names "
                 "to local paths; no file-type whitelist. "
                 "Dependencies include all input references. Branches execute concurrently after "
-                "user confirms this revision in the panel. Revisions require plan_id and "
+                "authorization (auto mode or panel confirmation). Revisions require plan_id and "
                 "expected_revision; confirmed plans are immutable. Use this for new multi-step "
                 "research workflows, not just a prose plan.",
                 PlanDraft,
                 self.draft,
+                True,
+            ),
+            Tool(
+                "calculation_plan_program",
+                "For a large or repetitive workflow, write a Python program (stdlib, ASE, numpy) "
+                "that generates the entire calculation_plan_save JSON document in result.json. "
+                "Use loops/functions for site, facet, molecule and frequency branches; the "
+                "expanded graph is validated, displayed and executed like any other plan. "
+                "When /auto is active omit max_parallel. Return only compact metadata.",
+                PlanProgram,
+                self.compile_program,
+                True,
+            ),
+            Tool(
+                "calculation_plan_repair",
+                "During automatic fault handling replace one failed node in its existing plan. "
+                "Keep its ID, kind and upstream dependencies; supply the complete corrected node "
+                "and a reason. Preserves completed branches; resumes its downstream steps.",
+                NodeRepair,
+                self.repair_node,
                 True,
             ),
             Tool(

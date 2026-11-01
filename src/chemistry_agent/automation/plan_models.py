@@ -41,8 +41,8 @@ class PlanNode(StrictModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     title: str = Field(min_length=1, max_length=120)
     kind: Literal["model", "vasp", "analysis"]
-    depends_on: list[str] = Field(default_factory=list, max_length=100)
-    inputs: dict[str, InputReference] = Field(default_factory=dict, max_length=100)
+    depends_on: list[str] = Field(default_factory=list)
+    inputs: dict[str, InputReference] = Field(default_factory=dict)
     code: str = Field(default="", max_length=50000)
     calculation: VaspSettings | None = None
     purpose: str = Field(default="", max_length=1000)
@@ -77,8 +77,8 @@ class PlanDraft(StrictModel):
     expected_revision: int | None = Field(default=None, ge=1)
     title: str = Field(min_length=1, max_length=160)
     goal: str = Field(min_length=1, max_length=2000)
-    nodes: list[PlanNode] = Field(min_length=1, max_length=100)
-    max_parallel: int = Field(default=3, ge=1, le=16)
+    nodes: list[PlanNode] = Field(min_length=1)
+    max_parallel: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def valid_graph(self):
@@ -118,3 +118,13 @@ class PlanConfirmation(StrictModel):
 
 class PlanControl(StrictModel):
     action: Literal["pause", "resume"]
+
+
+class PlanProgram(StrictModel):
+    code: str = Field(min_length=1, description="Python writes full PlanDraft JSON to result.json")
+
+
+class NodeRepair(StrictModel):
+    plan_id: UUID
+    node: PlanNode
+    reason: str = Field(min_length=1, max_length=2000)
