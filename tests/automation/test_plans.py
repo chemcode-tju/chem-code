@@ -560,3 +560,77 @@ async def test_repair_preserves_completed_sibling_and_reopens_descendants(graph)
     assert len(engine.submits) == 3 and fixed["runtime"]["good"]["status"] == "completed"
     assert fixed["runtime"]["bad"]["attempts"][0]["state"]["preview_id"] == bad
     assert fixed["runtime"]["child"]["status"] == "pending"
+
+
+async def test_failed_auto_node_wakes_model_with_tools_and_hides_wake_prompt(graph, tmp_path):
+    from types import SimpleNamespace
+
+    from chemistry_agent.automation.plan_authority import auto_queue
+    from chemistry_agent.automation.plan_models import NodeRepair
+    from chemistry_agent.store import Store
+
+    chat, _, engine, _ = graph
+    plans = chat.plans
+    store = await Store.open(tmp_path / "repair.sqlite3")
+    try:
+        sid = (await store.create_session("fault recovery"))["id"]
+        context = ToolContext(sid, str(uuid4()))
+        node = {
+            "id": "build",
+            "title": "建模",
+            "kind": "model",
+            "code": "raise ValueError('bad geometry')",
+        }
+        grant = auto_queue.set("low")
+        try:
+            plan = await plans.draft(draft([node]), context)
+        finally:
+            auto_queue.reset(grant)
+        state = chat.load(sid, "plans", plan["id"])
+        state["runtime"]["build"] = {"status": "failed", "error": "bad geometry"}
+        plans.save(sid, state)
+
+        async def respond(messages, progress, *, session_id, run_id, history_count):
+            assert session_id == sid and "bad geometry" in messages[-1]["content"]
+            await plans.repair_node(
+                NodeRepair(
+                    plan_id=plan["id"], node={**node, "code": "pass"}, reason="fix geometry builder"
+                ),
+                ToolContext(sid, run_id),
+            )
+            return {
+                "messages": [{"role": "assistant", "content": "已修复建模代码。"}],
+                "tool_calls": [],
+                "usage": progress.usage,
+            }
+
+        plans.store, plans.agent = store, SimpleNamespace(run=respond)
+        plans.provider = SimpleNamespace(
+            configuration=lambda: (None, SimpleNamespace(provider="chatgpt", base_url="")),
+            select_model=lambda model: None,
+        )
+        await plans.tick_plan(sid, plan["id"])
+        await plans.repair_tasks[sid, plan["id"]]
+        fixed = chat.load(sid, "plans", plan["id"])
+        assert fixed["status"] == "running" and fixed["runtime"]["build"]["status"] == "pending"
+        assert [m["content"] for m in (await store.get_session(sid))["messages"]] == [
+            "已修复建模代码。"
+        ]
+    finally:
+        await store.close()
+
+
+def test_vasp_accepts_chemistry_named_structure_port():
+    original = vasp("static", {"node": "cu_primitive"})
+    original["inputs"]["bulk"] = original["inputs"].pop("structure")
+    model = {"id": "cu_primitive", "kind": "model", "title": "Cu", "code": "pass"}
+    node = draft([model, original]).nodes[1]
+    assert node.inputs["structure"].node == "cu_primitive"
+    assert node.depends_on == ["cu_primitive"]
+    with pytest.raises(ValidationError):
+        draft(
+            [
+                model,
+                {**original, "inputs": {**original["inputs"], "extra": {"node": "cu_primitive"}}},
+            ]
+        )

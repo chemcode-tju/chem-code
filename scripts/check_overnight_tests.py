@@ -6,6 +6,7 @@ base_url = "http://127.0.0.1:8766"
 record_file = "data/overnight-2026-11-02/cases.json"
 
 import json
+from collections import Counter
 from pathlib import Path
 from urllib.request import ProxyHandler, build_opener
 
@@ -16,7 +17,8 @@ def get(path: str) -> dict:
 
 
 def main() -> None:
-    for case in json.loads(Path(record_file).read_text()):
+    files = [Path(record_file), Path(record_file).with_name("long-cases.json")]
+    for case in (row for path in files if path.exists() for row in json.loads(path.read_text())):
         sid = case["session_id"]
         plans = get(f"/api/automation/chat/{sid}/workflows")["plans"]
         queue = get(f"/sessions/{sid}/chat-requests")
@@ -29,8 +31,17 @@ def main() -> None:
         print(case["title"], [(r["status"], r.get("error")) for r in queue["requests"]])
         for plan in plans:
             print(" PLAN", plan["id"], "v", plan["revision"], plan["status"], len(plan["nodes"]))
+            print("  states", dict(Counter(s["status"] for s in plan["runtime"].values())))
+            print(
+                "  VASP",
+                sum(n["kind"] == "vasp" for n in plan["nodes"]),
+                "AiiDA",
+                [s["job"]["pk"] for s in plan["runtime"].values() if s.get("job")][-8:],
+            )
             for node in plan["nodes"]:
                 state = plan["runtime"][node["id"]]
+                if len(plan["nodes"]) > 15 and state["status"] != "failed":
+                    continue
                 calc = node.get("effective", {})
                 print(
                     " ",

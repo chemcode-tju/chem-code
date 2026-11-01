@@ -58,10 +58,13 @@ class PlanNode(StrictModel):
         if self.result_files and self.kind != "analysis":
             raise ValueError("result_files 仅用于分析步骤。")
         if self.kind == "vasp":
-            if not self.calculation or self.code or set(self.inputs) != {"structure"}:
+            if not self.calculation or self.code or len(self.inputs) != 1:
                 raise ValueError("VASP 步骤需要 calculation 和唯一的 structure 输入，不执行代码。")
-            if self.inputs["structure"].output != "structure":
+            source = next(iter(self.inputs.values()))
+            if source.output != "structure":
                 raise ValueError("VASP 输入必须是结构。")
+            # Names such as bulk or clean_slab convey the same single structure.
+            self.inputs = {"structure": source}
         elif not self.code or self.calculation is not None:
             raise ValueError("建模/分析步骤需要 Python code，不能含 calculation。")
         if self.code:
