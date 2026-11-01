@@ -33,6 +33,17 @@ def main() -> None:
             print(" PLAN", plan["id"], "v", plan["revision"], plan["status"], len(plan["nodes"]))
             print("  states", dict(Counter(s["status"] for s in plan["runtime"].values())))
             print(
+                "  dispatch",
+                dict(
+                    Counter(
+                        s["job"].get("scheduler_state")
+                        or s["job"].get("submission_state", "unknown")
+                        for s in plan["runtime"].values()
+                        if s["status"] == "running" and s.get("job")
+                    )
+                ),
+            )
+            print(
                 "  VASP",
                 sum(n["kind"] == "vasp" for n in plan["nodes"]),
                 "AiiDA",

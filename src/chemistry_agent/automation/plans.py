@@ -9,6 +9,7 @@ import contextlib
 import io
 import json
 import logging
+import time
 from collections import Counter
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -17,7 +18,7 @@ from ase.io import read
 
 from chemistry_agent.automation.configuration import CalculationConfiguration, CalculationProtocol
 from chemistry_agent.automation.constraints import poscar_text, restore_constraints
-from chemistry_agent.automation.events import utc_now
+from chemistry_agent.automation.events import utc_now, waiting_for_submit_quota
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import StructureInput
 from chemistry_agent.automation.plan_authority import auto_queue, auto_request
@@ -502,6 +503,20 @@ class CalculationPlans:
                 outputs["structure_id"] = state["input_structure_id"]
         state.update(status="completed", outputs=outputs, completed_at=utc_now())
 
+    async def resume_quota_waiter(self, session: str, plan: dict, state: dict) -> None:
+        if plan["status"] != "running" or not plan.get("auto_queue"):
+            return
+        if not waiting_for_submit_quota(state.get("job", {})):
+            return
+        now = time.time()
+        if now < max(plan.get("next_quota_probe", 0), state.get("next_quota_probe", 0)):
+            return
+        # Pace rejected submissions only. New ready branches are dispatched normally.
+        plan["next_quota_probe"] = now + 60
+        state["next_quota_probe"] = now + 1800
+        self.save(session, plan)
+        await self.chat.service.call("resume_quota_job", {"job_id": state["job_id"]})
+
     async def tick_plan(self, session: str, identifier: str) -> None:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
@@ -511,6 +526,7 @@ class CalculationPlans:
                     try:
                         if state.get("job_id") and state["status"] == "running":
                             await self.inspect_vasp(session, node, state)
+                            await self.resume_quota_waiter(session, plan, state)
                         if state["status"] in TERMINAL or plan["status"] == "paused":
                             continue
                         dependencies = [

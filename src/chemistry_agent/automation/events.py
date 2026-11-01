@@ -14,6 +14,22 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def waiting_for_submit_quota(job: dict) -> bool:
+    """Only retry an AiiDA transport pause after an explicit Slurm quota rejection."""
+    errors = job.get("recent_process_errors") or []
+    latest = next(
+        (e.get("message", "") for e in errors if "sbatch: error:" in e.get("message", "")), ""
+    )
+    return bool(
+        job.get("paused")
+        and job.get("process_state") == "waiting"
+        and not job.get("scheduler_job_id")
+        and "failed transport task: submit_calculation" in (job.get("process_status") or "")
+        and job.get("submission_state") == "rejected_by_scheduler"
+        and "QOSMaxSubmitJobPerUserLimit" in latest
+    )
+
+
 def task_state(job: dict) -> tuple[str, str]:
     if job.get("finished_ok"):
         status = job.get("results", {}).get("run_status", {})

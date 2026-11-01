@@ -811,6 +811,19 @@ def session_job(payload: dict) -> dict:
     raise AgentError("job_not_in_session", "任务不属于当前对话的计算流程。", 403)
 
 
+def resume_quota_job(payload: dict) -> dict:
+    """Resume the same paused process only if the scheduler never accepted the submission."""
+    from aiida.engine.processes.control import play_processes
+
+    from chemistry_agent.automation.events import waiting_for_submit_quota
+
+    node = load_job(payload["job_id"])
+    if not isinstance(node, orm.CalcJobNode) or not waiting_for_submit_quota(job_record(node)):
+        return {"requested": False}
+    play_processes([node])
+    return {"requested": True, "pk": node.pk}
+
+
 def job_details(payload: dict) -> dict:
     node = load_job(payload["job_id"])
     result = job_record(node)

@@ -730,3 +730,38 @@ async def test_fork_completed_chain_for_failed_thermochemistry(graph):
     assert nodes["other"]["depends_on"] == ["relax"]
     assert all(result["runtime"][k] == p["runtime"][k] for k in ["other", "relax", "freq"])
     assert result["revision"] == 2 and result["runtime"]["thermo"]["status"] == "pending"
+
+
+async def test_quota_recovery_plays_original_process_only_and_paces_probes(graph, monkeypatch):
+    chat, ctx, engine, structure = graph
+    plan = await chat.plans.draft(draft([vasp("energy", {"structure_id": structure})]), ctx)
+    plan.update(auto_queue="batch", status="running")
+    job = {
+        "paused": True,
+        "process_state": "waiting",
+        "process_status": "Pausing after failed transport task: submit_calculation",
+        "submission_state": "rejected_by_scheduler",
+        "recent_process_errors": [{"message": "sbatch: error: QOSMaxSubmitJobPerUserLimit"}],
+    }
+    calls = []
+
+    async def record(action, payload):
+        calls.append((action, payload))
+        return {"requested": True}
+
+    monkeypatch.setattr(engine, "call", record)
+    state = {"job_id": "existing", "status": "running", "job": job}
+    plan["runtime"]["energy"] = state
+    for invalid in (
+        {"scheduler_job_id": "already-accepted"},
+        {"process_status": "user pause"},
+        {"recent_process_errors": []},
+    ):
+        state["job"] = job | invalid
+        await chat.plans.resume_quota_waiter(ctx.session_id, plan, state)
+    state["job"] = job
+    await chat.plans.resume_quota_waiter(ctx.session_id, plan, state)
+    await chat.plans.resume_quota_waiter(ctx.session_id, plan, state)
+    assert calls == [("resume_quota_job", {"job_id": "existing"})]
+    saved = chat.load(ctx.session_id, "plans", plan["id"])
+    assert saved["runtime"]["energy"]["next_quota_probe"] > saved["next_quota_probe"]

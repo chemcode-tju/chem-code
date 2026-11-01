@@ -38,6 +38,7 @@ def dispatch(message: dict) -> dict:
         "create_code": backend.create_code,
         "preview": backend.preview,
         "submit": backend.submit_preview,
+        "resume_quota_job": backend.resume_quota_job,
         "jobs": lambda _: backend.jobs(),
         "validate_structure": backend.validate_structure,
         "catalog": lambda _: backend.catalog(),
