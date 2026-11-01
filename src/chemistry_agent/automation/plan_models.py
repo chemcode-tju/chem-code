@@ -146,6 +146,10 @@ class NodeRepair(StrictModel):
     plan_id: UUID
     node: PlanNode | None = None
     node_id: str | None = None
+    restart_from_last_structure: bool = Field(
+        default=False,
+        description="Restart this failed VASP node from its own latest saved geometry.",
+    )
     rerun_upstream: list[UpstreamRetry] = Field(default_factory=list)
     reason: str = Field(min_length=1, max_length=2000)
 

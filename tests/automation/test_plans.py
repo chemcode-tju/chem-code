@@ -545,7 +545,12 @@ async def test_repair_preserves_completed_sibling_and_reopens_descendants(graph)
     engine.finish(good)
     engine.finish(bad, success=False)
     await chat.plans.tick_plan(ctx.session_id, p["id"])
-    args = NodeRepair(plan_id=p["id"], node=vasp("bad", ref, incar={"NELM": 100}), reason="SCF")
+    args = NodeRepair(
+        plan_id=p["id"],
+        node=vasp("bad", ref, incar={"NELM": 100}),
+        reason="continue relaxation",
+        restart_from_last_structure=True,
+    )
     with pytest.raises(AgentError, match="故障处理"):
         await chat.plans.repair_node(args, ctx)
     grant = repair_target.set((ctx.session_id, p["id"]))
@@ -557,6 +562,16 @@ async def test_repair_preserves_completed_sibling_and_reopens_descendants(graph)
         repair_target.reset(grant)
     await chat.plans.tick_plan(ctx.session_id, p["id"])
     fixed = chat.load(ctx.session_id, "plans", p["id"])
+    retry_preview = fixed["runtime"]["bad"]["preview_id"]
+    assert (
+        engine.requests[retry_preview]["structure"]["content"]
+        != engine.requests[bad]["structure"]["content"]
+    )
+    checkpoint_id = fixed["runtime"]["bad"]["input_structure_id"]
+    assert (
+        chat.load(ctx.session_id, "structures", checkpoint_id)["source_job_id"]
+        == engine.jobs[bad]["id"]
+    )
     assert len(engine.submits) == 3 and fixed["runtime"]["good"]["status"] == "completed"
     assert fixed["runtime"]["bad"]["attempts"][0]["state"]["preview_id"] == bad
     assert fixed["runtime"]["child"]["status"] == "pending"

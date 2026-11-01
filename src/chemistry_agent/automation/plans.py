@@ -685,7 +685,9 @@ class CalculationPlans:
                 "calculation_plan_repair",
                 "During automatic fault handling replace one failed node in its existing plan. "
                 "Keep its ID, kind and upstream dependencies; supply the complete corrected node "
-                "and a reason, or pass node_id to retain its code. If a failed analysis needs a "
+                "and a reason, or pass node_id to retain settings. For a timed-out relaxation, "
+                "restart_from_last_structure=true reuses its own saved geometry and constraints. "
+                "Supply original inputs/dependencies. If a failed analysis needs a "
                 "better geometry or frequencies, pass rerun_upstream=[{node_id: relax_id, "
                 "use_final_structure: true, incar: {...}}, {node_id: freq_id, incar: {...}}]. "
                 "Clones that completed input chain with the original queue and resources; "

@@ -98,6 +98,19 @@ async def replace_node(plans, args: NodeRepair, context: ToolContext) -> dict:
             raise AgentError("repair_job_active", "原作业未明确退出，不能重复提交。", 409)
         if state.get("preview_id") and not state.get("job_id"):
             raise AgentError("repair_submit_unknown", "提交结果不确定，先核对原预览避免重复。", 409)
+        if args.restart_from_last_structure:
+            from chemistry_agent.automation.chat import JobInput
+
+            if node["kind"] != "vasp" or not state.get("job_id"):
+                raise AgentError("repair_checkpoint", "只有已退出的 VASP 作业可读取续算结构。", 422)
+            checkpoint = await plans.chat.import_job_structure(
+                JobInput(job_id=state["job_id"]), context
+            )
+            node["inputs"]["structure"] = {
+                "structure_id": checkpoint["id"],
+                "node": None,
+                "output": "structure",
+            }
         if node["kind"] == "vasp":
             calc = node["calculation"]
             original = old["calculation"]
@@ -192,6 +205,9 @@ async def diagnose(plans, session: str, identifier: str) -> None:
                                 if (job := plan["runtime"].get(ref.get("node"), {}).get("job"))
                             },
                             "node": n,
+                            "has_output_structure": bool(
+                                state.get("job", {}).get("output_structure")
+                            ),
                             "scheduler_job_id": state.get("job", {}).get("scheduler_job_id"),
                             "diagnostic_tail": {
                                 name: str(value)[-3200:]
