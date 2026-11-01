@@ -24,6 +24,7 @@ from chemistry_agent.automation.monitor import TaskMonitor
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
+from chemistry_agent.chat_queue import ChatQueue
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
@@ -34,6 +35,7 @@ from chemistry_agent.provider import ToolCall
 from chemistry_agent.schemas import (
     ChatRequest,
     ChatResponse,
+    QueuedChatRequest,
     RunDetail,
     SessionCreate,
     SessionDetail,
@@ -94,6 +96,7 @@ def create_app(
                     context_manager,
                 )
                 app.state.context_manager = context_manager
+                app.state.chat_queue = ChatQueue(store, chat, provider)
                 monitor = (
                     TaskMonitor(calculation_chat, provider, session_store=store)
                     if calculation_enabled and settings.automation_monitor_enabled
@@ -106,6 +109,7 @@ def create_app(
                 try:
                     yield
                 finally:
+                    await app.state.chat_queue.close()
                     if monitor:
                         await monitor.close()
             finally:
@@ -344,6 +348,21 @@ def create_app(
     async def get_run(run_id: UUID, request: Request):
         return await request.app.state.store.get_run(str(run_id), request.state.user_id)
 
+    @app.post("/chat/requests", status_code=202, tags=["agent"])
+    async def enqueue_chat(body: QueuedChatRequest, request: Request, retry: bool = False):
+        if calculation_enabled:
+            local_service(request)
+        message = ChatRequest.model_validate(
+            body.model_dump(mode="json", exclude={"request_id"}, exclude_unset=True)
+        )
+        return await request.app.state.chat_queue.enqueue(
+            str(body.request_id), message, request, retry
+        )
+
+    @app.get("/sessions/{session_id}/chat-requests", tags=["sessions"])
+    async def pending_chat(session_id: UUID, request: Request):
+        return await request.app.state.chat_queue.list(str(session_id), request.state.user_id)
+
     @app.post("/chat", response_model=ChatResponse, tags=["agent"])
     async def chat(body: ChatRequest, request: Request):
         if calculation_enabled:
@@ -377,7 +396,11 @@ def create_app(
             )
             for identifier in body.structure_ids
         ]
-        run_id, history = await store.begin_run(session_id, request.state.user_id)
+        run_id, history = await store.begin_run(
+            session_id,
+            request.state.user_id,
+            request_id=getattr(request.state, "chat_request_id", None),
+        )
         request.state.run_id = run_id
         content = body.message
         context = "\n\n".join(part for part in (body.context, file_context) if part)

@@ -28,6 +28,11 @@ class ChatRequest(StrictModel):
     structure_ids: list[UUID] = Field(default_factory=list, max_length=8)
 
 
+class QueuedChatRequest(ChatRequest):
+    session_id: UUID
+    request_id: UUID
+
+
 class TokenUsage(BaseModel):
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)

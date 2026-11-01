@@ -72,6 +72,13 @@ class Store:
                     answer TEXT, error_code TEXT,
                     tool_calls TEXT NOT NULL DEFAULT '[]', usage TEXT NOT NULL DEFAULT '{}'
                 );
+                CREATE TABLE IF NOT EXISTS chat_requests (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES sessions(id),
+                    body TEXT NOT NULL, status TEXT NOT NULL,
+                    created_at TEXT NOT NULL, run_id TEXT, error TEXT
+                );
+                CREATE INDEX IF NOT EXISTS chat_requests_session ON chat_requests(session_id);
                 CREATE TABLE IF NOT EXISTS context_memory (
                     session_id TEXT PRIMARY KEY REFERENCES sessions(id),
                     summary TEXT NOT NULL, covered_messages INTEGER NOT NULL,
@@ -106,6 +113,10 @@ class Store:
                 (utc_now(),),
             )
             await db.execute("UPDATE sessions SET active_run_id=NULL")
+            await db.execute(
+                "UPDATE chat_requests SET status='failed', "
+                "error='服务已重启，消息已保存，可点击重试。' WHERE status IN ('queued','running')"
+            )
             await db.commit()
         except BaseException:
             await db.close()
@@ -247,7 +258,7 @@ class Store:
             )
 
     async def begin_run(
-        self, session_id: str, owner_id: str | None = None
+        self, session_id: str, owner_id: str | None = None, *, request_id: str | None = None
     ) -> tuple[str, list[dict[str, Any]]]:
         run_id = str(uuid4())
         async with self.transaction():
@@ -258,7 +269,7 @@ class Store:
             if row is None:
                 raise AgentError("session_not_found", "会话不存在。", 404)
             if row["active_run_id"] is not None:
-                raise AgentError("session_busy", "此会话已有运行中的任务，请稍后重试。", 409)
+                raise AgentError("session_busy", "上一条对话仍在生成回答，请等待处理完成。", 409)
             await self.db.execute(
                 "INSERT INTO runs(id, session_id, status, started_at) VALUES (?, ?, 'running', ?)",
                 (run_id, session_id, utc_now()),
@@ -266,6 +277,12 @@ class Store:
             await self.db.execute(
                 "UPDATE sessions SET active_run_id=? WHERE id=?", (run_id, session_id)
             )
+            if request_id:
+                await self.db.execute(
+                    "UPDATE chat_requests SET status='running',run_id=? "
+                    "WHERE id=? AND session_id=?",
+                    (run_id, request_id, session_id),
+                )
             history = await self._history(session_id)
         return run_id, history
 
@@ -296,6 +313,10 @@ class Store:
                     (context or ContextUsage()).model_dump_json(),
                     run_id,
                 ),
+            )
+            await self.db.execute(
+                "UPDATE chat_requests SET status='completed',error=NULL WHERE run_id=?",
+                (run_id,),
             )
             await self.db.execute(
                 "UPDATE sessions SET updated_at=?, active_run_id=NULL "

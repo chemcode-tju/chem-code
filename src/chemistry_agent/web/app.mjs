@@ -15,6 +15,7 @@ const markdown = globalThis.markdownit ? createMarkdownRenderer(globalThis.markd
 };
 const state = {
   sessions: [], sessionId: null, turns: [], runs: [], pending: null, health: null,
+  outbox: [], chatSignature: "",
   busy: false, loading: false, hasMore: false, navigation: 0, results: new Map(),
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
@@ -158,7 +159,7 @@ function updateControls() {
   $("chat-model").disabled = Boolean(locked);
   $("chat-model-apply").disabled = Boolean(locked);
   $("chat-model-id").disabled = Boolean(locked);
-  $("message-input").disabled = locked;
+  $("message-input").disabled = state.loading;
   $("send-button").disabled = locked || uploads.uploading || !state.health?.model_configured;
   $("composer-add").disabled = locked || uploads.uploading;
   $("sidebar-add").disabled = locked || uploads.uploading;
@@ -259,7 +260,7 @@ function renderContextBadge(context) {
 
 function renderConversation(scroll = true) {
   state.results.clear();
-  const hasConversation = state.turns.length > 0 || state.pending !== null;
+  const hasConversation = state.turns.length > 0 || state.pending !== null || state.outbox.length > 0;
   $("welcome").hidden = hasConversation || state.loading;
   $("conversation").hidden = !hasConversation && !state.loading;
   if (state.loading) {
@@ -269,6 +270,16 @@ function renderConversation(scroll = true) {
   $("conversation").innerHTML = state.turns.map((turn, index) =>
     turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
+  for (const item of state.outbox) {
+    const article = document.createElement("article");
+    article.className = "turn";
+    const label = item.status === "failed" ? item.error || "处理失败，消息已保存。"
+      : item.status === "running" ? "正在生成回答 · 消息已保存，可离开页面"
+      : "等待上一条回复 · 消息已保存";
+    article.innerHTML = renderUser(item.body.message, item.body.context || "") +
+      `<div class="assistant-message"><div class="assistant-body"><div class="${item.status === "failed" ? "message-error" : "thinking-indicator"}">${escapeHtml(label)}</div>${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
+    $("conversation").append(article);
+  }
   if (state.pending) {
     const pending = state.pending;
     const article = document.createElement("article");
@@ -311,6 +322,7 @@ function renderConversation(scroll = true) {
 
 async function selectSession(id, quiet = false) {
   if (state.busy) return;
+  saveDraft();
   if (id !== state.sessionId) { clearRevision(); state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
   uploads.clear();
   calculations.clearSelection();
@@ -348,6 +360,8 @@ async function selectSession(id, quiet = false) {
   } finally {
     if (navigation === state.navigation) {
       state.loading = false;
+      restoreDraft();
+      await syncChat();
       renderConversation();
       renderSessions();
     }
@@ -362,13 +376,14 @@ $("revision-chip").addEventListener("click",clearRevision);
 
 function newConversation() {
   if (state.busy || state.loading || chatModels.saving) return;
+  saveDraft();
   chatModels.newConversation();
   state.navigation += 1;
   clearRevision(); projectNavigation.clearSelection();
   state.sessionId = null;
   state.turns = [];
   state.runs = [];
-  state.pending = null;
+  state.pending = null; state.outbox = []; state.chatSignature = "";
   viewer.reset(); calculations.reset();
   $("context-panel").hidden = true;
   rememberSession(null);
@@ -382,54 +397,116 @@ function newConversation() {
   $("message-input").focus();
 }
 
-async function sendChat(message, context = "", files = uploads.files) {
-  if (state.busy || state.loading || chatModels.saving || uploads.uploading || calculations.busy() || !message.trim()) return;
+function draftKey() {
+  return `chemistry.draft.${state.auth.user?.id || "local"}.${state.sessionId || "new"}`;
+}
+
+function saveDraft(pending = state.pending?.request || null) {
+  try {
+    localStorage.setItem(draftKey(), JSON.stringify({text:$("message-input").value, pending}));
+  } catch { /* The server receipt still persists every accepted message. */ }
+}
+
+function restoreDraft() {
+  state.outbox = []; state.chatSignature = "";
+  try {
+    const draft = JSON.parse(localStorage.getItem(draftKey()) || "{}");
+    $("message-input").value = draft.text || "";
+    state.pending = draft.pending ? {
+      message:draft.pending.message, context:draft.pending.context || "",
+      files:[], structures:[], request:draft.pending,
+      error:"正在核对发送记录；若尚未收到，可用同一编号重试。",
+    } : null;
+  } catch { state.pending = null; }
+}
+
+let syncingChat = false;
+async function syncChat() {
+  const id = state.sessionId, generation = state.navigation;
+  if (!id || state.loading || state.busy || syncingChat) return;
+  syncingChat = true;
+  try {
+    const receipt = await api(`/sessions/${id}/chat-requests`);
+    if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
+    const signature = JSON.stringify([receipt.updated_at, receipt.active_run_id,
+      receipt.requests.map(item=>[item.id,item.status,item.error])]);
+    if (state.pending?.request && receipt.requests.some(item=>item.id===state.pending.request.request_id)) {
+      if ($("message-input").value.trim() === state.pending.message) $("message-input").value = "";
+      state.pending = null;
+      saveDraft();
+    }
+    if (signature === state.chatSignature) return;
+    const [session,runs] = await Promise.all([
+      api(`/sessions/${id}`),api(`/sessions/${id}/runs?limit=100`),
+    ]);
+    if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
+    state.outbox = receipt.requests.filter(item=>item.status!=="completed" &&
+      !runs.some(run=>run.id===item.run_id && run.status==="completed"));
+    state.runs = runs;
+    state.turns = buildTurns(session.messages,runs);
+    state.chatSignature = signature;
+    renderConversation(false);
+    await calculations.refresh().catch(()=>{});
+    await refreshContext();
+  } catch { /* Keep saved messages and drafts visible while disconnected. */ }
+  finally { syncingChat = false; }
+}
+setInterval(syncChat, 2000);
+window.addEventListener("focus", syncChat);
+window.addEventListener("pagehide", () => saveDraft());
+
+async function sendChat(message, context = "", files = uploads.files, retryRequest = null) {
+  if (state.busy || state.loading || chatModels.saving || uploads.uploading || !message.trim()) return;
   const selectedModel = chatModels.value;
   if (!state.health?.model_configured) { toast("请先连接并配置模型。"); return; }
   state.busy = true;
   const accountVersion = state.accountVersion;
   const structures = calculations.selection();
-  state.pending = { message: message.trim(), context: context.trim(), files, structures };
+  let outbound = retryRequest || state.pending?.request;
+  state.pending = { message:message.trim(), context:context.trim(), files, structures };
   renderConversation();
   try {
     if (!state.sessionId) {
-      const session = await api("/sessions", { method: "POST", body: JSON.stringify({ title: message.trim().slice(0, 80) }) });
+      const session = await api("/sessions", { method:"POST", body:JSON.stringify({title:message.trim().slice(0,80)}) });
       if (accountVersion !== state.accountVersion) return;
       state.sessionId = session.id;
       $("conversation-title").textContent = session.title;
       rememberSession(session.id);
       await chatModels.saveNewSession(session.id, selectedModel);
       await projectNavigation.assign(session.id);
-      if (accountVersion !== state.accountVersion) return;
     }
-    const result = await api("/chat", { method: "POST", body: JSON.stringify({
-      session_id: state.sessionId, message: message.trim(), context: context.trim() || null,
-      file_ids: files.map((file) => file.id), model: selectedModel,
-      structure_ids: calculations.selectedIds(),
-    }) });
+    if (!outbound || outbound.message !== message.trim() || outbound.context !== (context.trim() || null)) {
+      outbound = {
+        request_id:crypto.randomUUID(), session_id:state.sessionId,
+        message:message.trim(), context:context.trim() || null,
+        file_ids:files.map(file=>file.id), model:selectedModel,
+        structure_ids:calculations.selectedIds(),
+      };
+    }
+    state.pending.request = outbound;
+    saveDraft(outbound);
+    await api("/chat/requests" + (retryRequest ? "?retry=true" : ""), {
+      method:"POST", body:JSON.stringify(outbound), keepalive:true,
+    });
     if (accountVersion !== state.accountVersion) return;
-    state.turns.push({ text: message.trim(), context: context.trim(), files, structures, answer: result.answer,
-      calls: result.tool_calls, run: { usage: result.usage, context: result.context } });
     state.pending = null;
     calculations.clearSelection();
     clearRevision();
-    $("message-input").value = "";
-    $("message-input").style.height = "";
+    if ($("message-input").value.trim() === message.trim()) {
+      $("message-input").value = "";
+      $("message-input").style.height = "";
+    }
     uploads.clear();
-    if (result.tool_calls.length) renderResult(result.tool_calls.at(-1));
-    await refreshSessions().catch(() => {});
-    await calculations.refresh().catch(() => {});
-    await refreshContext();
+    saveDraft();
+    await refreshSessions().catch(()=>{});
   } catch (error) {
     if (accountVersion !== state.accountVersion) return;
-    state.pending = { message: message.trim(), context: context.trim(), files, structures, error: error.message };
-    $("message-input").value = message;
-    await refreshSessions().catch(() => {});
-    await calculations.refresh().catch(() => {});
-    await refreshContext();
+    state.pending = { message:message.trim(), context:context.trim(), files, structures, request:outbound, error:error.message };
+    saveDraft(outbound);
   } finally {
     if (accountVersion === state.accountVersion) {
       state.busy = false;
+      await syncChat();
       renderConversation();
       $("message-input").focus();
     }
@@ -506,6 +583,7 @@ $("message-input").addEventListener("keydown", (event) => {
   }
 });
 $("message-input").addEventListener("input", () => {
+  saveDraft();
   $("message-input").style.height = "auto";
   $("message-input").style.height = `${Math.min($("message-input").scrollHeight, 180)}px`;
 });
@@ -532,6 +610,11 @@ $("conversation").addEventListener("click", async (event) => {
   if (copyButton) {
     try { await navigator.clipboard.writeText(state.turns[Number(copyButton.dataset.copy)].answer); toast("回答已复制。"); }
     catch { toast("复制不可用，请选中文字后手动复制。"); }
+  }
+  const retry = event.target.closest("[data-retry-request]");
+  if (retry && !state.busy) {
+    const item = state.outbox.find(item=>item.id===retry.dataset.retryRequest);
+    if (item) sendChat(item.body.message,item.body.context || "",[],{...item.body,request_id:item.id});
   }
   if (event.target.closest("#retry-message") && state.pending && !state.busy) {
     sendChat(state.pending.message, state.pending.context, state.pending.files);
@@ -585,7 +668,7 @@ function showLogin(message = "") {
   state.sessions = [];
   state.turns = [];
   state.runs = [];
-  state.pending = null;
+  state.pending = null; state.outbox = []; state.chatSignature = "";
   state.results.clear();
   state.auth.user = null;
   chatModels.reset();
@@ -624,7 +707,7 @@ async function startWorkspace() {
   try { id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
   if (state.health?.model_configured) await chatModels.refresh();
   if (id) await selectSession(id, true);
-  else { $("conversation-title").textContent = t("新对话"); updateControls(); }
+  else { $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
 }
 
 async function initialize() {
