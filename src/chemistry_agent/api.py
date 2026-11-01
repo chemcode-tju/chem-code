@@ -274,13 +274,20 @@ def create_app(
         session = await store.get_session(str(session_id), request.state.user_id)
         memory = await store.get_context_memory(str(session_id))
         manager = request.app.state.context_manager
+        provider = request.app.state.provider
+        _, configuration = provider.configuration()
+        model = await store.get_session_model(
+            str(session_id), request.state.user_id, configuration.provider, configuration.base_url
+        )
+        provider.select_model(model)
+        budget = await manager.window() - settings.deepseek_max_tokens
         wire, compacted = manager._wire(session["messages"], [], memory)
         return {
             **memory.model_dump(),
             "original_messages": len(session["messages"]),
             "estimated_input_tokens": manager.counter.request_tokens(wire, manager.tools),
-            "input_budget_tokens": settings.context_input_budget,
-            "trigger_tokens": int(settings.context_input_budget * settings.context_trigger_ratio),
+            "input_budget_tokens": budget,
+            "trigger_tokens": int(budget * settings.context_trigger_ratio),
             "recent_turns": settings.context_recent_turns,
             "compacted_tool_results": compacted,
             "tokenizer": manager.counter.method,

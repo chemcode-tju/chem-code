@@ -12,6 +12,16 @@ from chemistry_agent.provider import AssistantMessage, Completion
 from chemistry_agent.schemas import TokenUsage
 
 
+def model_window(item: dict) -> int | None:
+    """Use the advertised normal window, never an experimental maximum."""
+    window = item.get("context_window")
+    percent = item.get("effective_context_window_percent", 95)
+    if type(window) is int and 8192 <= window <= 16_000_000:
+        if type(percent) is int and 1 <= percent <= 100:
+            return window * percent // 100
+    return None
+
+
 class PlanResponses:
     def __init__(self, authorization: ChatGPTPlan):
         self.authorization = authorization
@@ -30,7 +40,11 @@ class PlanResponses:
                     "model_catalog_failed", "无法读取 ChatGPT 模型列表，请检查授权及额度。", 502
                 )
             return [
-                {"id": item["slug"], "name": item.get("display_name") or item["slug"]}
+                {
+                    "id": item["slug"],
+                    "name": item.get("display_name") or item["slug"],
+                    **({"window": window} if (window := model_window(item)) else {}),
+                }
                 for item in response.json()["models"]
                 if item.get("visibility") == "list" and isinstance(item.get("slug"), str)
             ]

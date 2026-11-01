@@ -1,5 +1,7 @@
 """Select a model per request without mutating a shared agent or its settings."""
 
+import json
+import time
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
@@ -7,6 +9,7 @@ from typing import Any
 import httpx
 
 from chemistry_agent.chatgpt import ChatGPTClient
+from chemistry_agent.chatgpt_responses import model_window
 from chemistry_agent.config import Settings
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_settings import ModelSettings, ModelSettingsStore
@@ -29,6 +32,7 @@ class ProviderRouter:
         self.transport = transport
         self.store = ModelSettingsStore(settings)
         self.chatgpt = ChatGPTClient(self.store)
+        self.window_catalogs: dict[tuple, tuple[float, list[dict]]] = {}
 
     def configuration(self) -> tuple[str | None, ModelSettings]:
         scope = current_model_scope.get()
@@ -50,6 +54,39 @@ class ProviderRouter:
             update={"model": model if model is not None else default.model}, deep=True
         )
         return scope.configuration
+
+    async def context_window(self) -> int:
+        """Resolve the active subscription model; API providers retain their configured limit."""
+        user_id, configuration = self.configuration()
+        fallback = self.settings.context_window_tokens
+        if configuration.provider != "chatgpt":
+            return fallback
+        account = self.chatgpt.plan.load(user_id)
+        if account.get("selected"):
+            key = (user_id, account.get("active"))
+            expires, entries = self.window_catalogs.get(key, (0, []))
+            if time.monotonic() >= expires:
+                try:
+                    entries = await self.chatgpt.responses.list_models(user_id)
+                except AgentError:
+                    if not entries:
+                        return fallback
+                else:
+                    self.window_catalogs[key] = (time.monotonic() + 300, entries)
+            selected = next((m for m in entries if m["id"] == configuration.model), None)
+            if not configuration.model and entries:
+                selected = entries[0]
+                self.select_model(selected["id"])  # Use the same model for sizing and inference.
+            window = selected.get("window") if selected else None
+        else:
+            path = self.store.directory(user_id) / "codex" / "models_cache.json"
+            try:
+                entries = json.loads(path.read_text())["models"]
+                entry = next((m for m in entries if m.get("slug") == configuration.model), {})
+                window = model_window(entry)
+            except (OSError, ValueError, AttributeError, TypeError, KeyError):
+                window = None
+        return window or fallback
 
     async def list_models(self) -> dict:
         """Fetch a bounded catalog from the saved destination using only its saved key."""

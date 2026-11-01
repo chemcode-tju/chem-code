@@ -279,7 +279,13 @@ async def test_response_catalog_and_completed_tool_plan(settings_factory, stream
                 200,
                 json={
                     "models": [
-                        {"slug": "chosen-model", "display_name": "Chosen", "visibility": "list"},
+                        {
+                            "slug": "chosen-model",
+                            "display_name": "Chosen",
+                            "visibility": "list",
+                            "context_window": 272000,
+                            "max_context_window": 872000,
+                        },
                         {"slug": "hidden", "visibility": "hide"},
                     ]
                 },
@@ -313,7 +319,9 @@ async def test_response_catalog_and_completed_tool_plan(settings_factory, stream
     plan = ChatGPTPlan(ModelSettingsStore(settings_factory()), transport=httpx.MockTransport(mock))
     save_account(plan)
     adapter = PlanResponses(plan)
-    assert await adapter.list_models(None) == [{"id": "chosen-model", "name": "Chosen"}]
+    assert await adapter.list_models(None) == [
+        {"id": "chosen-model", "name": "Chosen", "window": 258400}
+    ]
     answer = await adapter.complete(
         None,
         "chosen-model",

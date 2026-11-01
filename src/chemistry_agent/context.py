@@ -48,6 +48,10 @@ class ContextManager:
         self.system_prompt = system_prompt
         self.tools = tools
 
+    async def window(self) -> int:
+        resolve = getattr(self.provider, "context_window", None)
+        return await resolve() if resolve else self.settings.context_window_tokens
+
     def compact_tool_content(self, content: str) -> tuple[str, bool]:
         budget = self.settings.context_tool_result_tokens
         if self.counter.text_tokens(content) <= budget:
@@ -199,7 +203,11 @@ class ContextManager:
         remaining = transcript
         summary = previous
         output_limit = self.settings.context_summary_tokens
-        input_limit = self.settings.context_window_tokens - output_limit
+        input_limit = (
+            progress.context.input_budget_tokens + self.settings.deepseek_max_tokens
+            if progress.context.input_budget_tokens
+            else await self.window()
+        ) - output_limit
         while remaining:
             chunk_budget = min(6000, input_limit // 2)
             while True:
@@ -270,15 +278,14 @@ class ContextManager:
         eligible_end = boundaries[-keep] if len(boundaries) > keep else 0
         memory = await self.store.get_context_memory(session_id)
         if (
-            memory.covered_messages not in [0, *boundaries]
-            or memory.covered_messages > (boundaries[-1] if boundaries else 0)
+            memory.covered_messages not in [0, *boundaries, len(history)]
             or self.counter.text_tokens(memory.summary) > self.settings.context_summary_tokens
             or bool(memory.summary) != bool(memory.covered_messages)
         ):
             memory = ContextMemory()
         eligible_end = max(eligible_end, memory.covered_messages)
         info = progress.context
-        info.input_budget_tokens = self.settings.context_input_budget
+        info.input_budget_tokens = await self.window() - self.settings.deepseek_max_tokens
         info.trigger_tokens = int(info.input_budget_tokens * self.settings.context_trigger_ratio)
         info.tokenizer = self.counter.method
         info.input_tokens_before = max(
@@ -296,12 +303,14 @@ class ContextManager:
         # Long completed modeling turns may exceed the recent-turn target. Summarize
         # the oldest whole turns rather than failing while compressible history exists.
         retained = sum(index >= eligible_end for index in boundaries)
-        while (
-            self.counter.request_tokens(protected, self.tools) > info.input_budget_tokens
-            and retained > 1
-        ):
+
+        def required_space() -> int:
+            reserve = self.settings.context_summary_tokens + 160 if eligible_end else 0
+            return self.counter.request_tokens(protected, self.tools) + reserve
+
+        while required_space() > info.input_budget_tokens and retained > 0:
             retained -= 1
-            eligible_end = boundaries[-retained]
+            eligible_end = boundaries[-retained] if retained else len(history)
             protected, _ = self._wire(history[eligible_end:], current, ContextMemory())
         if self.counter.request_tokens(protected, self.tools) > info.input_budget_tokens:
             raise AgentError(

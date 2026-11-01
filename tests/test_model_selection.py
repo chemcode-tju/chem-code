@@ -292,3 +292,46 @@ async def test_concurrent_scopes_do_not_mutate_each_other(settings_factory):
         await asyncio.gather(request("model-a"), request("model-b"))
     finally:
         await router.close()
+
+
+def test_session_budget_matches_subscription_model_and_request(settings_factory, monkeypatch):
+    from chemistry_agent.provider import AssistantMessage, Completion
+    from chemistry_agent.schemas import TokenUsage
+
+    settings = settings_factory(deepseek_api_key=None)
+    app = create_app(settings)
+    with TestClient(app) as client:
+        router = app.state.provider
+        router.chatgpt.plan.save(None, {"active": "account", "accounts": [], "selected": True})
+
+        async def catalog(user_id):
+            return [{"id": "wide", "window": 150000}, {"id": "narrow", "window": 64000}]
+
+        async def ready():
+            return True
+
+        async def complete(user_id, configuration, messages, tools, **kwargs):
+            assert configuration.model == "narrow"
+            return Completion(
+                message=AssistantMessage(role="assistant", content="OK"), usage=TokenUsage()
+            )
+
+        monkeypatch.setattr(router.chatgpt.responses, "list_models", catalog)
+        monkeypatch.setattr(router, "ready", ready)
+        monkeypatch.setattr(router.chatgpt, "complete", complete)
+        session = client.post("/sessions", json={"title": "预算"}).json()["id"]
+        path = f"/sessions/{session}"
+        assert client.get(path + "/context").json()["input_budget_tokens"] == 150000 - 4096
+        assert client.put(path + "/model", json={"model": "narrow"}).is_success
+        budget = client.get(path + "/context").json()["input_budget_tokens"]
+        assert budget == 64000 - 4096
+        result = client.post(
+            "/chat", json={"session_id": session, "message": "分析", "context": "x" * 30000}
+        )
+        assert result.is_success, result.text
+        assert result.json()["context"]["input_budget_tokens"] == budget
+        assert client.put(path + "/model", json={"model": "unknown"}).is_success
+        assert (
+            client.get(path + "/context").json()["input_budget_tokens"]
+            == settings.context_input_budget
+        )

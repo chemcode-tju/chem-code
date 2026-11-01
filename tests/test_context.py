@@ -575,3 +575,24 @@ async def test_large_recent_history_is_summarized_without_losing_tool_pairs(sett
         second = client.post("/chat", json={"session_id": session_id, "message": "读取记忆"})
         assert second.status_code == 200, second.text
         assert second.json()["context"]["summarized_messages"] >= coverage
+
+
+async def test_single_oversized_completed_turn_no_longer_blocks_new_messages(settings_factory):
+    settings = budget_settings(settings_factory)
+    session, originals = await seed(settings, turns=1, padding=2200)
+
+    def respond(request):
+        messages = json.loads(request.content)["messages"]
+        if messages[0]["content"] == SUMMARY_SYSTEM_PROMPT:
+            return httpx.Response(200, json=reply(MEMORY))
+        assert messages[-1]["content"] == "继续"
+        assert MEMORY in messages[1]["content"]
+        return httpx.Response(200, json=reply())
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(respond))) as client:
+        result = client.post("/chat", json={"session_id": session, "message": "继续"})
+        assert result.is_success, result.text
+        assert result.json()["context"]["summarized_messages"] == len(originals)
+        assert client.get(f"/sessions/{session}").json()["messages"][:2] == without_reasoning(
+            originals
+        )
