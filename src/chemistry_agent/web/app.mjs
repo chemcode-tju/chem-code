@@ -1,6 +1,6 @@
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
-import { createCalculations } from "./calculations.mjs?v=20261101-step-detail";
+import { createCalculations } from "./calculations.mjs?v=20261102-general-plans";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
@@ -38,10 +38,10 @@ const calculations = createCalculations({
       renderConversation(false);
     }
   },
-  reviseStep(id,title) {
+  reviseStep(id,title,planRevision) {
     const field = $("message-input");
     if (innerWidth<=760) setInspectorOpen(false);
-    state.revision = {id,title};
+    state.revision = {id,title,planRevision};
     $("revision-chip").hidden=false;
     $("revision-chip").textContent="修改："+title+" ×";
     field.focus();
@@ -574,7 +574,9 @@ async function runLocalTool(name, form) {
 $("chat-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const revision = state.revision;
-  sendChat($("message-input").value,revision ? "修改步骤："+revision.title+"；用 calculation_prepare.revises_preview_id 替换草案 "+revision.id : "");
+  sendChat($("message-input").value,revision ? revision.planRevision
+    ? `修改方案/步骤：${revision.title}；先读取 calculation_plan_get，再用 calculation_plan_save 修改 plan_id=${revision.id}，expected_revision=${revision.planRevision}。`
+    : "修改步骤："+revision.title+"；用 calculation_prepare.revises_preview_id 替换草案 "+revision.id : "");
 });
 $("message-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {

@@ -24,8 +24,12 @@ def dispatch(message: dict) -> dict:
     from chemistry_agent.automation.branch_retry import preview_retry
     from chemistry_agent.automation.step_data import step_data
     from chemistry_agent.automation.surface import job_structure
+    from chemistry_agent.automation.task_files import stage_files, task_files
 
     actions = {
+        "plan_identity": backend.plan_identity,
+        "task_files": task_files,
+        "stage_files": stage_files,
         "step_data": step_data,
         "branch_retry": preview_retry,
         "status": lambda _: backend.status(),

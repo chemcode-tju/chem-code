@@ -138,3 +138,21 @@ test('parallel steps follow actual child status, not the position of the last su
   assert.match(html,/汇总<\/span><small>等待前序/); assert.doesNotMatch(html,/提出修改/);
   assert.match(workflowPlan(item,null),/提出修改/);
 });
+
+test('general graph shows true dependencies, independent layers and reviewed revisions',async()=>{
+  const {graphLayers,renderGeneralPlan,generalRows}=await import('../src/chemistry_agent/web/general-plan.mjs');
+  const nodes=[{id:'bulk',title:'体相',depends_on:[],inputs:{},kind:'model'},
+    {id:'clean',title:'洁净表面',depends_on:['bulk'],inputs:{bulk:{node:'bulk',output:'structure'}},kind:'model'},
+    ...['top','bridge'].map(id=>({id,title:id,depends_on:['clean'],inputs:{slab:{node:'clean',output:'structure'}},kind:'model'})),
+    {id:'sum',title:'汇总',depends_on:['top','bridge'],inputs:{},kind:'analysis'}];
+  assert.deepEqual(graphLayers(nodes).map(layer=>layer.map(n=>n.id)),[['bulk'],['clean'],['top','bridge'],['sum']]);
+  const plan={id:'id',title:'CO <test>',goal:'比较',revision:2,status:'draft',max_parallel:2,nodes,
+    runtime:Object.fromEntries(nodes.map(n=>[n.id,{status:'pending'}])),changed_nodes:['bridge'],history:[{revision:2,changed_nodes:['bridge'],removed_nodes:[]}]};
+  const html=renderGeneralPlan(plan);
+  assert.match(html,/独立分支 · 可并行/);assert.match(html,/依赖：洁净表面/);
+  assert.match(html,/已修改 · 待确认/);assert.match(html,/data-confirm-plan/);
+  assert.doesNotMatch(html,/<test>/);
+  assert.match(generalRows(plan,nodes[1]),/实际输出结构/);
+  assert.doesNotMatch(renderGeneralPlan({...plan,status:'running'}),/data-confirm-plan/);
+  assert.throws(()=>graphLayers([{id:'a',depends_on:['b']}]),/依赖/);
+});

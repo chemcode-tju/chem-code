@@ -51,10 +51,13 @@ async def execute_model(directory: Path, code: str, *, output_format: str = "ext
     (directory / "sandbox.sb").write_text(sandbox_profile(directory))
     # The launcher lives outside the writable job directory and is read through the Python prefix
     # only via -c; model code cannot alter the limits applied before it runs.
+    analysis = output_format == "json"
+    cpu_limit = 300 if analysis else 20
+    file_limit = 64 * 1024 * 1024 if analysis else 2097152
     launcher = (
         "import resource, runpy; "
-        "resource.setrlimit(resource.RLIMIT_CPU, (20, 20)); "
-        "resource.setrlimit(resource.RLIMIT_FSIZE, (2097152, 2097152)); "
+        f"resource.setrlimit(resource.RLIMIT_CPU, ({cpu_limit}, {cpu_limit})); "
+        f"resource.setrlimit(resource.RLIMIT_FSIZE, ({file_limit}, {file_limit})); "
         "resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64)); "
         "runpy.run_path('model.py', run_name='__main__')"
     )
@@ -86,21 +89,30 @@ async def execute_model(directory: Path, code: str, *, output_format: str = "ext
             start_new_session=True,
         )
         try:
-            await asyncio.wait_for(process.wait(), timeout=30)
+            await asyncio.wait_for(process.wait(), timeout=600 if analysis else 30)
         except (TimeoutError, asyncio.CancelledError) as exc:
             if process.returncode is None:
                 os.killpg(process.pid, signal.SIGKILL)
             await process.wait()
             if isinstance(exc, asyncio.CancelledError):
                 raise
-            raise AgentError("modeling_timeout", "建模超过 30 秒，已停止该建模进程。", 422) from exc
+            raise AgentError(
+                "modeling_timeout",
+                f"代码执行超过 {600 if analysis else 30} 秒，已停止该进程。",
+                422,
+            ) from exc
     if log_path.is_symlink():
         raise AgentError("invalid_model_output", "建模输出不能是符号链接。", 422)
     with log_path.open("rb") as stream:
         log_text = stream.read(16000).decode(errors="replace")
     if process.returncode:
         raise AgentError("modeling_failed", f"建模执行失败：\n{log_text[-8000:]}", 422)
-    output = directory / ("structure.vasp" if output_format == "vasp" else "structure.extxyz")
-    if output.is_symlink() or not output.is_file() or output.stat().st_size > 2_000_000:
-        raise AgentError("invalid_model_output", f"请生成不超过 2 MB 的 {output.name}。", 422)
+    output_names = {"vasp": "structure.vasp", "extxyz": "structure.extxyz", "json": "result.json"}
+    output = directory / output_names[output_format]
+    if output.is_symlink() or not output.is_file() or output.stat().st_size > file_limit:
+        raise AgentError(
+            "invalid_model_output",
+            f"请生成不超过 {file_limit // 1024 // 1024} MB 的 {output.name}。",
+            422,
+        )
     return output.read_text()

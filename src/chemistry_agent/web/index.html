@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/styles.css">
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
-  <script type="module" src="/assets/app.mjs?v=20261102-durable-chat"></script>
+  <script type="module" src="/assets/app.mjs?v=20261102-general-plans"></script>
 </head>
 <body class="auth-checking">
   <svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -130,6 +130,8 @@
         <div class="step-meta"><span id="step-status"></span><button type="button" id="step-refresh">刷新</button></div>
         <p id="step-progress" role="status"></p>
         <details><summary>计算参数</summary><dl id="step-parameters"></dl><button type="button" id="step-revise">提出修改</button></details>
+        <details id="step-code-section" hidden><summary>执行代码</summary><pre id="step-code"></pre></details>
+        <details id="step-output-section" hidden><summary>分析结果</summary><pre id="step-output"></pre></details>
         <details id="step-structures" open><summary>结构</summary>
           <div class="step-file-options" id="step-files"></div>
           <p id="step-file-source"></p>

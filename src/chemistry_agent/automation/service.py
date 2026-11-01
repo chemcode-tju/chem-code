@@ -23,7 +23,9 @@ class AutomationService:
     async def call(self, action: str, payload: dict | None = None) -> dict[str, Any]:
         if not self.settings.automation_enabled:
             raise AgentError("automation_disabled", "请先配置并启用 AiiDA 自动化。", 503)
-        async with self.step_readers if action == "step_data" else self.lock:
+        async with (
+            self.step_readers if action in {"step_data", "task_files", "stage_files"} else self.lock
+        ):
             environment = os.environ.copy()
             environment["PATH"] = (
                 f"{Path(sys.executable).parent}{os.pathsep}{environment.get('PATH', '')}"
@@ -46,7 +48,13 @@ class AutomationService:
                 }
             ).encode()
             try:
-                timeout = 360 if action in {"preview", "branch_retry"} else 90
+                timeout = (
+                    1800
+                    if action == "stage_files"
+                    else 360
+                    if action in {"preview", "branch_retry"}
+                    else 90
+                )
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(message), timeout=timeout
                 )

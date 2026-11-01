@@ -651,9 +651,11 @@ def resolve_calculation(payload: dict) -> dict:
                 "protocol_required", "请从 calculation_setup 中选择一个已注册计算方案。", 422
             )
         protocol_id = defaults[0]["id"]
-    protocol = CalculationProtocol.model_validate(configuration.get("protocols", protocol_id))
+    protocol = CalculationProtocol.model_validate(
+        payload.get("protocol_snapshot") or configuration.get("protocols", protocol_id)
+    )
     source = PotentialSource.model_validate(
-        configuration.get("sources", protocol.potential_source_id)
+        payload.get("source_snapshot") or configuration.get("sources", protocol.potential_source_id)
     )
     atoms = read_structure(StructureInput.model_validate(payload["structure"]))
     elements = set(atoms.get_chemical_symbols())
@@ -764,6 +766,23 @@ def resolve_calculation(payload: dict) -> dict:
     }
 
 
+def plan_identity(payload: dict) -> dict:
+    """Bind a deferred graph step to the reviewed cluster and executable configuration."""
+    computer = load_server(payload["server_id"])
+    code = orm.load_code(uuid=payload["code_id"])
+    if code.computer.uuid != computer.uuid or code.default_calc_job_plugin != "vasp.vasp":
+        raise AgentError("code_mismatch", "计算方案的 Code 与服务器不匹配。", 422)
+    state = {
+        "server": server_record(computer),
+        "mpi": computer.get_mpirun_command(),
+        "transport": computer.transport_type,
+        "prepend": computer.get_prepend_text(),
+        "append": computer.get_append_text(),
+        "code": code.base.attributes.all,
+    }
+    return {"identity": hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()}
+
+
 def load_job(identifier: str) -> orm.ProcessNode:
     """Resolve managed jobs once for read and structure operations."""
     try:
@@ -802,15 +821,7 @@ def job_details(payload: dict) -> dict:
         ]
     if "retrieved" in node.outputs:
         repository = node.outputs.retrieved.base.repository
-        allowed = {
-            "OUTCAR",
-            "vasprun.xml",
-            "CONTCAR",
-            "vasp_output",
-            "_scheduler-stdout.txt",
-            "_scheduler-stderr.txt",
-        }
-        names = set(repository.list_object_names()) & allowed
+        names = set(repository.list_object_names()) - {"archive"}
         result["retrieved_files"] = sorted(names)
         for name in ("vasp_output", "_scheduler-stderr.txt"):
             if name in names:

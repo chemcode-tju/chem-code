@@ -13,6 +13,7 @@ from chemistry_agent.automation.chat import (
     InvestigationInput,
     JobInput,
 )
+from chemistry_agent.automation.plan_models import PlanConfirmation, PlanControl, PlanDraft
 from chemistry_agent.automation.recovery import RecoveryPolicy
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.errors import AgentError
@@ -43,6 +44,8 @@ async def artifacts(session_id: UUID, request: Request) -> dict:
     monitor = getattr(request.app.state, "task_monitor", None)
     snapshots = monitor.events.snapshots(identifier) if monitor else {}
     return {
+        "plans": chat.plans.records(identifier),
+        "analyses": chat.list_records(identifier, "analyses"),
         "live_jobs": snapshots,
         "monitor": monitor.events.inbox(identifier, limit=1)["monitor"] if monitor else {},
         "recovery": {job_id: monitor.events.recovery(job_id) for job_id in snapshots}
@@ -333,3 +336,95 @@ async def recovery_policy(
         if snapshot and task_state(snapshot)[0] in FAILURE_STATES:
             monitor.events.enqueue(str(session_id), submission.stem, str(job_id), force=True)
     return {"job_id": str(job_id), "root_job_id": root_id, "policy": body.model_dump()}
+
+
+@router.get("/{session_id}/workflows")
+async def workflow_plans(session_id: UUID, request: Request) -> dict:
+    chat = await session_chat(request, session_id)
+    return {"plans": chat.plans.records(str(session_id))}
+
+
+@router.post("/{session_id}/workflows")
+async def save_workflow(session_id: UUID, body: "PlanDraft", request: Request) -> dict:
+    chat = await session_chat(request, session_id)
+    return await chat.plans.draft(body, ToolContext(str(session_id), str(uuid4())))
+
+
+@router.post("/{session_id}/workflows/{plan_id}/confirm")
+async def confirm_workflow(
+    session_id: UUID, plan_id: UUID, body: "PlanConfirmation", request: Request
+) -> dict:
+    chat = await session_chat(request, session_id)
+    return await chat.plans.confirm(str(session_id), str(plan_id), body.revision)
+
+
+@router.post("/{session_id}/workflows/{plan_id}/control")
+async def control_workflow(
+    session_id: UUID, plan_id: UUID, body: "PlanControl", request: Request
+) -> dict:
+    chat = await session_chat(request, session_id)
+    return await chat.plans.control(str(session_id), str(plan_id), body.action)
+
+
+@router.get("/{session_id}/workflows/{plan_id}/steps/{node_id}/{file}")
+async def workflow_step(
+    session_id: UUID,
+    plan_id: UUID,
+    node_id: str,
+    file: Literal["info", "POSCAR", "CONTCAR", "XDATCAR"],
+    request: Request,
+):
+    import io
+
+    from ase.io import read
+
+    from chemistry_agent.automation.constraints import poscar_text, restore_constraints
+
+    chat = await session_chat(request, session_id)
+    plan = chat.load(str(session_id), "plans", str(plan_id))
+    node = next((item for item in plan["nodes"] if item["id"] == node_id), None)
+    if not node:
+        raise AgentError("step_not_found", "此方案没有该步骤。", 404)
+    state = plan["runtime"][node_id]
+    if state.get("preview_id"):
+        response = await inspect_step(
+            session_id, UUID(state["preview_id"]), "single", file, request
+        )
+        if file == "info":
+            response["note"] = (
+                state.get("error") or state.get("sync_error") or response.get("note", "")
+            )
+        return response
+    input_id = None
+    try:
+        resolved = chat.plans.resolved_inputs(str(session_id), plan, node)
+        input_id = next(
+            (value["structure_id"] for value in resolved.values() if "structure_id" in value), None
+        )
+    except AgentError:
+        pass
+    output_id = state.get("outputs", {}).get("structure_id")
+    available = {}
+    if input_id:
+        available["POSCAR"] = "已保存的输入结构"
+    if output_id:
+        available["CONTCAR"] = "建模输出结构"
+    if file == "info":
+        return {
+            "files": available,
+            "points": [],
+            "ionic_step": None,
+            "terminal": state["status"] in {"completed", "failed", "blocked"},
+            "note": state.get("error")
+            or ("等待上游完成后生成实际输入结构。" if not available else ""),
+            "outputs": state.get("outputs", {}),
+        }
+    identifier = output_id if file == "CONTCAR" else input_id if file == "POSCAR" else None
+    if not identifier:
+        raise AgentError("step_file_missing", "此步骤尚无对应结构。", 404)
+    structure = chat.load(str(session_id), "structures", identifier)
+    atoms = read(io.StringIO(structure["extxyz"]), format="extxyz")
+    restore_constraints(atoms)
+    return Response(
+        poscar_text(atoms), media_type="text/plain", headers={"Cache-Control": "no-store"}
+    )

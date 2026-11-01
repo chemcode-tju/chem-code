@@ -1,6 +1,7 @@
 import {escapeHtml as esc} from './core.mjs';
 import {createStructureBridge} from './structure-links.mjs';
 import {describeStep, planSteps, stepRows} from './workflow-plan.mjs';
+import {generalRows,nodeStatus} from './general-plan.mjs';
 
 const fileNames = ['POSCAR', 'CONTCAR', 'XDATCAR'];
 
@@ -33,6 +34,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   function close() {
     current=null; activeFile=''; info=null; bridge.reset();
     screen.hidden=true; $('plan-overview').hidden=false; $('step-viewer-shell').hidden=true;
+    $('step-code-section').hidden=true; $('step-output-section').hidden=true;
   }
   function drawFiles() {
     $('step-files').innerHTML=fileNames.map(name=>
@@ -65,7 +67,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   }
   async function refresh(manual=false) {
     const view=current;
-    if (!view || view.key==='energies' || view.loading) return;
+    if (!view || (!view.general && view.key==='energies') || view.loading) return;
     view.loading=true;
     try {
       const next = await api(view.base+'/info');
@@ -86,7 +88,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
         ? `已完成 ${next.ionic_step} 个离子步${view.nsw>0?' · NSW 上限 '+view.nsw:''}`
         : next.pk ? '等待首个完整离子步记录' : '尚无离子步记录';
       $('step-chart').innerHTML=energyCurve(next.points);
-      if (!activeFile || sourceChanged) selectFile(next.files[activeFile]?activeFile:'POSCAR');
+      if (!activeFile || sourceChanged) selectFile(next.files[activeFile]?activeFile:next.files.POSCAR?'POSCAR':'CONTCAR');
       else if (manual && activeFile!=='POSCAR') selectFile(activeFile);
       if (next.ionic_step!=null) rememberCount(view.id,view.key,next.ionic_step);
     } catch(error) {
@@ -122,9 +124,38 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   $('step-back').onclick=close;
   $('step-refresh').onclick=()=>refresh(true);
   $('step-files').onclick=event=>{if(event.target.dataset.stepFile)selectFile(event.target.dataset.stepFile);};
-  $('step-revise').onclick=()=>{if(current)reviseStep(current.id,current.title);};
+  $('step-revise').onclick=()=>{if(current)reviseStep(current.id,current.title,current.revision);};
   setInterval(()=>{if(current && (!info?.terminal || current.failed || info?.investigations?.some(row=>!row.terminal)) && !document.hidden && screen.getClientRects().length)refresh();},20000);
-  return {open,close,update(item,job) {
+  function drawGeneral(plan,node) {
+    const state=plan.runtime[node.id];
+    $('step-status').textContent=nodeStatus(plan,node);
+    $('step-parameters').innerHTML=generalRows(plan,node);
+    $('step-revise').hidden=plan.status!=='draft';
+    $('step-code-section').hidden=!node.code; $('step-code').textContent=node.code || '';
+    const result=node.kind==='analysis' && state.outputs?.result;
+    $('step-output-section').hidden=!result; $('step-output').textContent=result?JSON.stringify(result,null,2):'';
+    if(state.error || state.sync_error) $('step-note').textContent=state.error || state.sync_error;
+  }
+  function openGeneral(plan,node,sessionPath) {
+    close();
+    current={id:plan.id,key:node.id,general:true,revision:plan.revision,title:node.title,
+      failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar.NSW,
+      base:`${sessionPath}/workflows/${plan.id}/steps/${node.id}`};
+    $('plan-overview').hidden=true; screen.hidden=false; $('step-title').textContent=node.title;
+    drawGeneral(plan,node);
+    for(const id of ['step-structures','step-energies','step-refresh','step-progress']) $(id).hidden=false;
+    $('step-energies').hidden=node.kind!=='vasp'; $('step-progress').hidden=node.kind!=='vasp';
+    $('step-structures').hidden=node.kind==='analysis';
+    $('step-parameters').closest('details').open=true; $('step-structures').open=true;
+    $('step-progress').textContent=''; $('step-file-source').textContent=''; $('step-chart').replaceChildren();
+    info={files:{},points:[]}; drawFiles(); refresh();
+  }
+  return {open,close,openGeneral,updateGeneral(plan) {
+    if(!current?.general || current.id!==plan.id) return;
+    const node=plan.nodes.find(n=>n.id===current.key);
+    if(!node) {close();return;}
+    current.revision=plan.revision; drawGeneral(plan,node);
+  },update(item,job) {
     if (!current || current.id!==item.preview_id) return;
     const step=planSteps(item).find(s=>s.stage===current.key);
     if (!step) return;

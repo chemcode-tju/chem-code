@@ -1,5 +1,6 @@
-import {createStepDetail} from "./step-detail.mjs";
+import {createStepDetail} from "./step-detail.mjs?v=20261102-general-plans";
 import {workflowPlan} from "./workflow-plan.mjs";
+import {renderGeneralPlan} from './general-plan.mjs';
 import { escapeHtml as esc } from './core.mjs';
 import { structureButton, getFileBlob, isStructureName } from './structure-links.mjs';
 
@@ -74,13 +75,14 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     const approved = new Set([...panel.querySelectorAll('[data-auto-recovery]:checked')].map(el => el.dataset.autoRecovery));
     const limits = new Map([...panel.querySelectorAll("[data-retry-limit]")].map(e => [e.dataset.retryLimit,e.value]));
     panel.hidden = !enabled;
-    const cards = (records?.previews || []).map(item => {
+    const graphs = (records?.plans || []).map(plan=>{detail.updateGeneral(plan);return renderGeneralPlan(plan);}).join('');
+    const cards = (records?.previews || []).filter(item=>!item.plan_id).map(item => {
       const ref = records.submissions[item.preview_id]?.job;
       const job = ref ? (records.live_jobs?.[ref.id] || ref) : null;
       detail.update(item,job);
       return renderTaskCard(item, job, records.recovery?.[ref?.id], path(session),records.policies?.[ref?.id] || {});
     }).join('');
-    panel.innerHTML = cards || '<p class="empty-result">本对话暂无计算任务</p>';
+    panel.innerHTML = graphs + cards || '<p class="empty-result">本对话暂无计算方案</p>';
     for (const [id,value] of knownSteps) displayCount(...id.split('/'),value.count);
     for (const e of panel.querySelectorAll("[data-retry-limit]")) if (limits.has(e.dataset.retryLimit)) e.value = limits.get(e.dataset.retryLimit);
     for (const d of panel.querySelectorAll('details')) d.open = savedFolds.has(`${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`);
@@ -132,6 +134,14 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   async function onAction(event) {
     const target = event.target.closest("button");
     if (!target || target.dataset.openKind) return;
+    if(target.dataset.generalStep) {
+      const plan=records.plans.find(p=>p.id===target.closest('[data-general-plan]').dataset.generalPlan);
+      detail.openGeneral(plan,plan.nodes.find(n=>n.id===target.dataset.generalStep),path(session)); return;
+    }
+    if(target.dataset.revisePlan) {
+      const plan=records.plans.find(p=>p.id===target.dataset.revisePlan);
+      reviseStep(plan.id,plan.title,plan.revision); return;
+    }
     if (target.dataset.openStep) {
       const item = records?.previews.find(p=>p.preview_id===target.closest('[data-task]').dataset.task);
       if (item) {
@@ -162,7 +172,13 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     pending = true; target.disabled = true;
     const id = getSession();
     try {
-      if (target.dataset.confirmPreview) {
+      if(target.dataset.confirmPlan || target.dataset.controlPlan) {
+        const plan=records.plans.find(p=>p.id===(target.dataset.confirmPlan || target.dataset.controlPlan));
+        const action=target.dataset.confirmPlan?'confirm':'control';
+        await api(`${path(id)}/workflows/${plan.id}/${action}`,{method:'POST',body:JSON.stringify(action==='confirm'?{revision:plan.revision}:{action:target.dataset.planAction})});
+        if(id===getSession()) await refresh();
+        toast(action==='confirm'?'方案已确认，后台将按依赖执行。':target.dataset.planAction==='pause'?'已暂停启动后续步骤，已提交作业继续运行。':'已恢复方案执行。');
+      } else if (target.dataset.confirmPreview) {
         const approved = panel.querySelector(`[data-auto-recovery="${CSS.escape(target.dataset.confirmPreview)}"]`)?.checked;
         const control = target.closest("[data-task]").querySelector("[data-retry-limit]");
         if (control && (!control.value || !control.reportValidity())) return;
@@ -221,12 +237,16 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
       if (id !== getSession() || !records) return;
       if (data.latest_report) await syncReport(id,data.latest_report);
       if (id !== getSession() || !records) return;
+      const graphData=await api(`${path(id)}/workflows`);
+      if(id!==getSession() || !records) return;
+      const graphChanged=JSON.stringify(records.plans)!==JSON.stringify(graphData.plans);
+      records.plans=graphData.plans;
       const changes = Object.entries(data.jobs).some(([id, job]) => {
         const previous = records.live_jobs?.[id];
         return !previous || progressSignature(previous) !== progressSignature(job) || renderTaskStatus(previous, records.recovery?.[id]) !== renderTaskStatus(job, data.recovery?.[id]) || Boolean(previous.output_structure) !== Boolean(job.output_structure);
       });
       records.live_jobs = data.jobs; records.recovery = data.recovery;
-      if (changes) render();
+      if (changes || graphChanged) render();
       await refreshVisibleCount(id);
       if (id !== getSession() || !records) return;
       const known = new Set(Object.values(records.submissions).map((value) => value.job.id));

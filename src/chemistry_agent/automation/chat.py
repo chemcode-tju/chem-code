@@ -65,7 +65,7 @@ class PrepareInput(StrictModel):
 
 
 class ArtifactInput(StrictModel):
-    kind: Literal["structures", "model_records", "previews", "submissions"]
+    kind: Literal["structures", "model_records", "previews", "submissions", "analyses"]
     artifact_id: UUID
     code_offset: int = Field(default=0, ge=0, le=50000)
 
@@ -77,11 +77,16 @@ class ArtifactListInput(StrictModel):
 
 class CalculationChat:
     def __init__(self, service: AutomationService):
+        from chemistry_agent.automation.analysis import CalculationAnalysis
+        from chemistry_agent.automation.plans import CalculationPlans
+
         self.service = service
         self.root = service.settings.aiida_path / "chat"
         self.review_lock = asyncio.Lock()
         self.model_lock = asyncio.Lock()
         self.import_lock = asyncio.Lock()
+        self.plans = CalculationPlans(self)
+        self.analysis = CalculationAnalysis(self)
 
     def directory(self, session_id: str, kind: str) -> Path:
         directory = self.root / str(UUID(session_id)) / kind
@@ -174,6 +179,14 @@ class CalculationChat:
 
     async def artifacts(self, args: ArtifactListInput, context: ToolContext) -> dict:
         return {
+            "plans": [
+                {key: item[key] for key in ("id", "title", "revision", "status")}
+                for item in self.plans.records(context.session_id)
+            ],
+            "analyses": [
+                {key: item.get(key) for key in ("id", "name", "status")}
+                for item in self.list_records(context.session_id, "analyses")
+            ],
             "structures": [
                 self.structure_summary(item)
                 for item in self.list_records(
@@ -391,109 +404,113 @@ class CalculationChat:
         return result
 
     def tools(self) -> list[Tool]:
-        return [
-            Tool(
-                "calculation_events",
-                "Read this session's task notifications and background monitor freshness. "
-                "Use calculation_job for current results and Agent recovery audit.",
-                EmptyInput,
-                self.events,
-                True,
-            ),
-            Tool(
-                "calculation_setup",
-                "List configured clusters, VASP executables and potential "
-                "family mappings. Use real IDs before preparing a calculation.",
-                EmptyInput,
-                self.setup,
-                True,
-            ),
-            Tool(
-                "import_structure",
-                "Validate and save one periodic structure supplied in chat.",
-                ImportInput,
-                self.import_structure,
-                True,
-            ),
-            Tool(
-                "build_structure",
-                "Run ASE Python modeling code in an isolated, offline process. "
-                "Write structure.extxyz, or choose output_format=vasp and write structure.vasp "
-                "to preserve FixScaled/other VASP directional constraints. Optional input: "
-                "input.vasp (constraints preserved) and input.extxyz. No SSH or submission.",
-                ModelInput,
-                self.build_structure,
-                True,
-            ),
-            Tool(
-                "calculation_artifacts",
-                "Recover this conversation's structure, model, preview and submitted job IDs. "
-                "Submission records are historical; query calculation_job for current state.",
-                ArtifactListInput,
-                self.artifacts,
-                True,
-            ),
-            Tool(
-                "calculation_artifact",
-                "Read an exact saved model code, preview parameters or submission record "
-                "after context compression. Only this session's artifacts are accessible.",
-                ArtifactInput,
-                self.artifact,
-                True,
-            ),
-            Tool(
-                "calculation_record_investigation",
-                "Link a diagnostic or continuation preview to an original submitted plan step. "
-                "Records a troubleshooting note, never submits or changes the original plan.",
-                InvestigationInput,
-                self.link_investigation,
-                True,
-            ),
-            Tool(
-                "calculation_prepare",
-                "Prepare a VASP preview from structure_id and a saved protocol. Resolves "
-                "server/code/resources and imports missing POTCARs from user-approved sources. "
-                "Optional INCAR/kmesh overrides are shown in preview. Never submits. "
-                "For bulk to fcc(100) slab relaxation use workflow=bulk_surface and surface_plan; "
-                "this persists the whole plan and automatically advances after approval. "
-                "Set surface_plan.co_sites for parallel CO adsorption energies. "
-                "Use revises_preview_id when replacing a draft. "
-                "Check protocol scope using calculation_setup first.",
-                PrepareInput,
-                self.prepare,
-                True,
-            ),
-            Tool(
-                "calculation_preview",
-                "Generate actual VASP inputs and scheduler script from a "
-                "saved structure_id. Does NOT submit. User must click the preview confirmation.",
-                ChatPreviewInput,
-                self.preview,
-                True,
-            ),
-            Tool(
-                "calculation_import_result",
-                "Import the latest available output structure of a job or workflow child "
-                "into this session for viewing, download, ASE modeling and restart previews. "
-                "Accepts failed, timed-out and running jobs with a valid output/CONTCAR. "
-                "Preserves fixed atoms, provenance and convergence status. Never submits.",
-                JobInput,
-                self.import_job_structure,
-                True,
-            ),
-            Tool(
-                "calculation_jobs",
-                "Read recent managed AiiDA job states and results.",
-                EmptyInput,
-                self.jobs,
-                True,
-            ),
-            Tool(
-                "calculation_job",
-                "Read one managed AiiDA job, retrieved file list and bounded "
-                "diagnostic logs. Use AiiDA UUID or PK, not a Slurm job number.",
-                JobInput,
-                self.job,
-                True,
-            ),
-        ]
+        return (
+            self.plans.tools()
+            + self.analysis.tools()
+            + [
+                Tool(
+                    "calculation_events",
+                    "Read this session's task notifications and background monitor freshness. "
+                    "Use calculation_job for current results and Agent recovery audit.",
+                    EmptyInput,
+                    self.events,
+                    True,
+                ),
+                Tool(
+                    "calculation_setup",
+                    "List configured clusters, VASP executables and potential "
+                    "family mappings. Use real IDs before preparing a calculation.",
+                    EmptyInput,
+                    self.setup,
+                    True,
+                ),
+                Tool(
+                    "import_structure",
+                    "Validate and save one periodic structure supplied in chat.",
+                    ImportInput,
+                    self.import_structure,
+                    True,
+                ),
+                Tool(
+                    "build_structure",
+                    "Run ASE Python modeling code in an isolated, offline process. "
+                    "Write structure.extxyz, or choose output_format=vasp and write structure.vasp "
+                    "to preserve FixScaled/other VASP directional constraints. Optional input: "
+                    "input.vasp (constraints preserved) and input.extxyz. No SSH or submission.",
+                    ModelInput,
+                    self.build_structure,
+                    True,
+                ),
+                Tool(
+                    "calculation_artifacts",
+                    "Recover this conversation's structure, model, preview and submitted job IDs. "
+                    "Submission records are historical; query calculation_job for current state.",
+                    ArtifactListInput,
+                    self.artifacts,
+                    True,
+                ),
+                Tool(
+                    "calculation_artifact",
+                    "Read an exact saved model code, preview parameters or submission record "
+                    "after context compression. Only this session's artifacts are accessible.",
+                    ArtifactInput,
+                    self.artifact,
+                    True,
+                ),
+                Tool(
+                    "calculation_record_investigation",
+                    "Link a diagnostic or continuation preview to an original submitted plan step. "
+                    "Records a troubleshooting note, never submits or changes the original plan.",
+                    InvestigationInput,
+                    self.link_investigation,
+                    True,
+                ),
+                Tool(
+                    "calculation_prepare",
+                    "Prepare a VASP preview from structure_id and a saved protocol. Resolves "
+                    "server/code/resources and imports missing POTCARs from user-approved sources. "
+                    "Optional INCAR/kmesh overrides are shown in preview. Never submits. "
+                    "For fcc(100) slabs use workflow=bulk_surface and surface_plan; "
+                    "this persists the whole plan and automatically advances after approval. "
+                    "Set surface_plan.co_sites for parallel CO adsorption energies. "
+                    "Use revises_preview_id when replacing a draft. "
+                    "Check protocol scope using calculation_setup first.",
+                    PrepareInput,
+                    self.prepare,
+                    True,
+                ),
+                Tool(
+                    "calculation_preview",
+                    "Generate actual VASP inputs and scheduler script from a "
+                    "saved structure_id. Never submits. User clicks preview confirmation.",
+                    ChatPreviewInput,
+                    self.preview,
+                    True,
+                ),
+                Tool(
+                    "calculation_import_result",
+                    "Import the latest available output structure of a job or workflow child "
+                    "into this session for viewing, download, ASE modeling and restart previews. "
+                    "Accepts failed, timed-out and running jobs with a valid output/CONTCAR. "
+                    "Preserves fixed atoms, provenance and convergence status. Never submits.",
+                    JobInput,
+                    self.import_job_structure,
+                    True,
+                ),
+                Tool(
+                    "calculation_jobs",
+                    "Read recent managed AiiDA job states and results.",
+                    EmptyInput,
+                    self.jobs,
+                    True,
+                ),
+                Tool(
+                    "calculation_job",
+                    "Read one managed AiiDA job, retrieved file list and bounded "
+                    "diagnostic logs. Use AiiDA UUID or PK, not a Slurm job number.",
+                    JobInput,
+                    self.job,
+                    True,
+                ),
+            ]
+        )

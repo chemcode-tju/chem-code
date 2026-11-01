@@ -72,6 +72,9 @@ class ContextManager:
             "structure_id",
             "model_id",
             "preview_id",
+            "revision",
+            "analysis_id",
+            "status",
             "confirmation_required",
             "pk",
             "process_state",
@@ -108,6 +111,9 @@ class ContextManager:
             "structure_id",
             "model_id",
             "preview_id",
+            "revision",
+            "analysis_id",
+            "status",
         }
         for key in keys[:64]:
             value = items[key]
@@ -153,6 +159,8 @@ class ContextManager:
             for call in message.get("tool_calls", [])
         }
         calculation_tools = {
+            "calculation_plan_save",
+            "calculation_plan_get",
             "calculation_setup",
             "calculation_artifacts",
             "calculation_preview",

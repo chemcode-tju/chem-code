@@ -83,12 +83,25 @@ class Tool:
     contextual: bool = False
 
     def schema(self) -> dict[str, Any]:
+        def compact(schema: Any) -> Any:
+            if isinstance(schema, list):
+                return [compact(item) for item in schema]
+            if not isinstance(schema, dict):
+                return schema
+            return {
+                key: {name: compact(value) for name, value in item.items()}
+                if key in {"properties", "$defs"}
+                else compact(item)
+                for key, item in schema.items()
+                if key != "title"
+            }
+
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.input_model.model_json_schema(),
+                "parameters": compact(self.input_model.model_json_schema()),
             },
         }
 

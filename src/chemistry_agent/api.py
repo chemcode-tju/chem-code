@@ -106,10 +106,13 @@ def create_app(
                 calculation_chat.monitor = monitor
                 if monitor:
                     monitor.start()
+                if calculation_enabled:
+                    calculation_chat.plans.start(store)
                 try:
                     yield
                 finally:
                     await app.state.chat_queue.close()
+                    await calculation_chat.plans.close()
                     if monitor:
                         await monitor.close()
             finally:
