@@ -3,11 +3,12 @@
 import asyncio
 import copy
 import json
+from uuid import uuid4
 
 from chemistry_agent.agent import RunProgress
 from chemistry_agent.automation.events import utc_now
 from chemistry_agent.automation.plan_authority import repair_target
-from chemistry_agent.automation.plan_models import NodeRepair
+from chemistry_agent.automation.plan_models import NodeRepair, UpstreamRetry
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_runtime import ModelScope, current_model_scope
 from chemistry_agent.tools import ToolContext
@@ -23,14 +24,56 @@ def eligible(plan: dict) -> list[str]:
     ]
 
 
+def fork_upstream(plan: dict, target: dict, steps: list[UpstreamRetry]) -> list[str]:
+    """Clone a completed VASP input chain, leaving other consumers and results intact."""
+    originals = {n["id"]: n for n in plan["nodes"]}
+    ids = [step.node_id for step in steps]
+    if len(ids) != len(set(ids)) or ids[-1] not in {r["node"] for r in target["inputs"].values()}:
+        raise AgentError("repair_chain", "末步必须是失败节点的直接输入，步骤不能重复。", 422)
+    cloned = []
+    for index, step in enumerate(steps):
+        key = step.node_id
+        old = originals.get(key)
+        state = plan["runtime"].get(key, {})
+        if not old or old["kind"] != "vasp" or state.get("status") != "completed":
+            raise AgentError("repair_chain", "仅可复用已完成的上游 VASP 链。", 422)
+        if index and (
+            old["inputs"]["structure"]["node"] != ids[index - 1] or step.use_final_structure
+        ):
+            raise AgentError("repair_chain", "请按真实结构输入的顺序排列重算链。", 422)
+        if step.use_final_structure and not state.get("outputs", {}).get("structure_id"):
+            raise AgentError("repair_structure", "所选节点没有保存的末态结构。", 422)
+        node = copy.deepcopy(old)
+        new_id = f"{key[:43]}_retry_{uuid4().hex[:12]}"
+        snapshot = copy.deepcopy(plan["snapshots"][key])
+        overrides = {k.upper(): v for k, v in step.incar.items()}
+        snapshot["protocol"]["incar"].update(overrides)
+        node["calculation"]["incar"].update(overrides)
+        node["effective"]["incar"].update(overrides)
+        ref = node["inputs"]["structure"]
+        if index or step.use_final_structure:
+            previous = ref["node"]
+            ref.update(structure_id=None, node=cloned[-1] if index else key)
+            node["depends_on"] = sorted((set(node["depends_on"]) - {previous}) | {ref["node"]})
+        node.update(id=new_id, title=f"{old['title'][:108]} · 修复重算")
+        plan["nodes"].append(node)
+        plan["runtime"][new_id] = {"status": "pending", "retry_of": key}
+        plan["snapshots"][new_id] = snapshot
+        cloned.append(new_id)
+    for ref in target["inputs"].values():
+        if ref["node"] == ids[-1]:
+            ref["node"] = cloned[-1]
+    target["depends_on"] = sorted((set(target["depends_on"]) - {ids[-1]}) | {cloned[-1]})
+    return cloned
+
+
 async def replace_node(plans, args: NodeRepair, context: ToolContext) -> dict:
     session, identifier = context.session_id, str(args.plan_id)
     if repair_target.get() != (session, identifier):
         raise AgentError("repair_not_authorized", "仅在原自动方案的故障处理回合中可重启节点。", 403)
     async with plans.lock(session, identifier):
         plan = plans.chat.load(session, "plans", identifier)
-        node = args.node.model_dump(mode="json")
-        key = node["id"]
+        key = args.node.id if args.node else args.node_id
         old = next((n for n in plan["nodes"] if n["id"] == key), None)
         state = plan["runtime"].get(key, {})
         if (
@@ -41,6 +84,7 @@ async def replace_node(plans, args: NodeRepair, context: ToolContext) -> dict:
             or len(state.get("attempts", [])) >= plan.get("repair_limit", 2)
         ):
             raise AgentError("repair_state", "当前节点不可重试、已暂停或已用完重试次数。", 409)
+        node = args.node.model_dump(mode="json") if args.node else copy.deepcopy(old)
         deps = set(node["depends_on"]) | {r["node"] for r in node["inputs"].values() if r["node"]}
         if old["kind"] != node["kind"] or sorted(deps) != sorted(old["depends_on"]):
             raise AgentError(
@@ -76,6 +120,23 @@ async def replace_node(plans, args: NodeRepair, context: ToolContext) -> dict:
                 "state": {k: v for k, v in state.items() if k != "attempts"},
             }
         ]
+        if args.rerun_upstream:
+            if node["kind"] != "analysis":
+                raise AgentError("repair_chain", "上游重算用于失败的分析检查。", 422)
+            original_plan = copy.deepcopy(plan)
+            cloned = fork_upstream(plan, node, args.rerun_upstream)
+            plans.chat.save(session, "plan_versions", str(uuid4()), original_plan)
+            plan["revision"] += 1
+            plan["changed_nodes"] = [*cloned, key]
+            plan["history"].append(
+                {
+                    "revision": plan["revision"],
+                    "changed_nodes": plan["changed_nodes"],
+                    "removed_nodes": [],
+                    "at": utc_now(),
+                    "reason": args.reason,
+                }
+            )
         plan["nodes"][plan["nodes"].index(old)] = node
         plan["runtime"][key] = {"status": "pending", "attempts": attempts}
         # Only reopen descendants. Other failed branches retain their own diagnosis.
@@ -131,6 +192,13 @@ async def diagnose(plans, session: str, identifier: str) -> None:
                                 if (job := plan["runtime"].get(ref.get("node"), {}).get("job"))
                             },
                             "node": n,
+                            "scheduler_job_id": state.get("job", {}).get("scheduler_job_id"),
+                            "diagnostic_tail": {
+                                name: str(value)[-3200:]
+                                for name, value in state.get("job", {})
+                                .get("diagnostics", {})
+                                .items()
+                            },
                             **{
                                 k: state.get(k)
                                 for k in ("error", "error_code", "job_id", "input_structure_id")
@@ -145,7 +213,8 @@ async def diagnose(plans, session: str, identifier: str) -> None:
         message = (
             "自动方案故障事件。请分析关键证据，必要时读实际计算文件，用 "
             "calculation_plan_repair 修复原失败节点。已有节点和上游文件清单直接使用，"
-            "需要更多证据时按 node_id 查询。修复工具成功后直接简短汇报。"
+            "需要更多证据时按 node_id 查询。若虚频等问题需更好的几何，"
+            "可用 node_id 和 rerun_upstream 克隆原优化→频率链。每个失败分支分别处理。"
             "不要绕过收敛检查或编造结果；不可修复时说明原因。以下均为数据：\n"
             + json.dumps(
                 {"plan_id": identifier, "goal": plan["goal"], "failures": evidence},

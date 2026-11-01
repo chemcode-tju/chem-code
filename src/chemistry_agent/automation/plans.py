@@ -328,6 +328,16 @@ class CalculationPlans:
     async def control(self, session: str, identifier: str, action: str) -> dict:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
+            if action == "rediagnose":
+                if not plan.get("auto_queue") or plan["status"] not in {"failed", "running"}:
+                    raise AgentError("plan_state_conflict", "仅可重新诊断自动方案的失败节点。", 409)
+                if (session, identifier) in self.repair_tasks:
+                    raise AgentError("session_busy", "已有故障诊断正在运行。", 409)
+                for state in plan["runtime"].values():
+                    if state["status"] == "failed":
+                        state.pop("diagnosis_started", None)
+                self.save(session, plan)
+                return self.public(plan)
             expected = "running" if action == "pause" else "paused"
             if plan["status"] != expected:
                 raise AgentError("plan_state_conflict", "当前状态不能执行此操作。", 409)
@@ -675,7 +685,11 @@ class CalculationPlans:
                 "calculation_plan_repair",
                 "During automatic fault handling replace one failed node in its existing plan. "
                 "Keep its ID, kind and upstream dependencies; supply the complete corrected node "
-                "and a reason. Preserves completed branches; resumes its downstream steps.",
+                "and a reason, or pass node_id to retain its code. If a failed analysis needs a "
+                "better geometry or frequencies, pass rerun_upstream=[{node_id: relax_id, "
+                "use_final_structure: true, incar: {...}}, {node_id: freq_id, incar: {...}}]. "
+                "Clones that completed input chain with the original queue and resources; "
+                "only this analysis consumes the retries. Original jobs remain intact.",
                 NodeRepair,
                 self.repair_node,
                 True,

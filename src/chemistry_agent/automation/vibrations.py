@@ -7,10 +7,9 @@ def vibrational_incar(incar: dict) -> bool:
 
 
 def output_settings(incar: dict) -> dict:
-    settings = {"ADDITIONAL_RETRIEVE_LIST": ["OSZICAR", "XDATCAR"]}
+    settings = {"ADDITIONAL_RETRIEVE_LIST": ["OSZICAR", "XDATCAR", "POSCAR"]}
     if vibrational_incar(incar):
         # The plugin's default force-convergence gate applies to relaxations. A
         # phonon job's success is instead established by its actual frequency data.
-        settings["ADDITIONAL_RETRIEVE_LIST"].append("POSCAR")
         settings["parser_settings"] = {"check_ionic_convergence": False}
     return settings

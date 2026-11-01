@@ -70,6 +70,7 @@ class PlanWriter:
         resources: dict,
         kmesh,
         require_ionic=False,
+        require_electronic=True,
         title=None,
     ) -> str:
         self.nodes.append(
@@ -84,6 +85,7 @@ class PlanWriter:
                     "kmesh": kmesh,
                     "resources": resources,
                     "require_ionic": require_ionic,
+                    "require_electronic": require_electronic,
                 },
             }
         )

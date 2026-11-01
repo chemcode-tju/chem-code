@@ -59,6 +59,7 @@ def test_durable_deduplicated_notifications_and_budget(tmp_path):
     assert store.observe("s", "p", job)
     store = EventStore(path)
     assert not store.observe("s", "p", job)
+    assert store.pending_reports() == []  # explicitly suppressed, including state transitions
     assert store.inbox("s")["unread"] == 1
     store.mark_read(store.inbox("s")["events"][0]["id"])
     assert EventStore(path).inbox("s")["unread"] == 0

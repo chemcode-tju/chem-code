@@ -657,3 +657,61 @@ async def test_append_plot_after_completion_does_not_repeat_job(graph):
     assert record["runtime"]["energy"]["status"] == "completed" and len(engine.submits) == 1
     assert record["nodes"][-1]["inputs"]["data"]["output"] == "result"
     assert record["revision"] == 2 and record["status"] == "running"
+
+
+async def test_fork_completed_chain_for_failed_thermochemistry(graph):
+    from chemistry_agent.automation.plan_authority import auto_queue, repair_target
+    from chemistry_agent.automation.plan_models import NodeRepair
+
+    chat, ctx, _, structure = graph
+    spec = draft(
+        [
+            vasp("relax", {"structure_id": structure}),
+            vasp("freq", {"node": "relax"}),
+            {
+                "kind": "analysis",
+                "id": "thermo",
+                "title": "G",
+                "code": "pass",
+                "inputs": {"freq": {"node": "freq", "output": "result"}},
+            },
+            vasp("other", {"node": "relax"}),
+        ]
+    )
+    grant = auto_queue.set("batch")
+    try:
+        p = await chat.plans.draft(spec, ctx)
+    finally:
+        auto_queue.reset(grant)
+    pid = p["id"]
+    p = chat.load(ctx.session_id, "plans", pid)
+    for key in ("relax", "freq", "other"):
+        p["runtime"][key] = {"status": "completed", "outputs": {"structure_id": structure}}
+    p["runtime"]["thermo"] = {"status": "failed", "error": "imaginary modes"}
+    chat.plans.save(ctx.session_id, p)
+    grant = repair_target.set((ctx.session_id, pid))
+    try:
+        args = NodeRepair(
+            plan_id=pid,
+            node_id="thermo",
+            reason="refine stationary point",
+            rerun_upstream=[
+                {"node_id": "relax", "incar": {"EDIFFG": -0.01}, "use_final_structure": True},
+                {"node_id": "freq"},
+            ],
+        )
+        await chat.plans.repair_node(args, ctx)
+        with pytest.raises(AgentError):
+            await chat.plans.repair_node(args, ctx)
+    finally:
+        repair_target.reset(grant)
+    result = chat.load(ctx.session_id, "plans", pid)
+    nodes = {n["id"]: n for n in result["nodes"]}
+    updated_freq = nodes["thermo"]["inputs"]["freq"]["node"]
+    updated_relax = nodes[updated_freq]["inputs"]["structure"]["node"]
+    assert nodes[updated_relax]["depends_on"] == ["relax"]
+    assert nodes[updated_relax]["effective"]["incar"]["EDIFFG"] == -0.01
+    assert nodes[updated_freq]["effective"]["resources"] == nodes["freq"]["effective"]["resources"]
+    assert nodes["other"]["depends_on"] == ["relax"]
+    assert all(result["runtime"][k] == p["runtime"][k] for k in ["other", "relax", "freq"])
+    assert result["revision"] == 2 and result["runtime"]["thermo"]["status"] == "pending"

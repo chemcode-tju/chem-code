@@ -122,7 +122,7 @@ class PlanConfirmation(StrictModel):
 
 
 class PlanControl(StrictModel):
-    action: Literal["pause", "resume"]
+    action: Literal["pause", "resume", "rediagnose"]
 
 
 class PlanProgram(StrictModel):
@@ -136,10 +136,24 @@ class ProgramSource(StrictModel):
     lines: int = Field(default=150, ge=1, le=200)
 
 
+class UpstreamRetry(StrictModel):
+    node_id: str
+    incar: dict = Field(default_factory=dict)
+    use_final_structure: bool = False
+
+
 class NodeRepair(StrictModel):
     plan_id: UUID
-    node: PlanNode
+    node: PlanNode | None = None
+    node_id: str | None = None
+    rerun_upstream: list[UpstreamRetry] = Field(default_factory=list)
     reason: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def target(self):
+        if bool(self.node) == bool(self.node_id):
+            raise ValueError("指定完整修复 node，或用 node_id 保留原节点。")
+        return self
 
 
 class PlanFigure(StrictModel):

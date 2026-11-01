@@ -168,7 +168,7 @@ class EventStore:
                         utc_now(),
                     ),
                 )
-                if report or (before and state != before["state"]):
+                if report:
                     db.execute(
                         "INSERT OR IGNORE INTO reports(event_key,preview_id) VALUES(?,?)",
                         (key, preview_id),
