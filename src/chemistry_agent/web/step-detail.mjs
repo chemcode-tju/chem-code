@@ -134,11 +134,12 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     $('step-code-section').hidden=!node.code; $('step-code').textContent=node.code || '';
     const result=node.kind==='analysis' && state.outputs?.result;
     $('step-output-section').hidden=!result; $('step-output').textContent=result?JSON.stringify(result,null,2):'';
+    $('step-downloads').innerHTML=(state.outputs?.files || []).map(name=>`<p><a download href="${current.sessionPath}/workflows/${plan.id}/artifacts/${node.id}/${name.split('/').map(encodeURIComponent).join('/')}">${esc(name)}</a></p>`).join('');
     if(state.error || state.sync_error) $('step-note').textContent=state.error || state.sync_error;
   }
   function openGeneral(plan,node,sessionPath) {
     close();
-    current={id:plan.id,key:node.id,general:true,revision:plan.revision,title:node.title,
+    current={id:plan.id,key:node.id,general:true,revision:plan.revision,title:node.title,sessionPath,
       failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar.NSW,
       base:`${sessionPath}/workflows/${plan.id}/steps/${node.id}`};
     $('plan-overview').hidden=true; screen.hidden=false; $('step-title').textContent=node.title;

@@ -27,6 +27,29 @@ logger = logging.getLogger(__name__)
 TERMINAL = {"completed", "failed", "blocked"}
 
 
+def generated_files(directory: Path, aliases: set[str]) -> list[str]:
+    """Expose generated artifacts, excluding staged inputs and interpreter bookkeeping."""
+    excluded = {"inputs.json", "model.py", "sandbox.sb", "execution.log"}
+    excluded.update(f"{alias}.{suffix}" for alias in aliases for suffix in ("vasp", "extxyz"))
+    files = []
+    pending = [directory]
+    while pending:
+        for path in pending.pop().iterdir():
+            relative = path.relative_to(directory)
+            if (
+                relative.parts[0] in aliases
+                or path.name == "archive"
+                or str(relative) in excluded
+                or path.is_symlink()
+            ):
+                continue
+            if path.is_dir():
+                pending.append(path)
+            elif path.is_file():
+                files.append(str(relative))
+    return sorted(files)
+
+
 class CalculationPlans:
     def __init__(self, chat) -> None:
         self.chat = chat
@@ -179,6 +202,8 @@ class CalculationPlans:
 
         directory = self.chat.directory(session, "plan_runs") / plan["id"] / node["id"]
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        output = directory / ("structure.vasp" if node["kind"] == "model" else "result.json")
+        output.unlink(missing_ok=True)
         inputs = self.resolved_inputs(session, plan, node)
         for alias, value in inputs.items():
             if "structure_id" in value:
@@ -205,13 +230,15 @@ class CalculationPlans:
                     for name, path in staged["files"].items()
                 }
         (directory / "inputs.json").write_text(json.dumps(inputs, ensure_ascii=False))
-        # A resumed code step must not accept an output left by an interrupted attempt.
-        output = directory / ("structure.vasp" if node["kind"] == "model" else "result.json")
-        output.unlink(missing_ok=True)
+        # A model may call its input alias "structure" and read/write structure.vasp.
+        # Preserve that input, but don't mistake an untouched input for a generated output.
+        input_version = output.stat().st_mtime_ns if output.exists() else None
         async with self.chat.model_lock:
             content = await execute_model(
                 directory, node["code"], output_format="vasp" if node["kind"] == "model" else "json"
             )
+        if input_version is not None and output.stat().st_mtime_ns == input_version:
+            raise AgentError("model_output_missing", "建模代码未写出新结构。", 422)
         if node["kind"] == "model":
             imported = await self.chat.import_structure(
                 ImportInput(
@@ -232,7 +259,7 @@ class CalculationPlans:
             raise AgentError(
                 "analysis_gate_failed", str(result.get("reason", "分析检查未通过。")), 422
             )
-        return {"result": result}
+        return {"result": result, "files": generated_files(directory, set(inputs))}
 
     async def start_vasp(self, session: str, plan: dict, node: dict, state: dict) -> None:
         from chemistry_agent.automation.chat import ChatPreviewInput

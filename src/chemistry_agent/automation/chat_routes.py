@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Body, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from chemistry_agent.automation.chat import (
     CalculationChat,
@@ -342,6 +342,27 @@ async def recovery_policy(
 async def workflow_plans(session_id: UUID, request: Request) -> dict:
     chat = await session_chat(request, session_id)
     return {"plans": chat.plans.records(str(session_id))}
+
+
+@router.get("/{session_id}/workflows/{plan_id}/artifacts/{node_id}/{filename:path}")
+async def workflow_artifact(
+    session_id: UUID, plan_id: UUID, node_id: str, filename: str, request: Request
+) -> FileResponse:
+    chat = await session_chat(request, session_id)
+    plan = chat.load(str(session_id), "plans", str(plan_id))
+    files = plan["runtime"].get(node_id, {}).get("outputs", {}).get("files", [])
+    if filename not in files:
+        raise AgentError("artifact_not_found", "此步骤没有该输出文件。", 404)
+    root = chat.directory(str(session_id), "plan_runs") / str(plan_id) / node_id
+    path = root / filename
+    if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or not path.is_file():
+        raise AgentError("artifact_not_found", "输出文件不可用。", 404)
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post("/{session_id}/workflows")

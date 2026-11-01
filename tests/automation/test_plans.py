@@ -453,3 +453,53 @@ def test_agent_can_create_and_revise_executable_plan_through_conversation(settin
             == 404
         )
         assert client.post(f"{base}/{first['id']}/confirm", json={"revision": 2}).status_code == 200
+
+
+def test_analysis_download_manifest_excludes_inputs_and_links(tmp_path):
+    from chemistry_agent.automation.plans import generated_files
+
+    (tmp_path / "inputs.json").write_text("{}")
+    (tmp_path / "model.py").write_text("pass")
+    (tmp_path / "source.vasp").write_text("input")
+    (tmp_path / "source").mkdir()
+    (tmp_path / "source" / "large.raw").write_bytes(b"raw input")
+    (tmp_path / "result.json").write_text("{}")
+    (tmp_path / "plot.svg").write_text("<svg/>")
+    (tmp_path / "link").symlink_to("/etc/passwd")
+    assert generated_files(tmp_path, {"source"}) == ["plot.svg", "result.json"]
+
+
+async def test_model_can_use_structure_as_input_alias(graph, monkeypatch):
+    chat, context, engine, structure = graph
+    plan = await chat.plans.draft(
+        draft(
+            [
+                {
+                    "id": "modify",
+                    "title": "修改结构",
+                    "kind": "model",
+                    "code": "pass",
+                    "inputs": {"structure": {"structure_id": structure}},
+                }
+            ]
+        ),
+        context,
+    )
+
+    async def execute(directory, code, *, output_format):
+        atoms = read(directory / "structure.vasp")
+        atoms.set_cell(atoms.cell * 1.1, scale_atoms=True)
+        write(directory / "structure.vasp", atoms, format="vasp")
+        return (directory / "structure.vasp").read_text()
+
+    monkeypatch.setattr("chemistry_agent.automation.plans.execute_model", execute)
+    await chat.plans.confirm(context.session_id, plan["id"], 1)
+    await chat.plans.tick_plan(context.session_id, plan["id"])
+    result = chat.load(context.session_id, "plans", plan["id"])
+    assert result["status"] == "completed"
+    saved = chat.load(
+        context.session_id, "structures", result["runtime"]["modify"]["outputs"]["structure_id"]
+    )
+    assert read(io.StringIO(saved["extxyz"]), format="extxyz").cell.lengths()[0] == pytest.approx(
+        3.96
+    )
