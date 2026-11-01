@@ -358,3 +358,17 @@ async def test_report_is_an_assistant_message_once_without_prompt_or_interleavin
         assert provider.calls == 1
     finally:
         await session_store.close()
+
+
+def test_vibration_retains_electronic_gate_without_relaxation_gate():
+    from chemistry_agent.automation.events import task_state
+    from chemistry_agent.automation.vibrations import output_settings
+
+    assert output_settings({"ibrion": 5})["parser_settings"] == {"check_ionic_convergence": False}
+    assert "parser_settings" not in output_settings({"IBRION": 2})
+    status = {"electronic_converged": True, "ionic_converged": False, "nsw": 1}
+    job = {"finished_ok": True, "vibrational": True, "results": {"run_status": status}}
+    assert task_state(job)[0] == "completed"
+    assert task_state({**job, "vibrational": False})[0] == "unconverged"
+    status["electronic_converged"] = False
+    assert task_state(job)[0] == "unconverged"

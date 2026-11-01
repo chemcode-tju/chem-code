@@ -39,6 +39,7 @@ from chemistry_agent.automation.models import (
     ServerCreate,
     StructureInput,
 )
+from chemistry_agent.automation.vibrations import output_settings, vibrational_incar
 from chemistry_agent.errors import AgentError
 
 MARKER = "Chemistry Agent automation v1"
@@ -238,7 +239,7 @@ def build_job(body: PreviewRequest, label: str) -> tuple[ProcessBuilder, Atoms]:
         builder.parameters = orm.Dict(
             dict={key.lower(): value for key, value in body.incar.items()}
         )
-        builder.settings = orm.Dict(dict={"ADDITIONAL_RETRIEVE_LIST": ["OSZICAR", "XDATCAR"]})
+        builder.settings = orm.Dict(dict=output_settings(body.incar))
         builder.kpoints = orm.KpointsData()
         builder.kpoints.set_kpoints_mesh(body.kmesh)
         if atoms.constraints:
@@ -434,6 +435,8 @@ def job_record(node: orm.ProcessNode) -> dict:
         result["scientific_validation"] = "not_applicable_probe"
     if "misc" in node.outputs:
         result["results"] = node.outputs.misc.get_dict()
+        if is_calculation and "parameters" in node.inputs:
+            result["vibrational"] = vibrational_incar(node.inputs.parameters.get_dict())
     if "structure" in node.outputs:
         final = node.outputs.structure.get_ase()
         result["output_structure"] = {

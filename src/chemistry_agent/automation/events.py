@@ -17,7 +17,7 @@ def utc_now() -> str:
 def task_state(job: dict) -> tuple[str, str]:
     if job.get("finished_ok"):
         status = job.get("results", {}).get("run_status", {})
-        ionic = status.get("nsw", 0) > 0
+        ionic = status.get("nsw", 0) > 0 and not job.get("vibrational")
         if status.get("electronic_converged") is False or (
             ionic and status.get("ionic_converged") is False
         ):
