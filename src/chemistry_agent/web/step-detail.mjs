@@ -72,6 +72,14 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
       if (current!==view) return;
       const sourceChanged=activeFile && info?.files[activeFile]!==next.files[activeFile];
       info=next;
+      const entries=next.investigations || [];
+      $('step-investigation').hidden=!entries.length;
+      $('step-investigation-log').innerHTML=entries.map(row=>{
+        const title=row.kind==='diagnostic'?'对照计算':'接续计算';
+        const scf=row.electronic_converged===true?'电子已收敛':row.electronic_converged===false?'电子未收敛':'';
+        const energy=Number.isFinite(row.energy_ev)?`E0 = ${row.energy_ev} eV`:'';
+        return `<li><strong>${title}${row.pk?' #'+esc(String(row.pk)):''}</strong><p>${esc(row.purpose)}</p><small>${esc([row.status,scf,energy].filter(Boolean).join(' · '))}</small></li>`;
+      }).join('');
       drawFiles();
       $('step-note').textContent=next.note || '';
       $('step-progress').textContent=next.ionic_step!=null
@@ -91,7 +99,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     if (!step) return;
     const details=describeStep(item,job,step);
     const path=key==='single'?'POSCAR':key+'/POSCAR';
-    current={id:item.preview_id,key,title:details.title,nsw:details.nsw,preview:item.files?.[path],
+    current={id:item.preview_id,key,failed:details.tone==='failed',title:details.title,nsw:details.nsw,preview:item.files?.[path],
       base:`${sessionPath}/plans/${encodeURIComponent(item.preview_id)}/steps/${encodeURIComponent(key)}`};
     $('plan-overview').hidden=true; screen.hidden=false;
     $('step-title').textContent=details.title; $('step-status').textContent=details.status;
@@ -101,6 +109,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     for (const id of ['step-structures','step-energies','step-refresh','step-progress']) $(id).hidden=aggregate;
     $('step-parameters').closest('details').open=aggregate;
     $('step-structures').open=true; $('step-energies').open=false;
+    $('step-investigation').hidden=true; $('step-investigation-log').replaceChildren();
     $('step-progress').textContent='读取离子步…'; $('step-note').textContent='';
     $('step-file-source').textContent=''; $('step-chart').replaceChildren();
     info={files:current.preview?{POSCAR:'方案预览'}:{},points:[]};
@@ -114,7 +123,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   $('step-refresh').onclick=()=>refresh(true);
   $('step-files').onclick=event=>{if(event.target.dataset.stepFile)selectFile(event.target.dataset.stepFile);};
   $('step-revise').onclick=()=>{if(current)reviseStep(current.id,current.title);};
-  setInterval(()=>{if(current && !info?.terminal && !document.hidden && screen.getClientRects().length)refresh();},20000);
+  setInterval(()=>{if(current && (!info?.terminal || current.failed || info?.investigations?.some(row=>!row.terminal)) && !document.hidden && screen.getClientRects().length)refresh();},20000);
   return {open,close,update(item,job) {
     if (!current || current.id!==item.preview_id) return;
     const step=planSteps(item).find(s=>s.stage===current.key);

@@ -7,7 +7,12 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Body, Request
 from fastapi.responses import Response
 
-from chemistry_agent.automation.chat import CalculationChat, ImportInput, JobInput
+from chemistry_agent.automation.chat import (
+    CalculationChat,
+    ImportInput,
+    InvestigationInput,
+    JobInput,
+)
 from chemistry_agent.automation.recovery import RecoveryPolicy
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.errors import AgentError
@@ -61,6 +66,12 @@ async def artifacts(session_id: UUID, request: Request) -> dict:
     }
 
 
+@router.post("/{session_id}/investigations")
+async def link_investigation(session_id: UUID, body: InvestigationInput, request: Request) -> dict:
+    chat = await session_chat(request, session_id)
+    return await chat.link_investigation(body, ToolContext(str(session_id), str(uuid4())))
+
+
 @router.get("/{session_id}/plans/{preview_id}/steps/{stage}/{file}")
 async def inspect_step(
     session_id: UUID,
@@ -92,6 +103,30 @@ async def inspect_step(
             if file != "POSCAR" or not preview or exc.status_code != 404:
                 raise
     if file == "info":
+        monitor = getattr(request.app.state, "task_monitor", None)
+        live = monitor.events.snapshots(session) if monitor else {}
+        investigations = []
+        for row in reversed(chat.list_records(session, "investigations")):
+            if row["source_preview_id"] != identifier or row["stage"] != stage:
+                continue
+            ref = row["related_preview_id"]
+            submitted = chat.directory(session, "submissions") / f"{ref}.json"
+            job = json.loads(submitted.read_text())["job"] if submitted.is_file() else {}
+            job = live.get(job.get("id"), job)
+            results = job.get("results", {})
+            investigations.append(
+                {
+                    **row,
+                    "pk": job.get("pk"),
+                    "status": job.get("display_title") or job.get("process_state") or "待确认",
+                    "terminal": job.get("process_state") in {"finished", "excepted", "killed"},
+                    "electronic_converged": results.get("run_status", {}).get(
+                        "electronic_converged"
+                    ),
+                    "energy_ev": results.get("total_energies", {}).get("energy_extrapolated"),
+                }
+            )
+        info["investigations"] = investigations
         if preview:
             info["files"].setdefault("POSCAR", preview_source)
         return info

@@ -46,6 +46,14 @@ class JobInput(StrictModel):
     job_id: str = Field(min_length=1, max_length=80, description="AiiDA UUID or numeric PK")
 
 
+class InvestigationInput(StrictModel):
+    source_preview_id: UUID
+    stage: str = Field(min_length=1, max_length=80)
+    related_preview_id: UUID
+    kind: Literal["diagnostic", "continuation"] = "diagnostic"
+    purpose: str = Field(min_length=1, max_length=1000)
+
+
 class PrepareInput(StrictModel):
     revises_preview_id: UUID | None = None
     workflow: Literal["single", "relax_static", "bulk_surface"] = "single"
@@ -253,8 +261,6 @@ class CalculationChat:
         request["surface_plan"] = (
             args.surface_plan.model_dump(mode="json") if args.surface_plan else None
         )
-        if args.surface_plan and args.surface_plan.bulk_job_id:
-            self.require_session_job(context.session_id, args.surface_plan.bulk_job_id)
         result = await self.preview(
             ChatPreviewInput(structure_id=args.structure_id, **request), context
         )
@@ -271,7 +277,7 @@ class CalculationChat:
             raise AgentError("use_structure_id", "请用结构 ID 引用已上传或建模的结构。", 422)
         structure = self.load(context.session_id, "structures", str(args.structure_id))
         if args.surface_plan and args.surface_plan.bulk_job_id:
-            self.require_session_job(context.session_id, args.surface_plan.bulk_job_id)
+            await self.require_session_bulk(context.session_id, args.surface_plan.bulk_job_id)
         payload = args.model_dump(mode="json", exclude={"structure_id"})
         payload["structure"] = structure["structure"]
         result = await self.service.call("preview", payload)
@@ -306,6 +312,42 @@ class CalculationChat:
         records = self.list_records(session_id, "submissions", limit=100000)
         if not any(identifier in {item["job"]["id"], str(item["job"]["pk"])} for item in records):
             raise AgentError("job_not_in_session", "只能复用当前对话中的已提交任务。", 403)
+
+    async def require_session_bulk(self, session: str, identifier: str) -> None:
+        """Accept roots and actual bulk children of this session's submitted workflows."""
+        submissions = self.list_records(session, "submissions", limit=100000)
+        roots = [item["job"] for item in submissions]
+        if any(identifier in {j["id"], str(j["pk"])} for j in roots):
+            return
+        for start in range(0, len(roots), 100):
+            jobs = await self.service.call(
+                "tracked_jobs", {"job_ids": [j["id"] for j in roots[start : start + 100]]}
+            )
+            for job in jobs["jobs"]:
+                for step in job.get("steps", []):
+                    if step["label"] == job["label"] + ":bulk" and identifier in {
+                        step["id"],
+                        str(step["pk"]),
+                    }:
+                        return
+        raise AgentError("job_not_in_session", "只能复用当前对话中的体相任务。", 403)
+
+    async def link_investigation(self, args: InvestigationInput, context: ToolContext) -> dict:
+        session = context.session_id
+        source, related = str(args.source_preview_id), str(args.related_preview_id)
+        original = self.load(session, "previews", source)
+        self.load(session, "submissions", source)
+        self.load(session, "previews", related)
+        if source == related or args.stage not in {
+            s["stage"] for s in original.get("stages") or [{"stage": "single"}]
+        }:
+            raise AgentError(
+                "invalid_investigation", "排查必须关联原任务的具体步骤和另一份预览。", 422
+            )
+        record = args.model_dump(mode="json")
+        identifier = str(uuid5(UUID(source), args.stage + ":" + related))
+        self.save(session, "investigations", identifier, record)
+        return record
 
     async def output_structure(self, session: str, identifier: str) -> dict:
         """Read the actual final output, including for jobs never manually imported."""
@@ -411,6 +453,14 @@ class CalculationChat:
                 "after context compression. Only this session's artifacts are accessible.",
                 ArtifactInput,
                 self.artifact,
+                True,
+            ),
+            Tool(
+                "calculation_record_investigation",
+                "Link a diagnostic or continuation preview to an original submitted plan step. "
+                "Records a troubleshooting note, never submits or changes the original plan.",
+                InvestigationInput,
+                self.link_investigation,
                 True,
             ),
             Tool(
