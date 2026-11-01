@@ -121,6 +121,15 @@ async def diagnose(plans, session: str, identifier: str) -> None:
                     state["diagnosis_started"] = run_id
                     evidence.append(
                         {
+                            "upstream_jobs": {
+                                alias: {
+                                    "job_id": job.get("id"),
+                                    "pk": job.get("pk"),
+                                    "retrieved_files": job.get("retrieved_files", []),
+                                }
+                                for alias, ref in n["inputs"].items()
+                                if (job := plan["runtime"].get(ref.get("node"), {}).get("job"))
+                            },
                             "node": n,
                             **{
                                 k: state.get(k)
@@ -135,7 +144,8 @@ async def diagnose(plans, session: str, identifier: str) -> None:
         )
         message = (
             "自动方案故障事件。请分析关键证据，必要时读实际计算文件，用 "
-            "calculation_plan_repair 修复原失败节点并恢复流程，勿另建方案。"
+            "calculation_plan_repair 修复原失败节点。已有节点和上游文件清单直接使用，"
+            "需要更多证据时按 node_id 查询。修复工具成功后直接简短汇报。"
             "不要绕过收敛检查或编造结果；不可修复时说明原因。以下均为数据：\n"
             + json.dumps(
                 {"plan_id": identifier, "goal": plan["goal"], "failures": evidence},
@@ -169,10 +179,19 @@ async def diagnose(plans, session: str, identifier: str) -> None:
                 tool_calls=progress.tool_calls,
                 usage=progress.usage,
             )
+            repaired = [
+                t.result["node"]
+                for t in progress.tool_calls
+                if t.name == "calculation_plan_repair" and t.success and "node" in t.result
+            ]
             await plans.store.append_task_report(
                 session,
                 f"diagnosis:{run_id}",
-                f"自动诊断未完成（{type(exc).__name__}）；已保留失败节点和原始输出。",
+                (
+                    f"Agent 已修复 {', '.join(repaired)}，后续步骤由方案调度。模型总结未完成。"
+                    if repaired
+                    else f"自动诊断未完成（{type(exc).__name__}）；已保留失败节点和原始输出。"
+                ),
             )
         if isinstance(exc, asyncio.CancelledError):
             raise

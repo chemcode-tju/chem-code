@@ -113,6 +113,8 @@ class PlanDraft(StrictModel):
 
 class PlanQuery(StrictModel):
     plan_id: UUID | None = None
+    node_id: str | None = None
+    full: bool = False
 
 
 class PlanConfirmation(StrictModel):

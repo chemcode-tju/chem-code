@@ -9,6 +9,7 @@ import contextlib
 import io
 import json
 import logging
+from collections import Counter
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -293,17 +294,26 @@ class CalculationPlans:
             return {"plan_id": identifier, "node_id": key, "status": plan["runtime"][key]["status"]}
 
     async def query(self, args: PlanQuery, context: ToolContext) -> dict:
+        def summary(plan: dict) -> dict:
+            return {
+                key: plan[key] for key in ("id", "revision", "title", "status", "updated_at")
+            } | {
+                "node_count": len(plan["nodes"]),
+                "states": dict(Counter(state["status"] for state in plan["runtime"].values())),
+                "failed_nodes": [k for k, v in plan["runtime"].items() if v["status"] == "failed"],
+            }
+
         if args.plan_id:
-            return self.public(self.chat.load(context.session_id, "plans", str(args.plan_id)))
-        return {
-            "plans": [
-                {
-                    key: row[key]
-                    for key in ("id", "revision", "title", "status", "runtime", "updated_at")
-                }
-                for row in self.records(context.session_id)
-            ]
-        }
+            plan = self.chat.load(context.session_id, "plans", str(args.plan_id))
+            if args.node_id:
+                node = next((n for n in plan["nodes"] if n["id"] == args.node_id), None)
+                if not node:
+                    raise AgentError("missing_node", "此方案中没有指定节点。", 404)
+                return {"node": node, "state": plan["runtime"][args.node_id]}
+            if args.full or len(plan["nodes"]) <= 20:
+                return self.public(plan)
+            return summary(plan) | {"node_ids": [n["id"] for n in plan["nodes"]]}
+        return {"plans": [summary(plan) for plan in self.records(context.session_id)]}
 
     async def confirm(self, session: str, identifier: str, revision: int) -> dict:
         async with self.lock(session, identifier):
@@ -683,7 +693,8 @@ class CalculationPlans:
             ),
             Tool(
                 "calculation_plan_get",
-                "Read current executable plan, exact code/parameters and "
+                "Read current plan. For large graphs request node_id for exact code/outputs or "
+                "full=true for the complete graph only when necessary. Small plans include "
                 "step outputs. Omit plan_id to list this session's plans. Reuse completed outputs "
                 "as structure_id in a new plan instead of repeating calculations.",
                 PlanQuery,
