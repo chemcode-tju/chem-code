@@ -764,8 +764,8 @@ def resolve_calculation(payload: dict) -> dict:
     }
 
 
-def job_details(payload: dict) -> dict:
-    identifier = payload["job_id"]
+def load_job(identifier: str) -> orm.ProcessNode:
+    """Resolve managed jobs once for read and structure operations."""
     try:
         node = orm.load_node(int(identifier) if identifier.isdigit() else str(UUID(identifier)))
     except (ValueError, NotExistent) as exc:
@@ -774,6 +774,23 @@ def job_details(payload: dict) -> dict:
         PREFIX
     ):
         raise AgentError("job_not_owned", "只能查询本模块创建的计算任务。", 404)
+    return node
+
+
+def session_job(payload: dict) -> dict:
+    """Follow actual CALL links, so nested workflow children inherit session access."""
+    node = load_job(payload["job_id"])
+    roots = set(payload["root_ids"])
+    ancestor = node
+    while ancestor is not None:
+        if ancestor.uuid in roots:
+            return {"id": node.uuid, "pk": node.pk}
+        ancestor = ancestor.caller
+    raise AgentError("job_not_in_session", "任务不属于当前对话的计算流程。", 403)
+
+
+def job_details(payload: dict) -> dict:
+    node = load_job(payload["job_id"])
     result = job_record(node)
     result["retrieved_files"] = []
     result["diagnostics"] = {}

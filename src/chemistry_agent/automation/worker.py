@@ -39,6 +39,7 @@ def dispatch(message: dict) -> dict:
         "catalog": lambda _: backend.catalog(),
         "job_details": backend.job_details,
         "job_structure": job_structure,
+        "session_job": backend.session_job,
         "save_configuration": backend.save_configuration,
         "resolve_calculation": backend.resolve_calculation,
         "tracked_jobs": backend.tracked_jobs,

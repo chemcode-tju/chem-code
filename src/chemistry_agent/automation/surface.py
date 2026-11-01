@@ -11,7 +11,7 @@ from ase.build import fcc100
 from ase.constraints import FixAtoms, FixScaled
 
 from chemistry_agent.automation.constraints import positions_dof, structure_text
-from chemistry_agent.automation.models import PreviewRequest, SurfacePlan
+from chemistry_agent.automation.models import PreviewRequest, StructureInput, SurfacePlan
 from chemistry_agent.errors import AgentError
 
 
@@ -92,14 +92,24 @@ def restore_dynamics(atoms: Atoms, dof: list[list[bool]]) -> None:
 
 
 def job_structure(payload: dict) -> dict:
-    """Export the actual output, carrying the calculation's separate dynamics input."""
-    from chemistry_agent.automation.backend import job_details, validate_structure
+    """Expose available geometry independently of job success or convergence."""
+    from chemistry_agent.automation.backend import load_job, read_structure, validate_structure
+    from chemistry_agent.automation.step_data import step_data
 
-    record = job_details(payload)
-    node = orm.load_node(record["id"])
-    if not node.is_finished_ok or "structure" not in node.outputs:
-        raise AgentError("output_structure_missing", "任务尚未成功结束或没有输出结构。", 422)
-    atoms = node.outputs.structure.get_ase()
+    node = load_job(payload["job_id"])
+    source_uuid = None
+    source_file = None
+    if "structure" in node.outputs:
+        atoms = node.outputs.structure.get_ase()
+        source_uuid = node.outputs.structure.uuid
+    elif isinstance(node, orm.CalcJobNode):
+        snapshot = step_data({"root_id": node.uuid, "stage": "single", "file": "CONTCAR"})
+        atoms = read_structure(StructureInput(format="vasp", content=snapshot["content"]))
+        source_file = "CONTCAR"
+    else:
+        raise AgentError(
+            "output_structure_missing", "此流程尚无输出结构，请选择具体计算步骤读取 CONTCAR。", 404
+        )
     dynamics = node.outputs.dynamics if "dynamics" in node.outputs else None
     if dynamics is None and "dynamics" in node.inputs:
         dynamics = node.inputs.dynamics
@@ -112,7 +122,15 @@ def job_structure(payload: dict) -> dict:
         **data,
         "source_job_id": node.uuid,
         "source_job_pk": node.pk,
-        "source_structure_uuid": node.outputs.structure.uuid,
+        "source_structure_uuid": source_uuid,
+        "source_file": source_file,
+        "source_process_state": node.process_state.value if node.process_state else None,
+        "source_exit_status": node.exit_status,
+        "source_finished_ok": node.is_finished_ok,
+        "source_terminal": node.is_terminated,
+        "source_run_status": (
+            node.outputs.misc.get_dict().get("run_status", {}) if "misc" in node.outputs else {}
+        ),
     }
 
 

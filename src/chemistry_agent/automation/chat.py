@@ -308,29 +308,20 @@ class CalculationChat:
             "review": "完整输入与脚本已保存在聊天预览卡片中，等待用户确认。",
         }
 
-    def require_session_job(self, session_id: str, identifier: str) -> None:
+    async def require_session_job(self, session_id: str, identifier: str) -> None:
+        """Allow submitted roots and all their actual AiiDA descendants."""
         records = self.list_records(session_id, "submissions", limit=100000)
-        if not any(identifier in {item["job"]["id"], str(item["job"]["pk"])} for item in records):
-            raise AgentError("job_not_in_session", "只能复用当前对话中的已提交任务。", 403)
+        if any(identifier in {item["job"]["id"], str(item["job"]["pk"])} for item in records):
+            return
+        if not records:
+            raise AgentError("job_not_in_session", "当前对话尚无已提交的计算流程。", 403)
+        await self.service.call(
+            "session_job",
+            {"job_id": identifier, "root_ids": [item["job"]["id"] for item in records]},
+        )
 
     async def require_session_bulk(self, session: str, identifier: str) -> None:
-        """Accept roots and actual bulk children of this session's submitted workflows."""
-        submissions = self.list_records(session, "submissions", limit=100000)
-        roots = [item["job"] for item in submissions]
-        if any(identifier in {j["id"], str(j["pk"])} for j in roots):
-            return
-        for start in range(0, len(roots), 100):
-            jobs = await self.service.call(
-                "tracked_jobs", {"job_ids": [j["id"] for j in roots[start : start + 100]]}
-            )
-            for job in jobs["jobs"]:
-                for step in job.get("steps", []):
-                    if step["label"] == job["label"] + ":bulk" and identifier in {
-                        step["id"],
-                        str(step["pk"]),
-                    }:
-                        return
-        raise AgentError("job_not_in_session", "只能复用当前对话中的体相任务。", 403)
+        await self.require_session_job(session, identifier)
 
     async def link_investigation(self, args: InvestigationInput, context: ToolContext) -> dict:
         session = context.session_id
@@ -351,22 +342,17 @@ class CalculationChat:
 
     async def output_structure(self, session: str, identifier: str) -> dict:
         """Read the actual final output, including for jobs never manually imported."""
-        self.require_session_job(session, identifier)
-        for record in self.list_records(session, "structures"):
-            if record.get("source_structure_uuid") and identifier in {
-                record.get("source_job_id"),
-                str(record.get("source_job_pk")),
-            }:
-                return record
+        await self.require_session_job(session, identifier)
         return await self.service.call("job_structure", {"job_id": identifier})
 
     async def import_job_structure(self, args: JobInput, context: ToolContext) -> dict:
         async with self.import_lock:
             result = await self.output_structure(context.session_id, args.job_id)
-            if "id" in result:
-                return self.structure_summary(result)
-            identifier = str(uuid5(UUID(context.session_id), result["source_structure_uuid"]))
-            data = {"id": identifier, "name": f"optimized-job-{result['source_job_pk']}", **result}
+            source = result.get("source_structure_uuid")
+            if not source:
+                source = f"{result['source_job_id']}:{result['input_sha256']}"
+            identifier = str(uuid5(UUID(context.session_id), source))
+            data = {"id": identifier, "name": f"job-{result['source_job_pk']}-structure", **result}
             self.save(context.session_id, "structures", identifier, data)
             return self.structure_summary(data)
 
@@ -487,8 +473,10 @@ class CalculationChat:
             ),
             Tool(
                 "calculation_import_result",
-                "Import a finished job output structure into this session for ASE modeling. "
-                "Preserves fixed atoms and records AiiDA output provenance. Never submits.",
+                "Import the latest available output structure of a job or workflow child "
+                "into this session for viewing, download, ASE modeling and restart previews. "
+                "Accepts failed, timed-out and running jobs with a valid output/CONTCAR. "
+                "Preserves fixed atoms, provenance and convergence status. Never submits.",
                 JobInput,
                 self.import_job_structure,
                 True,

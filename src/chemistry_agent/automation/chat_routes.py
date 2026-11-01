@@ -153,10 +153,10 @@ async def import_result(session_id: UUID, job_id: str, request: Request) -> dict
 
 
 @router.get("/{session_id}/jobs/{job_id}/structure.extxyz")
-async def download_output(session_id: UUID, job_id: UUID, request: Request) -> Response:
+async def download_output(session_id: UUID, job_id: str, request: Request) -> Response:
     chat = await session_chat(request, session_id)
     data = await chat.output_structure(str(session_id), str(job_id))
-    filename = f"optimized-job-{int(data['source_job_pk'])}.extxyz"
+    filename = f"job-{int(data['source_job_pk'])}-structure.extxyz"
     return Response(
         data["extxyz"],
         media_type="text/plain",
@@ -172,12 +172,12 @@ async def download_step(
     session_id: UUID, job_id: UUID, child_id: UUID, request: Request
 ) -> Response:
     chat = await session_chat(request, session_id)
-    chat.require_session_job(str(session_id), str(job_id))
+    await chat.require_session_job(str(session_id), str(job_id))
     parent = await chat.service.call("job_details", {"job_id": str(job_id)})
     if not any(step["id"] == str(child_id) for step in parent.get("steps", [])):
         raise AgentError("step_not_found", "此步骤不属于所选流程。", 404)
     data = await chat.service.call("job_structure", {"job_id": str(child_id)})
-    filename = f"optimized-step-{int(data['source_job_pk'])}.extxyz"
+    filename = f"step-{int(data['source_job_pk'])}-structure.extxyz"
     return Response(
         data["extxyz"],
         media_type="text/plain",

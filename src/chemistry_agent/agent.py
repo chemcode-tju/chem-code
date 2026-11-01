@@ -53,6 +53,10 @@ ASE FixAtoms 固定原子可通过 extxyz 或 POSCAR 保留。
 结构附件用 structure_id 引用；上下文压缩后用 calculation_artifacts 找回原始结构和预览。
 再用 calculation_artifact 读回准确建模代码、参数和提交记录；不要让用户重新提供已有资料。
 建模优先编写 ASE Python 代码，调用 build_structure 执行，保留代码和生成结构。
+任务失败、超时或尚未收敛时，仍可用 calculation_import_result 读取已有结构；
+支持主任务和子任务的 PK/UUID。
+读取后可直接查看、下载、用 ASE 修改或准备续算预览，保留返回的来源与收敛状态。
+续算资源优先采用用户最新要求和 calculation_setup 当前配置，历史预览只作原参数参考。
 建模代码以 ASE Atoms 为公共对象；可编辑参数放顶部 Configuration，使用 main 入口，
 不使用命令行参数；输出 structure.extxyz，已有结构可从 input.extxyz 读取。
 建模执行环境没有网络、SSH、API Key 或计算任务提交权限。它只生成结构。

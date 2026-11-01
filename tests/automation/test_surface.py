@@ -295,3 +295,58 @@ def test_co_workflow_parallel_outputs_and_branch_only_repair(profile, monkeypatc
         "repair:bridge"
     ]
     assert final["adsorption"].get_dict()["adsorption_ev"] == dict.fromkeys(plan.co_sites, 0)
+
+
+def test_descendant_access_uses_real_call_links(profile):
+    from aiida.common.links import LinkType
+
+    from chemistry_agent.automation.backend import session_job
+
+    root = orm.WorkChainNode(label="chem-agent:root").store()
+    nested = orm.WorkChainNode(label="chem-agent:nested")
+    nested.base.links.add_incoming(root, LinkType.CALL_WORK, "nested")
+    nested.store()
+    child = orm.CalcJobNode(label="chem-agent:root:top")
+    child.base.links.add_incoming(nested, LinkType.CALL_CALC, "calculation")
+    child.store()
+    for identifier in (str(child.pk), child.uuid):
+        assert session_job({"job_id": identifier, "root_ids": [root.uuid]})["id"] == child.uuid
+    unrelated = orm.CalcJobNode(label=child.label).store()
+    with pytest.raises(AgentError, match="当前对话"):
+        session_job({"job_id": unrelated.uuid, "root_ids": [root.uuid]})
+
+
+@pytest.mark.parametrize("use_output_node", [True, False])
+def test_failed_result_can_be_imported_with_constraints(profile, use_output_node):
+    from aiida.common.links import LinkType
+    from plumpy import ProcessState
+
+    from chemistry_agent.automation.surface import job_structure
+
+    atoms = make_surface(bulk("Cu", "fcc", a=3.6, cubic=True), SurfacePlan())
+    node = orm.CalcJobNode(label="chem-agent:failed-surface")
+    dynamics = orm.Dict(dict={"positions_dof": positions_dof(atoms)}).store()
+    node.base.links.add_incoming(dynamics, LinkType.INPUT_CALC, "dynamics")
+    node.store()
+    if use_output_node:
+        output = orm.StructureData(ase=atoms).store()
+        output.base.links.add_incoming(node, LinkType.CREATE, "structure")
+    else:
+        buffer = io.StringIO()
+        write(buffer, atoms, format="vasp", direct=True)
+        retrieved = orm.FolderData()
+        retrieved.base.repository.put_object_from_filelike(
+            io.BytesIO(buffer.getvalue().encode()), "CONTCAR"
+        )
+        retrieved.store()
+        retrieved.base.links.add_incoming(node, LinkType.CREATE, "retrieved")
+    node.set_process_state(ProcessState.FINISHED)
+    node.set_exit_status(700)
+    result = job_structure({"job_id": str(node.pk)})
+    restored = read_structure(StructureInput.model_validate(result["structure"]))
+    assert np.allclose(restored.positions, atoms.positions)
+    assert positions_dof(restored) == positions_dof(atoms)
+    assert result["source_finished_ok"] is False
+    assert result["source_exit_status"] == 700
+    assert result["source_terminal"] is True
+    assert result["source_file"] == (None if use_output_node else "CONTCAR")

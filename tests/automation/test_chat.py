@@ -16,6 +16,7 @@ class FakeEngine:
     def __init__(self):
         self.actions = []
         self.jobs = {}
+        self.structure_uuid = str(uuid4())
 
     async def __call__(self, action, payload=None):
         self.actions.append(action)
@@ -50,7 +51,7 @@ class FakeEngine:
             return {
                 "source_job_id": payload["job_id"],
                 "source_job_pk": 42,
-                "source_structure_uuid": str(uuid4()),
+                "source_structure_uuid": self.structure_uuid,
                 "extxyz": "final structure",
             }
         if action == "job_details":
@@ -163,14 +164,14 @@ def test_chat_preview_user_confirmation_restart_and_query(settings_factory, tmp_
         assert "job_structure" not in engine.actions
         download = client.get(f"{route}.extxyz")
         assert download.text == "final structure"
-        assert "optimized-job-42.extxyz" in download.headers["content-disposition"]
+        assert "job-42-structure.extxyz" in download.headers["content-disposition"]
         assert (
             len(client.get(f"/api/automation/chat/{session}/artifacts").json()["structures"]) == 1
         )
         first = client.post(route).json()["id"]
         assert client.post(route).json()["id"] == first
         assert client.get(f"{route}.extxyz").text == "final structure"
-        assert engine.actions.count("job_structure") == 2
+        assert engine.actions.count("job_structure") == 4
         assert calls == 2  # Confirmation never asks the model to authorize anything.
     app = create_app(settings, transport=httpx.MockTransport(provider))
     app.state.automation.call = engine
