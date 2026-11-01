@@ -55,3 +55,42 @@ def test_arbitrary_retrieved_files_staging_and_ranges(tmp_path, monkeypatch):
     for path in ["../credentials", "/etc/passwd", "archive/old", "bad\x00file"]:
         with pytest.raises(AgentError):
             relative_path(path)
+
+
+def test_remote_arbitrary_files_binary_staging_and_symlink_boundary(tmp_path, monkeypatch):
+    from aiida.transports.plugins.local import LocalTransport
+
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    (remote / "custom.data").write_text("0123456789")
+    (remote / "binary.raw").write_bytes(b"\x00\xff\x01")
+    (tmp_path / "outside.txt").write_text("not task data")
+    (remote / "escape").symlink_to(tmp_path / "outside.txt")
+    folder = SimpleNamespace(
+        get_remote_path=lambda: str(remote), computer=SimpleNamespace(get_transport=LocalTransport)
+    )
+    node = SimpleNamespace(uuid="test", outputs=Outputs(remote_folder=folder))
+    monkeypatch.setattr(backend, "load_job", lambda _: node)
+    monkeypatch.setenv("AIIDA_PATH", str(tmp_path))
+    result = task_files(
+        {
+            "job_id": "1",
+            "source": "remote",
+            "mode": "read",
+            "path": "custom.data",
+            "offset": 3,
+            "length": 3,
+        }
+    )
+    assert result["content"] == "345" and result["next_offset"] == 6
+    files = stage_files(
+        {
+            "job_id": "1",
+            "source": "remote",
+            "files": ["binary.raw"],
+            "directory": str(tmp_path / "chat" / "analysis"),
+        }
+    )
+    assert Path(files["files"]["binary.raw"]).read_bytes() == b"\x00\xff\x01"
+    with pytest.raises(AgentError, match="计算目录之外"):
+        task_files({"job_id": "1", "source": "remote", "mode": "read", "path": "escape"})

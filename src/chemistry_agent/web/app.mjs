@@ -707,7 +707,8 @@ async function startWorkspace() {
   let id = new URL(location.href).searchParams.get("session");
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try { id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
-  if (state.health?.model_configured) await chatModels.refresh();
+  // Model discovery may share the provider's inference lock. Never block conversation recovery.
+  if (state.health?.model_configured) void chatModels.refresh();
   if (id) await selectSession(id, true);
   else { $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
 }
