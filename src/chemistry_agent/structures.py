@@ -22,6 +22,7 @@ MAX_ATOMS = 100_000
 MAX_TOTAL_ATOMS = 1_000_000
 MAX_FRAMES = 10_000
 FORMATS = {
+    "cif",
     "extxyz",
     "vasp",
     "vasp-xdatcar",
@@ -44,6 +45,7 @@ def detect_format(filename: str, text: str) -> str:
     if name.startswith(("poscar", "contcar")) or suffix in {".vasp", ".poscar", ".contcar"}:
         return "vasp"
     formats = {
+        ".cif": "cif",
         ".xyz": "extxyz",
         ".extxyz": "extxyz",
         ".gro": "gromacs",

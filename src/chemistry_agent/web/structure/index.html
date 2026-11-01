@@ -3,10 +3,11 @@
 <body>
 <main>
   <header><h1 id="filename">Structure Viewer</h1><div class="file-actions"><a href="/" class="back-link">← 化学助手</a><button id="open-file">本地文件</button><input id="file-picker" type="file" multiple hidden><button id="snapshot">快照</button><button id="display-settings">显示设置</button><button id="source-toggle">源码</button></div></header>
+  <details id="viewer-options" hidden><summary>查看选项</summary></details>
   <details class="import-options"><summary>文件格式与导入选项</summary>
-    <label>格式 <select id="import-format"><option value="auto">自动识别</option><option value="extxyz">XYZ / extxyz</option><option value="vasp">POSCAR / CONTCAR</option><option value="vasp-xdatcar">XDATCAR</option><option value="lammps-dump-text">LAMMPS dump（文本）</option><option value="lammps-data">LAMMPS data</option><option value="gromacs">GROMACS GRO</option><option value="proteindatabank">PDB</option></select></label>
+    <label>格式 <select id="import-format"><option value="auto">自动识别</option><option value="extxyz">XYZ / extxyz</option><option value="vasp">POSCAR / CONTCAR</option><option value="vasp-xdatcar">XDATCAR</option><option value="lammps-dump-text">LAMMPS dump（文本）</option><option value="lammps-data">LAMMPS data</option><option value="gromacs">GROMACS GRO</option><option value="proteindatabank">PDB</option><option value="cif">CIF</option></select></label>
     <p>LAMMPS：同时选择轨迹及配套 data/拓扑、输入文件或日志，自动识别元素、单位与原子类型。其他格式每次选择一个文件。</p>
-    <p>GRO、LAMMPS dump、XYZ、VASP、ASE .traj 在本地逐帧读取；data/PDB 由当前服务转换。GRO 元素依据原子名推断；暂不支持 XTC / TRR / TPR。</p>
+    <p>GRO、LAMMPS dump、XYZ、VASP、ASE .traj 在本地逐帧读取；data/PDB/CIF 由当前服务转换。GRO 元素依据原子名推断；暂不支持 XTC / TRR / TPR。</p>
   </details>
   <p id="import-note" role="status">选择结构文件开始查看；LAMMPS 支持多选或一起拖入配套文件。</p>
   <div class="toolbar">
@@ -86,4 +87,5 @@
 <script src="/assets/structure/md-stream.js"></script>
 <script src="/assets/structure/import.js"></script>
 <script src="/assets/structure/app.js"></script>
+<script src="/assets/structure/embed.js"></script>
 </body></html>

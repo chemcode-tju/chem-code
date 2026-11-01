@@ -46,6 +46,13 @@ class FakeEngine:
                 identifier, {"id": str(uuid4()), "pk": 42, "process_state": "waiting"}
             )
             return {"reused": reused, "job": self.jobs[identifier]}
+        if action == "job_structure":
+            return {
+                "source_job_id": payload["job_id"],
+                "source_job_pk": 42,
+                "source_structure_uuid": str(uuid4()),
+                "extxyz": "final structure",
+            }
         if action == "job_details":
             return {
                 "pk": 42,
@@ -149,6 +156,21 @@ def test_chat_preview_user_confirmation_restart_and_query(settings_factory, tmp_
         confirmed = client.post(f"/api/automation/chat/{session}/confirm/{preview}")
         assert confirmed.status_code == 200, confirmed.text
         assert confirmed.json()["tool_calls"][0]["result"]["job"]["pk"] == 42
+        job = confirmed.json()["tool_calls"][0]["result"]["job"]["id"]
+        route = f"/api/automation/chat/{session}/jobs/{job}/structure"
+        invalid = client.get(f"/api/automation/chat/{other}/jobs/{job}/structure.extxyz")
+        assert invalid.status_code == 403
+        assert "job_structure" not in engine.actions
+        download = client.get(f"{route}.extxyz")
+        assert download.text == "final structure"
+        assert "optimized-job-42.extxyz" in download.headers["content-disposition"]
+        assert (
+            len(client.get(f"/api/automation/chat/{session}/artifacts").json()["structures"]) == 1
+        )
+        first = client.post(route).json()["id"]
+        assert client.post(route).json()["id"] == first
+        assert client.get(f"{route}.extxyz").text == "final structure"
+        assert engine.actions.count("job_structure") == 2
         assert calls == 2  # Confirmation never asks the model to authorize anything.
     app = create_app(settings, transport=httpx.MockTransport(provider))
     app.state.automation.call = engine

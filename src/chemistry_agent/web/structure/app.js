@@ -207,7 +207,7 @@ $("drift-apply").onclick=async()=>{
   }catch(error){$("drift-error").textContent=error.message;}finally{$("drift-apply").disabled=false;}
 };
 $("source-toggle").onclick = () => { stop(); $("source-panel").hidden = !$("source-panel").hidden; if(doc)$("source").value=activeRecord.text; };
-async function openStructure(files) {
+async function openStructure(files, format = $("import-format").value) {
   const file = files[0];
   const generation = ++readGeneration;
   stop(); clearFollow(); resetDisplayState(); discardDocument();
@@ -227,14 +227,20 @@ async function openStructure(files) {
   $("filename").textContent = file.name; status("");
   $("import-note").textContent = "正在读取…";
   try {
-    const imported = await StructureImport.open(files, {format: $("import-format").value});
+    const imported = await StructureImport.open(files, {format});
     if (generation !== readGeneration) { imported.store.dispose(); return; }
     $("filename").textContent = imported.name;
     $("source-toggle").hidden = /\.traj$/i.test(imported.name);
     await showDocument(imported.store, generation);
-    if (generation === readGeneration) $("import-note").textContent = imported.note;
+    if (generation !== readGeneration) return;
+    $("import-note").textContent = imported.note;
+    return {name: imported.name};
   } catch (error) {
-    if (generation === readGeneration) { discardDocument(); status(error.message, true); $("import-note").textContent = "读取失败，请检查文件或导入选项后重新选择。"; }
+    if (generation !== readGeneration) return;
+    discardDocument();
+    status(error.message, true);
+    $("import-note").textContent = "读取失败，请检查文件或导入选项后重新选择。";
+    return {name: file.name, error: error.message};
   } finally { if (generation === readGeneration) loading = false; }
 }
 $("open-file").onclick = () => $("file-picker").click();

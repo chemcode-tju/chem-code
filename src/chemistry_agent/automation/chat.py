@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Literal
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from pydantic import Field
 
@@ -71,6 +71,7 @@ class CalculationChat:
         self.service = service
         self.root = service.settings.aiida_path / "chat"
         self.model_lock = asyncio.Lock()
+        self.import_lock = asyncio.Lock()
 
     def directory(self, session_id: str, kind: str) -> Path:
         directory = self.root / str(UUID(session_id)) / kind
@@ -290,13 +291,26 @@ class CalculationChat:
         if not any(identifier in {item["job"]["id"], str(item["job"]["pk"])} for item in records):
             raise AgentError("job_not_in_session", "只能复用当前对话中的已提交任务。", 403)
 
+    async def output_structure(self, session: str, identifier: str) -> dict:
+        """Read the actual final output, including for jobs never manually imported."""
+        self.require_session_job(session, identifier)
+        for record in self.list_records(session, "structures"):
+            if record.get("source_structure_uuid") and identifier in {
+                record.get("source_job_id"),
+                str(record.get("source_job_pk")),
+            }:
+                return record
+        return await self.service.call("job_structure", {"job_id": identifier})
+
     async def import_job_structure(self, args: JobInput, context: ToolContext) -> dict:
-        self.require_session_job(context.session_id, args.job_id)
-        result = await self.service.call("job_structure", args.model_dump())
-        identifier = str(uuid4())
-        data = {"id": identifier, "name": f"optimized-job-{result['source_job_pk']}", **result}
-        self.save(context.session_id, "structures", identifier, data)
-        return self.structure_summary(data)
+        async with self.import_lock:
+            result = await self.output_structure(context.session_id, args.job_id)
+            if "id" in result:
+                return self.structure_summary(result)
+            identifier = str(uuid5(UUID(context.session_id), result["source_structure_uuid"]))
+            data = {"id": identifier, "name": f"optimized-job-{result['source_job_pk']}", **result}
+            self.save(context.session_id, "structures", identifier, data)
+            return self.structure_summary(data)
 
     async def jobs(self, args: EmptyInput, context: ToolContext) -> dict:
         return await self.service.call("jobs")

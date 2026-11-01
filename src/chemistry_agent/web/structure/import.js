@@ -18,6 +18,7 @@
     if (localName(file.name)) return 'local';
     if (/\.gro$/i.test(file.name)) return 'gromacs';
     if (/\.pdb$/i.test(file.name)) return 'proteindatabank';
+    if (/\.cif$/i.test(file.name)) return 'cif';
     return 'companion';
   }
   async function companionsText(files) {
@@ -40,7 +41,7 @@
     if(name)return {name:file.name,store:await StructureTrajectory.local(file,name),note:'本地浏览器读取 · 坐标单位 Å · 未上传文件'};
     const companions=await companionsText(other);
     if(['gromacs','lammps-dump-text'].includes(selectedFormat))return {name:file.name,...await StructureMD.open(file,selectedFormat,companions)};
-    if(file.size>32*1024*1024)throw Error('单个 data/PDB 转换上传上限为 32 MiB；GRO、dump、XYZ、VASP、ASE .traj 可本地逐帧读取。');
+    if(file.size>32*1024*1024)throw Error('单个 data/PDB/CIF 转换上传上限为 32 MiB；GRO、dump、XYZ、VASP、ASE .traj 可本地逐帧读取。');
     let metadata=null,typeMap='';
     if(selectedFormat==='lammps-data') {
       const all=[...companions,{name:file.name,text:await file.text()}];

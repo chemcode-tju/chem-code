@@ -131,7 +131,7 @@ def test_structure_routes_and_limits(
     )
     with TestClient(app) as client:
         assert client.get("/structures").status_code == 200
-        assert 'href="/structures"' in client.get("/").text
+        assert 'data-src="/structures?embed=1"' in client.get("/").text
         for name in ("app.js", "import.js", "trajectory-store.js", "vendor/3Dmol-min.js"):
             assert client.get(f"/assets/structure/{name}").status_code == 200
         response = client.post(
@@ -162,3 +162,24 @@ def test_structure_conversion_requires_login(settings_factory: Callable[..., Set
     with TestClient(app) as client:
         assert client.get("/structures").status_code == 401
         assert client.post("/structures/convert?filename=x.xyz", content=b"x").status_code == 401
+
+
+def test_cif_attachment_converts_cell_and_fractional_coordinates() -> None:
+    text = """data_slab
+_cell_length_a 4
+_cell_length_b 5
+_cell_length_c 20
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Cu1 Cu 0.25 0.5 0.75
+"""
+    atoms = parsed(text, "slab.cif")[0]
+    assert atoms.get_chemical_symbols() == ["Cu"]
+    np.testing.assert_allclose(atoms.positions, [[1, 2.5, 15]])

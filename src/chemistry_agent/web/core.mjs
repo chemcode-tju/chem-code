@@ -35,9 +35,14 @@ export function createMarkdownRenderer(factory) {
 export function splitReference(content) {
   const prefix = "\n\n<user_provided_reference>\n";
   const suffix = "\n</user_provided_reference>";
+  const marker = "\n\n已验证结构附件（用 ID 调用计算工具）：\n";
+  const boundary = content.lastIndexOf(marker);
+  const items = boundary < 0 ? null : parseJson(content.slice(boundary + marker.length));
+  const attached = Array.isArray(items) && items.length && items.every(s => typeof s?.name === "string" && /^[a-f0-9-]{36}$/i.test(s.id)) ? {structures:items} : {};
+  if (attached.structures) content = content.slice(0,boundary);
   const index = content.indexOf(prefix);
-  if (index < 0 || !content.endsWith(suffix)) return { text: content, context: "" };
-  return { text: content.slice(0, index), context: content.slice(index + prefix.length, -suffix.length) };
+  if (index < 0 || !content.endsWith(suffix)) return { text: content, context: "", ...attached };
+  return { text: content.slice(0, index), context: content.slice(index + prefix.length, -suffix.length), ...attached };
 }
 
 export function parseJson(value, fallback = null) {

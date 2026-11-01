@@ -97,3 +97,22 @@ test('task cards show completion and recovery while escaping diagnostic text', a
   assert.match(html, /需要你处理/);
   assert.ok(!html.includes('<script>'));
 });
+
+test('task input and status are folded; only the finished output can be downloaded', async () => {
+  const {renderTaskCard} = await import('../src/chemistry_agent/web/calculations.mjs');
+  const preview = {preview_id:'internal-id', input_sha256:'private-checksum', description:'尚未做精度收敛', structure:{formula:'Cu16'}, request:{incar:{ENCUT:520},kmesh:[6,6,1]}, files:{POSCAR:'test coordinates',INCAR:'ENCUT = 520'}};
+  const job = {id:'output-id',pk:70,finished_ok:true,output_structure:{},process_state:'finished'};
+  const html = renderTaskCard(preview,job,null,'/session');
+  assert.match(html,/ENCUT 520 eV · k 6×6×1/);
+  assert.match(html,/data-fold="status"><summary><strong>计算完成/);
+  assert.match(html,/data-fold="inputs"/); assert.match(html,/data-view-input/);
+  assert.match(html,/\/session\/jobs\/output-id\/structure.extxyz/);
+  assert.doesNotMatch(html, /private-checksum|尚未做精度收敛|科学精度|<details[^>]+ open/);
+  assert.doesNotMatch(renderTaskCard(preview,{...job,finished_ok:false},null,'/session'),/下载优化结构/);
+});
+
+test('history separates attached structure links from user text and references', () => {
+  const structure = {id:'00000000-0000-4000-8000-000000000001',name:'Cu slab'};
+  const text = '查看\n\n<user_provided_reference>\nnotes\n</user_provided_reference>\n\n已验证结构附件（用 ID 调用计算工具）：\n'+JSON.stringify([structure]);
+  assert.deepEqual(splitReference(text),{text:'查看',context:'notes',structures:[structure]});
+});

@@ -1,7 +1,8 @@
 import { escapeHtml } from "./core.mjs";
+import { structureButton, isStructureName } from "./structure-links.mjs";
 import { t } from "./i18n.mjs";
 
-export function createFileUploads({ state, toast, updateControls, onUnauthorized }) {
+export function createFileUploads({ state, toast, updateControls, onChange, onUnauthorized }) {
   const $ = (id) => document.getElementById(id);
   let files = [];
   let generation = 0;
@@ -31,8 +32,8 @@ export function createFileUploads({ state, toast, updateControls, onUnauthorized
   }));
   function render() {
     $("attachment-list").hidden = !files.length && !uploading;
-    $("attachment-list").innerHTML = files.map((file) => `<div class="attachment-chip"><a href="/api/files/${file.id}" download data-no-i18n>${escapeHtml(file.name)}</a><small>${t(file.text_available ? "文本可读取" : "已上传，未解析")}</small><button type="button" data-remove-file="${file.id}" aria-label="${escapeHtml(t("移除附件"))}"${state.busy ? " disabled" : ""}>×</button></div>`).join("") + (uploading ? `<span class="upload-progress">${t("正在上传…")}</span>` : "");
-    updateControls();
+    $("attachment-list").innerHTML = files.map((file) => `<div class="attachment-chip"><a href="/api/files/${file.id}" download data-no-i18n>${escapeHtml(file.name)}</a>${fileViewer(file)}<small>${t(file.text_available ? "文本可读取" : "已上传，未解析")}</small><button type="button" data-remove-file="${file.id}" aria-label="${escapeHtml(t("移除附件"))}"${state.busy ? " disabled" : ""}>×</button></div>`).join("") + (uploading ? `<span class="upload-progress">${t("正在上传…")}</span>` : "");
+    updateControls(); onChange?.();
   }
   $("attachment-list").addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-file]");
@@ -68,12 +69,14 @@ export function createFileUploads({ state, toast, updateControls, onUnauthorized
   };
 }
 
+function fileViewer(file) { return isStructureName(file.name) ? structureButton("file",file.id,file.name,"查看结构") : ""; }
+
 export function renderFiles(files) {
   if (!files?.length) return "";
-  return `<div class="message-files">${files.map((file) => `<a href="/api/files/${encodeURIComponent(file.id)}" download data-no-i18n>↳ ${escapeHtml(file.name)}</a>`).join("")}</div>`;
+  return `<div class="message-files">${files.map((file) => `<a href="/api/files/${encodeURIComponent(file.id)}" download data-no-i18n>↳ ${escapeHtml(file.name)}</a>${fileViewer(file)}`).join("")}</div>`;
 }
 
 export function contextFiles(context) {
-  try { const data = JSON.parse(context); return Array.isArray(data.uploaded_files) ? data.uploaded_files : []; }
+  try { const data = JSON.parse(String(context).split(/\n\n(?=\{"uploaded_files":)/).at(-1)); return Array.isArray(data.uploaded_files) ? data.uploaded_files : []; }
   catch { return []; }
 }

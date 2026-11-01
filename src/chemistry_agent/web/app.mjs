@@ -1,4 +1,6 @@
-import { createCalculations } from "./calculations.mjs?v=20261101-surface";
+import { initInspectorTabs } from "./inspector-tabs.mjs";
+import { createStructureBridge, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
+import { createCalculations } from "./calculations.mjs?v=20261101-inspector";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
@@ -19,7 +21,13 @@ const state = {
 let toastTimer;
 let chatModels;
 const notifications = createNotifications({ api });
+const selectInspectorTab = initInspectorTabs(() => {
+  setDrawer("sidebar", false);
+  setInspectorOpen(true, { focus:false });
+});
+const viewer = createStructureBridge({selectTab:selectInspectorTab, toast});
 const calculations = createCalculations({
+  viewer, chatFiles: () => [...state.turns.flatMap(turn => turn.files?.length ? turn.files : contextFiles(turn.context)), ...uploads.files],
   api, getSession: () => state.sessionId,
   isBusy: () => state.busy || state.loading || chatModels?.saving || uploads.uploading,
   ensureSession: async () => {
@@ -175,7 +183,7 @@ function sessionButton(session) {
 
 const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
 chatModels = createChatModelPicker({ api, state, toast, updateControls });
-const uploads = createFileUploads({ state, toast, updateControls, onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
+const uploads = createFileUploads({ state, toast, updateControls, onChange: () => calculations.drawStructures(), onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
 
 function renderSessions() {
   const chats = state.sessions.filter((session) => !projectNavigation.includes(session.id));
@@ -196,10 +204,24 @@ async function refreshSessions(append = false) {
   renderSessions();
 }
 
-function renderUser(text, context, files = []) {
+function renderUser(text, context, files = [], structures = []) {
   const attachedFiles = files.length ? files : contextFiles(context);
-  return `<div class="user-message"><div class="user-bubble"><span data-no-i18n>${escapeHtml(text)}</span>${renderFiles(attachedFiles)}${context && !attachedFiles.length ?
+  return `<div class="user-message"><div class="user-bubble"><span data-no-i18n>${escapeHtml(text)}</span>${renderFiles(attachedFiles)}${structures.map(s => structureButton("artifact",s.id,s.name+".extxyz","查看 "+s.name)).join("")}${context && !attachedFiles.length ?
     `<details class="attached-reference"><summary>${icon("document")} ${t("附件与上下文")}</summary><pre>${escapeHtml(context)}</pre></details>` : ""}</div></div>`;
+}
+
+function artifactLinks(calls) {
+  const links = new Map();
+  for (const call of calls) {
+    if (!call.success) continue;
+    const r = call.result || {};
+    const isStructure = ["build_structure","import_structure","calculation_import_result"].includes(call.name);
+    const id = isStructure ? r.id : r.surface_structure_id || r.structure_id;
+    if (id) links.set(id, structureButton("artifact",id,(r.name || "structure")+".extxyz","查看"+(r.name || "输入结构")));
+    if (r.finished_ok && r.output_structure && r.id) links.set(r.id,structureButton("job",r.id,"optimized.extxyz","查看优化结构"));
+    if (call.name.startsWith("calculation_") && !isStructure) links.set("task",'<button class="view-result" data-task-panel>查看计算</button>');
+  }
+  return [...links.values()].join(" ");
 }
 
 function renderToolTrace(calls, turnIndex) {
@@ -227,15 +249,42 @@ function renderConversation(scroll = true) {
     return;
   }
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    `<article class="turn">${renderUser(turn.text, turn.context, turn.files)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div><div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
   if (state.pending) {
     const pending = state.pending;
     const article = document.createElement("article");
     article.className = "turn";
-    article.innerHTML = `${renderUser(pending.message, pending.context, pending.files)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${pending.error ? `<div class="message-error">${escapeHtml(pending.error)}<br><button class="retry-button" id="retry-message">${icon("refresh")}重试这条消息</button></div>` : '<div class="thinking-indicator"><span></span><span></span><span></span>正在分析问题…</div>'}</div></div>`;
+    article.innerHTML = `${renderUser(pending.message, pending.context, pending.files, pending.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${pending.error ? `<div class="message-error">${escapeHtml(pending.error)}<br><button class="retry-button" id="retry-message">${icon("refresh")}重试这条消息</button></div>` : '<div class="thinking-indicator"><span></span><span></span><span></span>正在分析问题…</div>'}</div></div>`;
     $("conversation").append(article);
   }
+  for (const code of $("conversation").querySelectorAll(".markdown pre > code, .user-bubble > span[data-no-i18n]")) {
+    const name = inlineStructureName(code.textContent, code.className);
+    if (!name) continue;
+    const button = document.createElement("button");
+    button.className = "view-result"; button.textContent = "查看结构";
+    button.onclick = () => viewer.open(name, () => new Blob([code.textContent], {type:"text/plain"}));
+    (code.tagName === "CODE" ? code.parentElement : code).after(button);
+  }
+  for (const link of $("conversation").querySelectorAll(".markdown a[href]")) {
+    if (!URL.canParse(link.href)) continue;
+    const url = new URL(link.href);
+    if (url.origin !== location.origin || !state.sessionId) continue;
+    const name = link.textContent.trim(), path = url.pathname;
+    const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+    const parts = path.split("/");
+    const sessionPath = "/api/automation/chat/"+state.sessionId;
+    const isFile = parts.length === 4 && path.startsWith("/api/files/") && uuid.test(parts[3]);
+    const isArtifact = parts.length === 8 && path.startsWith(sessionPath+"/files/structure/") && uuid.test(parts[7]);
+    const isOutput = parts.length === 8 && path.startsWith(sessionPath+"/jobs/") && uuid.test(parts[6]) && parts[7] === "structure.extxyz";
+    const filename = isStructureName(name) ? name : state.turns.flatMap(turn => turn.files || contextFiles(turn.context)).find(f => f.id === parts[3])?.name;
+    if (!(isFile && isStructureName(filename)) && !isArtifact && !isOutput) continue;
+    const button = document.createElement("button");
+    button.className = "view-result"; button.textContent = "查看结构";
+    button.onclick = () => viewer.open(isFile ? filename : "structure.extxyz", () => getFileBlob(path));
+    link.after(button);
+  }
+  calculations.drawStructures();
   if (scroll) requestAnimationFrame(() => {
     $("chat-scroll").scrollTo({ top: $("chat-scroll").scrollHeight, behavior: "smooth" });
   });
@@ -244,6 +293,7 @@ function renderConversation(scroll = true) {
 
 async function selectSession(id, quiet = false) {
   if (state.busy) return;
+  if (id !== state.sessionId) { state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
   uploads.clear();
   calculations.clearSelection();
   const navigation = ++state.navigation;
@@ -270,6 +320,7 @@ async function selectSession(id, quiet = false) {
   } catch (error) {
     if (navigation !== state.navigation) return;
     if (!quiet) toast(error.message);
+    viewer.reset(); calculations.reset();
     state.sessionId = null;
     chatModels.newConversation();
     state.turns = [];
@@ -294,7 +345,7 @@ function newConversation() {
   state.turns = [];
   state.runs = [];
   state.pending = null;
-  calculations.reset();
+  viewer.reset(); calculations.reset();
   $("context-panel").hidden = true;
   rememberSession(null);
   $("conversation-title").textContent = t("新对话");
@@ -313,7 +364,8 @@ async function sendChat(message, context = "", files = uploads.files) {
   if (!state.health?.model_configured) { toast("请先连接并配置模型。"); return; }
   state.busy = true;
   const accountVersion = state.accountVersion;
-  state.pending = { message: message.trim(), context: context.trim(), files };
+  const structures = calculations.selection();
+  state.pending = { message: message.trim(), context: context.trim(), files, structures };
   renderConversation();
   try {
     if (!state.sessionId) {
@@ -332,7 +384,7 @@ async function sendChat(message, context = "", files = uploads.files) {
       structure_ids: calculations.selectedIds(),
     }) });
     if (accountVersion !== state.accountVersion) return;
-    state.turns.push({ text: message.trim(), context: context.trim(), files, answer: result.answer,
+    state.turns.push({ text: message.trim(), context: context.trim(), files, structures, answer: result.answer,
       calls: result.tool_calls, run: { usage: result.usage, context: result.context } });
     state.pending = null;
     calculations.clearSelection();
@@ -345,7 +397,7 @@ async function sendChat(message, context = "", files = uploads.files) {
     await refreshContext();
   } catch (error) {
     if (accountVersion !== state.accountVersion) return;
-    state.pending = { message: message.trim(), context: context.trim(), files, error: error.message };
+    state.pending = { message: message.trim(), context: context.trim(), files, structures, error: error.message };
     $("message-input").value = message;
     await refreshSessions().catch(() => {});
     await calculations.refresh().catch(() => {});
@@ -443,10 +495,12 @@ $("load-more").addEventListener("click", async () => {
   finally { $("load-more").disabled = false; }
 });
 $("conversation").addEventListener("click", async (event) => {
+  if (event.target.closest("[data-task-panel]")) selectInspectorTab("calculation");
   const resultButton = event.target.closest("[data-result]");
   if (resultButton) {
-    renderResult(state.results.get(resultButton.dataset.result));
-    setInspectorOpen(true);
+    const call = state.results.get(resultButton.dataset.result);
+    if (call.name.startsWith("calculation_")) selectInspectorTab("calculation");
+    else { renderResult(call); selectInspectorTab("tools"); }
   }
   const copyButton = event.target.closest("[data-copy]");
   if (copyButton) {
@@ -496,7 +550,7 @@ window.addEventListener("resize", () => {
 });
 
 function showLogin(message = "") {
-  calculations.reset(); notifications.enabled(false);
+  viewer.reset(); calculations.reset(); notifications.enabled(false);
   $("context-panel").hidden = true;
   state.accountVersion += 1;
   state.navigation += 1;

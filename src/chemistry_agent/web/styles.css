@@ -1244,3 +1244,44 @@ body.inspector-open { grid-template-columns:var(--sidebar) minmax(0,1fr) var(--i
 .context-memory-panel { margin: 0 0 10px; }
 .task-notifications { flex-shrink: 0; }
 .calculation-workspace pre { color: var(--text); background: var(--subtle); }
+
+
+/* Tabs share the existing docked column and mobile content view. */
+.inspector-tabs {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.inspector-tabs button {
+  flex: 1;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+}
+.inspector-tabs button[aria-selected="true"] {
+  background: var(--hover);
+  color: var(--text);
+  font-weight: 600;
+}
+.inspector [role="tabpanel"] { flex: 1; min-height: 0; }
+.inspector-empty { margin: 12px 5px; color: var(--muted); font-size: 14px; }
+#calculation-cards:not([hidden]) + .inspector-empty { display: none; }
+.inspector .calculation-workspace { margin: 0; padding: 0; border: 0; background: transparent; }
+.structure-viewer-shell { height: clamp(320px, 56dvh, 640px); overflow: hidden; border: 1px solid var(--border); border-radius: 8px; }
+#structure-list:not(:empty) { margin-bottom: 12px; }
+#structure-viewer-frame { display: block; width: 100%; height: 100%; border: 0; }
+@media(min-width:761px) {
+  body.inspector-open:has(#inspector-tab-structure[aria-selected="true"]) { --inspector: clamp(300px, 36vw, 560px); }
+  body.inspector-open:has(#inspector-tab-calculation[aria-selected="true"]) { --inspector: clamp(300px, 29vw, 420px); }
+}
+.calculation-preview .task-status > summary, .task-pending { font-size: 18px; }
+.calculation-preview summary { cursor: pointer; }
+.task-parameters { color: var(--muted); }
+.task-actions, .structure-item { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.structure-item { padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+.structure-item > span { flex: 1 1 110px; overflow-wrap: anywhere; }
+#structure-list { max-height: 26dvh; overflow: auto; }

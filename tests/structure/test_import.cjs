@@ -21,6 +21,11 @@ global.StructureMD = require('../../src/chemistry_agent/web/structure/md-stream.
     request = {url, options};
     return new Response(xyz, {headers:{'X-Structure-Format':'lammps-data'}});
   };
+  const cif = new File(['data_copper'], 'copper.CIF');
+  const convertedCif = await open(cif);
+  assert.equal(new URL(request.url, 'http://localhost').searchParams.get('format'), 'cif');
+  assert.equal(request.options.body, cif);
+  assert.equal((await convertedCif.store.get(0)).frame.atoms[0].elem, 'Cu');
   const data = new File(['LAMMPS data\n1 atoms\n1 atom types\nMasses\n1 63.546 # Cu\nAtoms # atomic\n'], 'system.data');
   const imported = await open([data, new File(['units metal\nboundary p p f'], 'input.lammps')]);
   assert.equal(request.options.method, 'POST');

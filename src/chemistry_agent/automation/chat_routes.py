@@ -63,6 +63,21 @@ async def import_result(session_id: UUID, job_id: str, request: Request) -> dict
     )
 
 
+@router.get("/{session_id}/jobs/{job_id}/structure.extxyz")
+async def download_output(session_id: UUID, job_id: UUID, request: Request) -> Response:
+    chat = await session_chat(request, session_id)
+    data = await chat.output_structure(str(session_id), str(job_id))
+    filename = f"optimized-job-{int(data['source_job_pk'])}.extxyz"
+    return Response(
+        data["extxyz"],
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/{session_id}/files/{kind}/{artifact_id}")
 async def download(
     session_id: UUID, kind: Literal["structure", "model"], artifact_id: UUID, request: Request

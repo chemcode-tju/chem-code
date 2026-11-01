@@ -1,5 +1,6 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "计算":"Calculations", "结构":"Structures", "工具":"Tools", "此对话暂无计算记录。":"No calculations in this conversation yet.", "结构查看器":"Structure viewer",
   "高级选项":"Advanced options",
   "连接后自动读取可用模型。保持自动选择即可使用，也可从列表切换。":"Available models load automatically after connecting. Keep Automatic or choose from the list.",
   "授权 Chemistry Agent 使用你的 ChatGPT 套餐，无需 API Key。首次授权的应用名称为 Chemistry Agent，可在 ChatGPT 用量设置中管理。": "Authorize Chemistry Agent to use your ChatGPT plan without an API key. Manage its access in ChatGPT Usage settings.",

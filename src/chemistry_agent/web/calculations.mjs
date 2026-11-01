@@ -1,28 +1,34 @@
-import { escapeHtml as esc } from "./core.mjs";
+import { escapeHtml as esc } from './core.mjs';
+import { structureButton, getFileBlob, isStructureName } from './structure-links.mjs';
 
+const number = Number.isFinite;
+const stateNames = {completed:'计算完成', failed:'计算失败', unconverged:'未收敛', needs_review:'结果待核对', submission_rejected:'提交被拒绝', paused:'已暂停', running:'运行中', queued:'排队中', preparing:'准备中'};
+const stepName = label => ({bulk:'体相优化',surface:'表面优化',relax:'结构优化',singlepoint:'单点计算'})[label?.split(':').at(-1)] || '计算';
+const fact = (label, value) => value == null || value === '' ? '' : `<p>${esc(label)}：${esc(String(value))}</p>`;
+const convergence = value => value === true ? '通过' : value === false ? '未通过' : null;
 export function renderTaskStatus(job, recovery = null) {
-  const recoveryLabels = {queued: "等待分析", running: "正在分析", diagnosed: "已诊断", needs_user: "需要你处理", submitting: "正在提交恢复任务", submitted: "已提交恢复任务", awaiting_confirmation: "修复预览待确认", interrupted: "上次分析中断，可重新唤起", disabled: "已关闭"};
-  const energy = job.results?.total_energies?.energy_extrapolated;
-  const status = job.results?.run_status || {};
-  const title = job.display_title || (job.finished_ok ? "计算完成，结果已取回" : job.process_status || job.process_state);
-  const errors = job.recent_process_errors || [];
-  const steps = job.steps || [];
-  const schedulerStale = job.scheduler_job_id && !['finished', 'excepted', 'killed'].includes(job.process_state) &&
-    (!job.scheduler_checked_at || Date.now() - Date.parse(job.scheduler_checked_at) > 600000);
-  return `<strong>${esc(title || "正在同步")}${job.paused ? " · 已暂停" : ""}</strong>
-    <p>AiiDA #${job.pk} · ${job.scheduler_job_id ? `调度器 ${esc(job.scheduler_job_id)}` : job.workflow ? "多步骤流程" : "尚未进入调度器队列"}</p>
-    ${typeof energy === "number" && Number.isFinite(energy) ? `<p>外推总能量：${energy} eV</p>` : ""}
-    ${job.finished_ok && job.results ? `<p>电子收敛：${status.electronic_converged === true ? "通过" : "待核验"}${status.nsw > 0 ? ` · 结构收敛：${status.ionic_converged === true ? "通过" : "未通过"}` : ""} · 科学精度尚未验证</p>` : ""}
-    ${!job.finished_ok && errors.length ? `<p>${esc(errors[0].message)}</p>` : ""}
-    ${schedulerStale ? '<p>调度器状态待同步，当前显示最后已知状态。</p>' : ''}
-    ${steps.map((step) => `<p>${step.label.endsWith(":bulk") ? "① 体相优化" : step.label.endsWith(":surface") ? "② 表面优化" : step.label.endsWith(":relax") ? "① 结构优化" : "② 单点计算"} · #${step.pk} · ${esc(step.process_state)}${step.exit_status !== null ? ` · 退出码 ${step.exit_status}` : ""}</p>`).join("")}
-    ${job.summary && job.workflow !== "bulk_surface" ? `<p>流程汇总：单点能 ${esc(String(job.summary.singlepoint_energy_ev))} eV；最大力 ${esc(String(job.summary.max_force_ev_per_angstrom))} eV/Å</p>` : ""}
-    ${job.summary && job.workflow === "bulk_surface" ? `<p>体相晶格常数 ${esc(String(job.summary.lattice_constant_angstrom))} Å · ${job.summary.layers} 层 / 固定 ${job.summary.fixed_layers} 层 · 自由原子最大力 ${esc(String(job.summary.max_free_force_ev_per_angstrom))} eV/Å</p>` : ""}
-    ${recovery ? `<p>Agent 处理：${esc(recoveryLabels[recovery.state] || recovery.state)}${recovery.decision?.decision?.reason ? ` · ${esc(recovery.decision.decision.reason)}` : ""}${recovery.result?.reason ? ` · ${esc(recovery.result.reason)}` : ""}</p>` : ""}
-    <small>AiiDA 记录同步于 ${esc(job.checked_at ? new Date(job.checked_at).toLocaleTimeString() : "等待后台同步")}</small>`;
+  const title = stateNames[job.display_state] || job.display_title || (job.finished_ok ? '计算完成' : job.process_status || job.process_state || '正在同步');
+  const result = job.results || {}, summary = job.summary || {}, run = result.run_status || {};
+  const energy = result.total_energies?.energy_extrapolated;
+  const recoveryNames = {queued:'等待分析', running:'正在分析', diagnosed:'已诊断', needs_user:'需要你处理', submitting:'恢复提交中', submitted:'已提交恢复任务', awaiting_confirmation:'等待确认修复', interrupted:'分析中断', disabled:'已关闭'};
+  return `<details class="task-status" data-fold="status"><summary><strong>${esc(title)}</strong></summary><div>${fact('AiiDA',`#${job.pk}`)}${fact('调度器',job.scheduler_job_id)}${fact('退出码',job.exit_status)}${fact('总能量',number(energy) ? `${energy} eV` : null)}${fact('电子收敛',convergence(run.electronic_converged))}${run.nsw > 0 ? fact('结构收敛',convergence(run.ionic_converged)) : ''}${fact('体相晶格常数',number(summary.lattice_constant_angstrom) ? `${summary.lattice_constant_angstrom} Å` : null)}${fact('自由原子最大力',number(summary.max_free_force_ev_per_angstrom) ? `${summary.max_free_force_ev_per_angstrom} eV/Å` : null)}${(job.steps || []).map(step => fact(stepName(step.label), `#${step.pk} · ${step.finished_ok ? '完成' : step.process_state}`)).join('')}${!job.finished_ok ? fact('错误',job.recent_process_errors?.[0]?.message || job.exit_message) : ''}${recovery ? fact('Agent 处理',[recoveryNames[recovery.state] || recovery.state,recovery.result?.reason || recovery.decision?.decision?.reason].filter(Boolean).join(' · ')) : ''}</div></details>`;
 }
 
-export function createCalculations({ api, getSession, ensureSession, isBusy, toast, onConfirmed }) {
+export function renderTaskCard(item, job, recovery, sessionPath) {
+  const id = esc(item.preview_id), surface = item.surface_plan, request = item.request || {};
+  const stage = item.stages?.find(s => s.stage === 'surface');
+  const incar = stage?.incar || request.incar || {}, mesh = stage?.kmesh || request.kmesh;
+  const params = [incar.ENCUT != null && `ENCUT ${incar.ENCUT} eV`, Array.isArray(mesh) && `k ${mesh.join('×')}`, incar.ISIF != null && `ISIF ${incar.ISIF}`].filter(Boolean).join(' · ');
+  const r = item.resources || {}, suffix = item.workflow === 'bulk_surface' ? '表面优化' : item.workflow === 'relax_static' ? '优化 → 单点' : (incar.NSW > 0 ? '结构优化' : '计算任务');
+  const files = Object.entries(item.files || {}).map(([name,content], index) => `<details data-fold="file-${index}"><summary>${esc(name)}</summary>${/(^|\/)(POSCAR|CONTCAR)$/i.test(name) ? `<button type="button" data-view-input="${index}">侧栏查看结构</button>` : ''}<pre>${esc(content)}</pre></details>`).join('');
+  const resultActions = job?.finished_ok && job.output_structure ? `<div class="task-actions">${structureButton('job',job.id,`optimized-job-${job.pk}.extxyz`,'查看优化结构')}<a href="${sessionPath}/jobs/${encodeURIComponent(job.id)}/structure.extxyz" download>下载优化结构</a></div>` : '';
+  return `<article class="calculation-preview" data-task="${id}"><header><strong>${esc(item.structure.formula)} · ${suffix}</strong></header>${params ? `<p class="task-parameters">${esc(params)}</p>` : ''}
+    ${job ? renderTaskStatus(job,recovery) : '<strong class="task-pending">待确认</strong>'}${resultActions}
+    <details data-fold="inputs"><summary>参数、结构与提交脚本</summary>${surface ? fact('表面',`${surface.size.join('×')} · ${surface.layers} 层 · 固定底部 ${surface.fixed_layers} 层 · 真空 ${surface.vacuum_angstrom} Å`) : ''}${surface?.bulk_job_id ? fact('复用体相',`#${item.stages?.[0]?.reused_pk || surface.bulk_job_id}`) : ''}${fact('资源',[item.server?.label,r.queue,r.nodes && `${r.nodes} 节点`,r.gpus_per_node ? `${r.gpus_per_node} ${r.gpu_type || 'GPU'}/节点` : null,r.wallclock_seconds && `${r.wallclock_seconds} 秒`].filter(Boolean).join(' · '))}${item.max_calculations ? fact('计算上限',`${item.max_calculations} 次 · 总时限 ${item.total_wallclock_limit_seconds} 秒`) : ''}${item.surface_structure_id || item.structure_id ? structureButton('artifact',item.surface_structure_id || item.structure_id,'input.extxyz','查看输入结构') : ''}${files}</details>
+    ${job ? (!job.finished_ok ? `<details data-fold="recovery"><summary>故障处理</summary><button data-recovery-job="${esc(job.id)}" data-recovery-mode="diagnose">请求分析</button><button data-recovery-job="${esc(job.id)}" data-recovery-mode="off">关闭自动处理</button></details>` : '') : `${surface ? '' : `<details data-fold="policy"><summary>重试设置</summary><label><input type="checkbox" data-auto-recovery="${id}">允许最多 2 次自动修复，每次不超过原时限 2 倍，累计不超过 5 倍，不增加 CPU、GPU 或内存。</label></details>`}<button type="button" class="tool-submit" data-confirm-preview="${id}">${item.workflow && item.workflow !== 'single' ? '确认整个流程并提交' : '确认提交'}</button>`}</article>`;
+}
+
+export function createCalculations({ api, getSession, ensureSession, isBusy, toast, onConfirmed, viewer, chatFiles }) {
   const panel = document.getElementById("calculation-cards");
   const attachments = document.getElementById("structure-attachments");
   const input = document.getElementById("structure-file");
@@ -31,34 +37,47 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   const path = (id) => `/api/automation/chat/${encodeURIComponent(id)}`;
 
   function drawAttachments() {
-    attachments.innerHTML = selected.map((item) => `<span class="structure-chip">${esc(item.name)} · ${esc(item.formula)} · ${item.atoms} 原子 <button type="button" data-remove-structure="${esc(item.id)}" aria-label="移除结构附件">×</button></span>`).join("");
+    attachments.innerHTML = selected.map((item) => `<span class="structure-chip">${structureButton('artifact',item.id,`${item.name}.extxyz`,`${item.name} · ${item.formula}`)} <button type="button" data-remove-structure="${esc(item.id)}" aria-label="移除结构附件">×</button></span>`).join("");
   }
 
+  const structureList = document.getElementById('structure-list');
+  const unique = (items, key) => [...new Map(items.map(item => [key(item), item])).values()];
+  function drawStructures() {
+    const base = path(session);
+    const structures = unique(records?.structures || [], item => item.source_structure_uuid || item.id);
+    const jobs = Object.values(records?.live_jobs || {}).filter(job => job.finished_ok && job.output_structure && !structures.some(item => item.source_job_id === job.id));
+    const row = (title, kind, id, name, url, attach='') => `<div class="structure-item"><span>${esc(title)}</span>${structureButton(kind,id,name,'查看')}<a href="${esc(url)}" download>下载</a>${attach}</div>`;
+    const rows = structures.map(item => row(`${item.name} · ${item.formula}`, 'artifact', item.id, `${item.name}.extxyz`, `${base}/files/structure/${encodeURIComponent(item.id)}`, `<button data-attach-structure="${esc(item.id)}">用于对话</button>`));
+    for (const job of jobs) rows.unshift(row(`优化结构 · #${job.pk}`, 'job', job.id, `optimized-job-${job.pk}.extxyz`, `${base}/jobs/${encodeURIComponent(job.id)}/structure.extxyz`, `<button data-import-job="${esc(job.id)}">用于对话</button>`));
+    for (const file of unique(chatFiles().filter(file => isStructureName(file.name)), file => file.id)) rows.push(row(file.name,'file',file.id,file.name,`/api/files/${encodeURIComponent(file.id)}`));
+    structureList.innerHTML = rows.join('') || '<p class="empty-result">本对话暂无结构</p>';
+    structureList.innerHTML += (records?.models || []).map(item => `<details class="model-record"><summary>建模代码 · ${esc(item.name)}</summary><pre>${esc(item.code)}</pre><a href="${base}/files/model/${esc(item.id)}" download>下载 model.py</a></details>`).join('');
+  }
   function render() {
-    if (!enabled || !records) { panel.hidden = true; return; }
-    const downloads = records.structures.map((item) => `<div class="structure-item"><span>${esc(item.name)} · ${esc(item.formula)} · ${item.atoms} 原子</span><button type="button" data-attach-structure="${esc(item.id)}">用于对话</button><a href="${path(session)}/files/structure/${esc(item.id)}">下载结构</a></div>`).join("");
-    const models = records.models.map((item) => `<details class="model-record"><summary>建模代码 · ${esc(item.name)} · ${item.status === "completed" ? "已生成结构" : item.status === "failed" ? "执行失败" : "待核对"}</summary><pre>${esc(item.code)}</pre>${item.error ? `<p class="tool-failure">${esc(item.error)}</p>` : ""}<a href="${path(session)}/files/model/${esc(item.id)}">下载 model.py</a></details>`).join("");
-    const previews = records.previews.map((item) => {
-      const submission = records.submissions[item.preview_id];
-      const job = submission ? (records.live_jobs?.[submission.job.id] || submission.job) : null;
-      const resource = item.resources;
-      return `<article class="calculation-preview"><div class="calculation-card-heading"><strong>${esc(item.structure.formula)} · ${item.workflow === "bulk_surface" ? "体相 → 切表面 → 表面优化" : item.workflow === "relax_static" ? "优化 → 单点流程" : "计算任务"}</strong><span>${job ? `AiiDA #${job.pk}` : "等待确认"}</span></div>
-        ${item.workflow === "bulk_surface" ? "<p>流程已确认后由 AiiDA 自动推进；失败时通知并诊断，重试需重新预览确认。</p>" : ""}
-        ${item.workflow_note ? `<p>${esc(item.workflow_note)} · 最多 ${item.max_calculations} 个计算，累计时限 ${item.total_wallclock_limit_seconds} 秒。</p>` : ""}
-        ${item.correction ? `<p class="result-source">${esc(item.correction)}</p>` : ""}
-        <p>${esc(item.server.label)} · ${esc(resource.queue)} · ${resource.nodes} 节点 × ${resource.ranks_per_node} MPI · ${resource.gpus_per_node || 0} ${esc(resource.gpu_type || "GPU")} / 节点 · ${resource.wallclock_seconds} 秒 · ${resource.memory_mb} MB</p>
-        ${item.protocol ? `<p>方案：${esc(item.protocol.id)} · ${esc(item.protocol.description)}</p>` : ""}
-        <p class="result-source">预览 ${esc(item.preview_id)}<br>输入摘要 ${esc(item.input_sha256)}</p>
-        <details><summary>查看实际参数、结构和提交脚本</summary>${Object.entries(item.files).map(([name, content]) => `<h4>${esc(name)}</h4><pre>${esc(content)}</pre>`).join("")}</details>
-        ${job ? `<div class="live-task-state" data-job-live="${esc(job.id)}">${renderTaskStatus(job, records.recovery?.[job.id])}</div><button type="button" data-refresh-job="${esc(job.id)}">查看完整任务记录</button>
-        ${job.finished_ok && job.output_structure ? `<button type="button" data-import-job="${esc(job.id)}">取回优化结构用于建模</button>` : ""}
-        ${!job.finished_ok ? `<button type="button" data-recovery-job="${esc(job.id)}" data-recovery-mode="diagnose">唤起 Agent 分析</button><button type="button" data-recovery-job="${esc(job.id)}" data-recovery-mode="off">关闭自动处理</button>` : ""}` : `${item.workflow === "bulk_surface" ? "" : `<label class="recovery-choice"><input type="checkbox" data-auto-recovery="${esc(item.preview_id)}" ${item.workflow === "bulk_surface" ? "disabled" : ""}>允许 Agent 自动修复最多 2 次；每次不超过原时限 2 倍（含原任务最多 5 倍累计时限），不增加内存、CPU/GPU，不改变物理模型。未勾选时只诊断并给出预览。</label>`}<button type="button" class="tool-submit" data-confirm-preview="${esc(item.preview_id)}">确认${item.workflow && item.workflow !== "single" ? "整个流程" : "以上参数"}并提交</button>`}
-        <div class="job-live-result" data-job-result="${esc(item.preview_id)}"></div></article>`;
-    }).join("");
-    panel.innerHTML = `<div class="section-heading"><h2>本次对话的结构与计算</h2><button type="button" id="refresh-calculations">刷新</button></div>${downloads}${models}${previews}`;
-    panel.hidden = !(downloads || models || previews);
+    drawStructures();
+    const savedFolds = new Set([...panel.querySelectorAll('details[open]')].map(d => `${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`));
+    const approved = new Set([...panel.querySelectorAll('[data-auto-recovery]:checked')].map(el => el.dataset.autoRecovery));
+    panel.hidden = !enabled;
+    const cards = (records?.previews || []).map(item => {
+      const ref = records.submissions[item.preview_id]?.job;
+      const job = ref ? (records.live_jobs?.[ref.id] || ref) : null;
+      return renderTaskCard(item, job, records.recovery?.[ref?.id], path(session));
+    }).join('');
+    panel.innerHTML = cards || '<p class="empty-result">本对话暂无计算任务</p>';
+    for (const d of panel.querySelectorAll('details')) d.open = savedFolds.has(`${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`);
+    for (const el of panel.querySelectorAll('[data-auto-recovery]')) el.checked = approved.has(el.dataset.autoRecovery);
   }
 
+  function openStructure(kind, id, name) {
+    if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) return;
+    const base = path(getSession());
+    const url = kind === 'file' ? `/api/files/${id}` : kind === 'artifact' ? `${base}/files/structure/${id}` : kind === 'job' ? `${base}/jobs/${id}/structure.extxyz` : null;
+    if (url) return viewer.open(name, () => getFileBlob(url));
+  }
+  document.addEventListener('click', event => {
+    const target = event.target.closest('button[data-open-kind]');
+    if (target) openStructure(target.dataset.openKind, target.dataset.openId, target.dataset.openName);
+  });
   async function refresh() {
     const id = getSession();
     if (!enabled || !id) { records = null; session = id; render(); return; }
@@ -91,9 +110,14 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     const target = event.target.closest("[data-remove-structure]");
     if (target && !isBusy()) { selected = selected.filter((item) => item.id !== target.dataset.removeStructure); drawAttachments(); }
   });
-  panel.addEventListener("click", async (event) => {
+  async function onAction(event) {
     const target = event.target.closest("button");
-    if (!target || isBusy() || pending) return;
+    if (!target || target.dataset.openKind || isBusy() || pending) return;
+    if (target.dataset.viewInput !== undefined) {
+      const item = records.previews.find(entry => entry.preview_id === target.closest('[data-task]').dataset.task);
+      const [name, content] = Object.entries(item.files)[Number(target.dataset.viewInput)];
+      return viewer.open(name.split('/').at(-1), () => new Blob([content], {type:'text/plain'}));
+    }
     if (target.dataset.attachStructure) {
       const item = records.structures.find((value) => value.id === target.dataset.attachStructure);
       selected = [...selected.filter((value) => value.id !== item.id), item].slice(-8);
@@ -107,19 +131,20 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
         await api(`${path(id)}/confirm/${encodeURIComponent(target.dataset.confirmPreview)}`, { method: "POST", body: JSON.stringify({mode: approved ? "auto" : "diagnose", max_attempts: 2}) });
         if (id === getSession()) await onConfirmed(id);
       } else if (target.dataset.importJob) {
-        await api(`${path(id)}/jobs/${encodeURIComponent(target.dataset.importJob)}/structure`, {method: "POST"});
+        const imported = await api(`${path(id)}/jobs/${encodeURIComponent(target.dataset.importJob)}/structure`, {method: "POST"});
+        if (id !== getSession()) return;
         await refresh();
-        toast("优化结构已加入本次对话，可继续建模。");
+        selected = [...selected.filter(item => item.id !== imported.id), imported].slice(-8); drawAttachments();
+        toast("优化结构已附加到输入框。");
       } else if (target.dataset.recoveryJob) {
         await api(`${path(id)}/jobs/${encodeURIComponent(target.dataset.recoveryJob)}/recovery`, { method: "POST", body: JSON.stringify({mode: target.dataset.recoveryMode, max_attempts: 2}) });
         toast(target.dataset.recoveryMode === "off" ? "已关闭此任务后续自动处理。" : "已请求后台 Agent 分析，结果将显示在通知与任务卡片中。");
-      } else if (target.dataset.refreshJob) {
-        const result = await api(`/api/automation/jobs/${encodeURIComponent(target.dataset.refreshJob)}`);
-        if (id === getSession()) target.parentElement.querySelector(".job-live-result").textContent = (result.submission_state === "rejected_by_scheduler" ? `调度器拒绝提交，尚未排队：${result.recent_process_errors?.[0]?.message || "请检查资源配置"}\n\n` : "") + JSON.stringify(result, null, 2);
-      } else if (target.id === "refresh-calculations") await refresh();
+      }
     } catch (error) { toast(error.message); }
     finally { pending = false; target.disabled = false; }
-  });
+  }
+  panel.addEventListener('click', onAction);
+  structureList.addEventListener('click', onAction);
 
   let polling = false;
   async function refreshLive() {
@@ -129,11 +154,12 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     try {
       const data = await api(`${path(id)}/events`);
       if (id !== getSession() || !records) return;
+      const changes = Object.entries(data.jobs).some(([id, job]) => {
+        const previous = records.live_jobs?.[id];
+        return !previous || renderTaskStatus(previous, records.recovery?.[id]) !== renderTaskStatus(job, data.recovery?.[id]) || Boolean(previous.output_structure) !== Boolean(job.output_structure);
+      });
       records.live_jobs = data.jobs; records.recovery = data.recovery;
-      for (const element of panel.querySelectorAll("[data-job-live]")) {
-        const job = data.jobs[element.dataset.jobLive];
-        if (job) element.innerHTML = renderTaskStatus(job, data.recovery?.[job.id]);
-      }
+      if (changes) render();
       const known = new Set(Object.values(records.submissions).map((value) => value.job.id));
       const previewIds = new Set(records.previews.map((value) => value.preview_id));
       if (Object.keys(data.jobs).some((id) => !known.has(id)) || Object.values(data.recovery || {}).some((value) => value?.result?.preview_id && !previewIds.has(value.result.preview_id))) await refresh();
@@ -143,8 +169,9 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   setInterval(refreshLive, 15000);
 
   return {
-    refresh,
+    refresh, drawStructures,
     enabled(value) { enabled = value; button.hidden = !enabled; if (!enabled) { selected = []; records = null; drawAttachments(); render(); } },
+    selection() { return [...selected]; },
     selectedIds() { return selected.map((item) => item.id); },
     clearSelection() { selected = []; drawAttachments(); },
     reset() { selected = []; records = null; session = null; drawAttachments(); render(); },

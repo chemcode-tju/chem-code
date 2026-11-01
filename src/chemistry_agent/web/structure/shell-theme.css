@@ -52,3 +52,42 @@ input::placeholder,textarea::placeholder,.import-options p,#import-note,#ticks,#
 input[type=checkbox],input[type=range] {
   accent-color:var(--accent);
 }
+
+/* Keep the structure visible while the inspector is narrow or short. */
+.embedded-viewer main {
+  height: auto;
+  min-height: 100dvh;
+  gap: 6px;
+  padding: 6px;
+}
+.embedded-viewer .viewports {
+  flex: 1 0 200px;
+}
+.embedded-viewer #filename {
+  max-width: 100%;
+}
+.embedded-viewer .back-link {
+  display: none;
+}
+.embedded-viewer #viewer-options summary {
+  cursor: pointer;
+}
+.embedded-viewer #viewer-options[open] > * + * {
+  margin-top: 6px;
+}
+.embedded-viewer .file-actions,
+.embedded-viewer .navigation,
+.embedded-viewer .playback {
+  flex-wrap: wrap;
+}
+.embedded-viewer .view-controls {
+  width: auto;
+}
+.embedded-viewer .navigation {
+  margin-left: 0;
+}
+.embedded-viewer dialog {
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+}
