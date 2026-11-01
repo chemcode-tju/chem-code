@@ -118,8 +118,16 @@ def stage_files(payload: dict) -> dict:
             if not destination.resolve().is_relative_to(target):
                 raise AgentError("invalid_task_path", "输出链接越过分析目录。", 422)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            with repo.open(name, mode="rb") as stream, destination.open("wb") as output:
-                shutil.copyfileobj(stream, output, length=1024 * 1024)
+            try:
+                with repo.open(name, mode="rb") as stream, destination.open("wb") as output:
+                    shutil.copyfileobj(stream, output, length=1024 * 1024)
+            except FileNotFoundError as exc:
+                raise AgentError(
+                    "retrieved_file_missing",
+                    f"任务 {node.pk} 取回目录中缺少 {name}。用 calculation_files 检查 remote "
+                    "目录；若远端有原文件，可将本分析节点 file_source 改为 remote。",
+                    422,
+                ) from exc
             manifest[name] = str(destination)
     else:
         if "remote_folder" not in node.outputs:
