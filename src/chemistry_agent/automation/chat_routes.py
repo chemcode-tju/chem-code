@@ -1,6 +1,7 @@
 """Browser confirmation is authoritative; no LLM tool can submit a job."""
 
 import json
+from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
@@ -346,22 +347,57 @@ async def workflow_plans(session_id: UUID, request: Request) -> dict:
 
 @router.get("/{session_id}/workflows/{plan_id}/artifacts/{node_id}/{filename:path}")
 async def workflow_artifact(
-    session_id: UUID, plan_id: UUID, node_id: str, filename: str, request: Request
+    session_id: UUID,
+    plan_id: UUID,
+    node_id: str,
+    filename: str,
+    request: Request,
+    preview: bool = False,
 ) -> FileResponse:
     chat = await session_chat(request, session_id)
     plan = chat.load(str(session_id), "plans", str(plan_id))
     files = plan["runtime"].get(node_id, {}).get("outputs", {}).get("files", [])
-    if filename not in files:
-        raise AgentError("artifact_not_found", "此步骤没有该输出文件。", 404)
     root = chat.directory(str(session_id), "plan_runs") / str(plan_id) / node_id
+    return result_file(root, files, filename, preview)
+
+
+@router.get("/{session_id}/analyses/{analysis_id}/artifacts/{filename:path}")
+async def analysis_artifact(
+    session_id: UUID, analysis_id: UUID, filename: str, request: Request, preview: bool = False
+) -> FileResponse:
+    chat = await session_chat(request, session_id)
+    record = chat.load(str(session_id), "analyses", str(analysis_id))
+    root = chat.directory(str(session_id), "plan_runs") / str(analysis_id) / "analysis"
+    return result_file(root, record.get("files", []), filename, preview)
+
+
+def result_file(root: Path, files: list[str], filename: str, preview: bool) -> FileResponse:
+    if filename not in files or Path(filename).is_absolute() or ".." in Path(filename).parts:
+        raise AgentError("artifact_not_found", "此步骤没有该输出文件。", 404)
     path = root / filename
     if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or not path.is_file():
         raise AgentError("artifact_not_found", "输出文件不可用。", 404)
+    images = {
+        ".png": "image/png",
+        ".svg": "image/svg+xml",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+    }
+    media = images.get(path.suffix.lower())
+    if preview and not media:
+        raise AgentError("not_a_figure", "此文件不支持图像预览。", 415)
     return FileResponse(
         path,
         filename=path.name,
-        media_type="application/octet-stream",
-        headers={"X-Content-Type-Options": "nosniff"},
+        media_type=media if preview else "application/octet-stream",
+        content_disposition_type="inline" if preview else "attachment",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": (
+                "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+            ),
+        },
     )
 
 

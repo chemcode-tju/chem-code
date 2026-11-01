@@ -39,6 +39,8 @@ calculation_analyze 可直接写代码读取任意格式、二进制或大文件
 代码使用 ASE Atoms、顶部配置和 main 入口，无命令行参数。隔离环境运行本地代码，计算提交由执行器负责。
 体相优化→切面必须引用实际体相末态；吸附建模必须引用已优化洁净表面。独立位点无互相依赖，可并行。
 结构优化显式 require_ionic=true；静态/振动等按算法设置完成条件。
+适合比较或趋势的数据，在最终分析用 matplotlib 画图，标注坐标轴、单位和标题，保存300 dpi PNG。
+已有流程可用 calculation_plan_plot 追加绘图，引用真实结果；网页自动展示已生成的图片。
 analysis 返回 passed=false 会阻止下游。
 已有结果用 calculation_import_result 导入复用，包括失败/超时任务和子任务，不重算成功步骤。
 固定约束必须保留：FixAtoms 可用 extxyz/POSCAR，FixScaled 等方向约束使用 POSCAR，不能静默丢失。

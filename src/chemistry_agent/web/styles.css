@@ -1344,3 +1344,8 @@ body.inspector-open { grid-template-columns:var(--sidebar) minmax(0,1fr) var(--i
 .graph-progress {height:3px;border-radius:4px;background:var(--subtle);overflow:hidden;margin:12px 0 18px;}
 .graph-progress span {display:block;height:100%;background:var(--accent);transition:width .3s;}
 #step-code,#step-output {max-height:380px;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.6;}
+
+.result-figure { margin: 12px 0; max-width: 100%; }
+.result-figure img { display: block; width: 100%; height: auto; background: white; border-radius: 6px; }
+.result-figure figcaption { display: flex; gap: 8px; justify-content: space-between; font-size: 12px; padding-top: 5px; overflow-wrap: anywhere; }
+.result-figure figcaption a { flex-shrink: 0; }

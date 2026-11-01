@@ -1,3 +1,4 @@
+import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
 import { createCalculations } from "./calculations.mjs?v=20261102-general-plans";
@@ -234,6 +235,10 @@ function artifactLinks(calls) {
   for (const call of calls) {
     if (!call.success) continue;
     const r = call.result || {};
+    if (call.name === "calculation_analyze" && r.analysis_id) {
+      const base = "/api/automation/chat/" + encodeURIComponent(state.sessionId) + "/analyses/" + encodeURIComponent(r.analysis_id) + "/artifacts";
+      links.set(r.analysis_id,resultFigures(base,r.files,r.name || "分析结果"));
+    }
     const isStructure = ["build_structure","import_structure","calculation_import_result"].includes(call.name);
     const id = isStructure ? r.id : r.surface_structure_id || r.structure_id;
     if (id) links.set(id, structureButton("artifact",id,(r.name || "structure")+".extxyz","查看"+(r.name || "输入结构")));
@@ -268,8 +273,9 @@ function renderConversation(scroll = true) {
     return;
   }
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
+  calculations.drawReportFigures();
   for (const item of state.outbox) {
     const article = document.createElement("article");
     article.className = "turn";

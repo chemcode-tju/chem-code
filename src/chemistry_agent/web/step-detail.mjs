@@ -1,3 +1,4 @@
+import {resultFigures} from './result-figures.mjs';
 import {escapeHtml as esc} from './core.mjs';
 import {createStructureBridge} from './structure-links.mjs';
 import {describeStep, planSteps, stepRows} from './workflow-plan.mjs';
@@ -34,7 +35,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   function close() {
     current=null; activeFile=''; info=null; bridge.reset();
     screen.hidden=true; $('plan-overview').hidden=false; $('step-viewer-shell').hidden=true;
-    $('step-code-section').hidden=true; $('step-output-section').hidden=true;
+    $('step-figures').replaceChildren(); $('step-code-section').hidden=true; $('step-output-section').hidden=true;
   }
   function drawFiles() {
     $('step-files').innerHTML=fileNames.map(name=>
@@ -134,6 +135,8 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     $('step-code-section').hidden=!node.code; $('step-code').textContent=node.code || '';
     const result=node.kind==='analysis' && state.outputs?.result;
     $('step-output-section').hidden=!result; $('step-output').textContent=result?JSON.stringify(result,null,2):'';
+    const base = current.sessionPath + '/workflows/' + plan.id + '/artifacts/' + node.id;
+    $('step-figures').innerHTML=resultFigures(base,state.outputs?.files,node.title);
     $('step-downloads').innerHTML=(state.outputs?.files || []).map(name=>`<p><a download href="${current.sessionPath}/workflows/${plan.id}/artifacts/${node.id}/${name.split('/').map(encodeURIComponent).join('/')}">${esc(name)}</a></p>`).join('');
     if(state.error || state.sync_error) $('step-note').textContent=state.error || state.sync_error;
   }

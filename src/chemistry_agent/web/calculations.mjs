@@ -1,3 +1,4 @@
+import {planFigures} from './result-figures.mjs';
 import {createStepDetail} from "./step-detail.mjs?v=20261102-general-plans";
 import {workflowPlan} from "./workflow-plan.mjs";
 import {renderGeneralPlan} from './general-plan.mjs';
@@ -69,7 +70,21 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     structureList.innerHTML = rows.join('') || '<p class="empty-result">本对话暂无结构</p>';
     structureList.innerHTML += (records?.models || []).map(item => `<details class="model-record"><summary>建模代码 · ${esc(item.name)}</summary><pre>${esc(item.code)}</pre><a href="${base}/files/model/${esc(item.id)}" download>下载 model.py</a></details>`).join('');
   }
+  function drawReportFigures() {
+    if (!session || session !== getSession()) return;
+    for (const element of document.querySelectorAll('[data-plan-report^="plan:"]')) {
+      const [,id,revision] = element.dataset.planReport.split(':');
+      const plan = records?.plans?.find(row=>row.id===id && String(row.revision)===revision);
+      if (plan) {
+        const html = planFigures(path(session),plan);
+        if (element.dataset.rendered !== html) {
+          element.innerHTML=html; element.dataset.rendered=html;
+        }
+      }
+    }
+  }
   function render() {
+    drawReportFigures();
     drawStructures();
     const savedFolds = new Set([...panel.querySelectorAll('details[open]')].map(d => `${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`));
     const approved = new Set([...panel.querySelectorAll('[data-auto-recovery]:checked')].map(el => el.dataset.autoRecovery));
@@ -259,6 +274,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
 
   return {
     refresh, drawStructures,
+    drawReportFigures,
     enabled(value) { enabled = value; button.hidden = !enabled; if (!enabled) { detail.close(); selected = []; records = null; drawAttachments(); render(); } },
     selection() { return [...selected]; },
     selectedIds() { return selected.map((item) => item.id); },

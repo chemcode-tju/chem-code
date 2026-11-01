@@ -634,3 +634,26 @@ def test_vasp_accepts_chemistry_named_structure_port():
                 {**original, "inputs": {**original["inputs"], "extra": {"node": "cu_primitive"}}},
             ]
         )
+
+
+async def test_append_plot_after_completion_does_not_repeat_job(graph):
+    from chemistry_agent.automation.plan_models import PlanFigure
+
+    chat, ctx, engine, structure = graph
+    plan = await chat.plans.draft(draft([vasp("energy", {"structure_id": structure})]), ctx)
+    await chat.plans.confirm(ctx.session_id, plan["id"], 1)
+    await chat.plans.tick_plan(ctx.session_id, plan["id"])
+    engine.finish(engine.submits[0])
+    await chat.plans.tick_plan(ctx.session_id, plan["id"])
+    args = PlanFigure(
+        plan_id=plan["id"],
+        source_node="energy",
+        title="E",
+        code="from matplotlib import pyplot as plt\nplt.savefig('plot.png')",
+    )
+    added = await chat.plans.add_figure(args, ctx)
+    assert await chat.plans.add_figure(args, ctx) == added
+    record = chat.load(ctx.session_id, "plans", plan["id"])
+    assert record["runtime"]["energy"]["status"] == "completed" and len(engine.submits) == 1
+    assert record["nodes"][-1]["inputs"]["data"]["output"] == "result"
+    assert record["revision"] == 2 and record["status"] == "running"

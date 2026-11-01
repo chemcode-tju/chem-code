@@ -138,3 +138,10 @@ class NodeRepair(StrictModel):
     plan_id: UUID
     node: PlanNode
     reason: str = Field(min_length=1, max_length=2000)
+
+
+class PlanFigure(StrictModel):
+    plan_id: UUID
+    source_node: str
+    title: str = Field(min_length=1, max_length=120)
+    code: str = Field(min_length=1, max_length=50000)

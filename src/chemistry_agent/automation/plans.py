@@ -23,6 +23,8 @@ from chemistry_agent.automation.plan_authority import auto_queue, auto_request
 from chemistry_agent.automation.plan_models import (
     NodeRepair,
     PlanDraft,
+    PlanFigure,
+    PlanNode,
     PlanProgram,
     PlanQuery,
     ProgramSource,
@@ -46,7 +48,7 @@ def generated_files(directory: Path, aliases: set[str]) -> list[str]:
             relative = path.relative_to(directory)
             if (
                 relative.parts[0] in aliases
-                or path.name == "archive"
+                or path.name in {"archive", ".mplconfig", ".cache", ".matplotlib"}
                 or str(relative) in excluded
                 or path.is_symlink()
             ):
@@ -252,6 +254,44 @@ class CalculationPlans:
             "source": "\n".join(lines[first : first + args.lines])[:16000],
         }
 
+    async def add_figure(self, args: PlanFigure, context: ToolContext) -> dict:
+        """Attach local post-processing to an existing result, including a future result."""
+        session, identifier = context.session_id, str(args.plan_id)
+        key = "plot_" + uuid5(NAMESPACE_URL, args.model_dump_json()).hex
+        node = PlanNode(
+            id=key,
+            kind="analysis",
+            title=args.title,
+            code=args.code,
+            inputs={"data": {"node": args.source_node, "output": "result"}},
+            depends_on=[args.source_node],
+        )
+        async with self.lock(session, identifier):
+            plan = self.chat.load(session, "plans", identifier)
+            if args.source_node not in plan["runtime"]:
+                raise AgentError("missing_source", "找不到绘图所需的上游步骤。", 422)
+            if key not in plan["runtime"]:
+                self.chat.save(session, "plan_versions", str(uuid4()), plan)
+                plan.setdefault("figure_nodes", []).append(key)
+                plan["nodes"].append(node.model_dump(mode="json"))
+                plan["runtime"][key] = {"status": "pending"}
+                plan["changed_nodes"], plan["removed_nodes"] = [key], []
+                plan["revision"] += 1
+                plan["history"].append(
+                    {
+                        "revision": plan["revision"],
+                        "changed_nodes": [key],
+                        "removed_nodes": [],
+                        "at": utc_now(),
+                    }
+                )
+                if plan["status"] in {"completed", "failed"}:
+                    plan["status"] = "running"
+                    plan.pop("completed_at", None)
+                plan.pop("reported", None)
+                self.save(session, plan)
+            return {"plan_id": identifier, "node_id": key, "status": plan["runtime"][key]["status"]}
+
     async def query(self, args: PlanQuery, context: ToolContext) -> dict:
         if args.plan_id:
             return self.public(self.chat.load(context.session_id, "plans", str(args.plan_id)))
@@ -361,9 +401,16 @@ class CalculationPlans:
             raise AgentError("invalid_analysis", "分析代码须写出 JSON 对象 result.json。", 422)
         if result.get("passed") is False:
             raise AgentError(
-                "analysis_gate_failed", str(result.get("reason", "分析检查未通过。")), 422
+                "analysis_gate_failed",
+                str(result.get("reason") or result.get("error") or "分析检查未通过。"),
+                422,
             )
-        return {"result": result, "files": generated_files(directory, set(inputs))}
+        files = generated_files(directory, set(inputs))
+        if node["id"] in plan.get("figure_nodes", []) and not any(
+            name.lower().endswith((".png", ".svg", ".jpg", ".jpeg", ".webp")) for name in files
+        ):
+            raise AgentError("missing_figure", "绘图代码未生成图像，请使用 savefig 保存图片。", 422)
+        return {"result": result, "files": files}
 
     async def start_vasp(self, session: str, plan: dict, node: dict, state: dict) -> None:
         from chemistry_agent.automation.chat import ChatPreviewInput
@@ -621,6 +668,17 @@ class CalculationPlans:
                 "and a reason. Preserves completed branches; resumes its downstream steps.",
                 NodeRepair,
                 self.repair_node,
+                True,
+            ),
+            Tool(
+                "calculation_plan_plot",
+                "Attach one Python figure step to an existing plan. It reads the upstream "
+                "result from inputs.json ['data']['result'] when ready, even for running or "
+                "completed workflows. Use matplotlib to save a 300 dpi PNG with title and "
+                "axis labels/units and write result.json. No new cluster job. The image is "
+                "shown inline in the plan and completion message.",
+                PlanFigure,
+                self.add_figure,
                 True,
             ),
             Tool(

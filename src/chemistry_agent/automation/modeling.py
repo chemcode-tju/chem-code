@@ -65,6 +65,8 @@ async def execute_model(directory: Path, code: str, *, output_format: str = "ext
         "PATH": str(Path(sys.executable).parent),
         "HOME": str(directory),
         "TMPDIR": str(directory),
+        "MPLBACKEND": "Agg",
+        "MPLCONFIGDIR": str(directory / ".mplconfig"),
         "OMP_NUM_THREADS": "1",
         "OPENBLAS_NUM_THREADS": "1",
         "MKL_NUM_THREADS": "1",

@@ -88,7 +88,7 @@ class CalculationAnalysis:
             record.update(status="failed", error=str(exc))
             self.chat.save(context.session_id, "analyses", identifier, record)
             raise
-        record.update(status="completed", result=outputs["result"])
+        record.update(status="completed", result=outputs["result"], files=outputs["files"])
         self.chat.save(context.session_id, "analyses", identifier, record)
         encoded = json.dumps(outputs["result"], ensure_ascii=False)
         result = (
@@ -99,7 +99,13 @@ class CalculationAnalysis:
                 "full_result_saved": True,
             }
         )
-        return {"analysis_id": identifier, "name": args.name, "status": "completed", **result}
+        return {
+            "analysis_id": identifier,
+            "name": args.name,
+            "status": "completed",
+            "files": outputs["files"],
+            **result,
+        }
 
     def tools(self) -> list[Tool]:
         return [
@@ -119,6 +125,8 @@ class CalculationAnalysis:
                 "Code reads inputs.json: alias.result is parsed data, alias.files maps file names "
                 "to local paths (arbitrary formats, binary supported). Write result.json. "
                 "Use ASE/numpy or custom parsers; no cluster jobs are submitted. "
+                "For plots use matplotlib, label axes and units, save a 300 dpi PNG. "
+                "Images appear in chat. "
                 "Full code/result retained. Returns summary, not file contents.",
                 AnalyzeInput,
                 self.analyze,
