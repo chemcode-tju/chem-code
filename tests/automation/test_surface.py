@@ -268,7 +268,13 @@ def test_co_workflow_parallel_outputs_and_branch_only_repair(profile, monkeypatc
         if isinstance(node, orm.WorkChainNode)
     }
     assert set(children) == {"bulk", "surface", "gas", "top", "bridge", "hollow"}
+    cut = next(node for node in parent.called if node.process_label == "cut_surface")
+    assert cut.inputs.structure.uuid == children["bulk"].outputs.structure.uuid
+    assert children["surface"].inputs.structure.uuid == cut.outputs.structure.uuid
     for key in plan.co_sites:
+        builder = children[key].inputs.structure.creator
+        assert builder.inputs.site.value == key
+        assert builder.inputs.slab.uuid == children["surface"].outputs.structure.uuid
         atoms = children[key].inputs.structure.get_ase()
         assert atoms.get_chemical_symbols() == ["Cu"] * 16 + ["C", "O"]
         assert atoms.cell[0, 0] == pytest.approx(3.7 * np.sqrt(2))

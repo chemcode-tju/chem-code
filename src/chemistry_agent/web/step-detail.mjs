@@ -42,7 +42,16 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     if (!current || !info?.files[name]) return;
     const source = info.files[name], view = current;
     activeFile=name; drawFiles(); $('step-note').textContent='';
-    $('step-file-source').textContent=source==='方案预览'?'方案预览 · 上游优化完成后可能更新':source;
+    let caption = source;
+    if (name === 'POSCAR' && (source === '方案预览' || source === '实际提交')) {
+      if (view.key === 'surface') caption += source === '方案预览'
+        ? ' · 切面示意。正式输入由收敛后的体相晶格生成'
+        : ' · 由收敛后的体相晶格切面生成';
+      if (['top','bridge','hollow'].includes(view.key)) caption += source === '方案预览'
+        ? ' · 位点示意。洁净表面优化通过后，再用其末态放置 CO'
+        : ' · 在优化后的洁净表面上放置 CO';
+    }
+    $('step-file-source').textContent=caption;
     bridge.reset();
     bridge.open(name,async () => {
       if (name==='POSCAR' && source==='方案预览' && view.preview) return new Blob([view.preview]);
