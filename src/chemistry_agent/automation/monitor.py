@@ -73,12 +73,13 @@ class TaskMonitor:
                     session, preview = tracked[job["id"]]
                     artifact = self.chat.load(session, "previews", preview)
                     root = artifact.get("recovery_root_id", job["id"])
-                    individual = not initial and not artifact.get("plan_auto")
+                    individual = not initial and not artifact.get("plan_id")
                     job["recovery_root_id"] = root
                     self.events.observe(
                         session,
                         preview,
                         job,
+                        legacy=not artifact.get("plan_id"),
                         report=individual,
                         diagnose=individual and self.events.policy(root)["mode"] != "off",
                     )

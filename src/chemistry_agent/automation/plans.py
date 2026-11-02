@@ -20,6 +20,7 @@ from chemistry_agent.automation.constraints import poscar_text, restore_constrai
 from chemistry_agent.automation.events import (
     QUOTA_HOLD,
     quota_rejection,
+    task_state,
     utc_now,
     waiting_for_submit_quota,
 )
@@ -71,6 +72,7 @@ class CalculationPlans:
         self.chat = chat
         self.locks: dict[str, asyncio.Lock] = {}
         self.task: asyncio.Task | None = None
+        self.projected: set[tuple[str, str, int]] = set()
         self.store = None
         self.agent = self.provider = None
         self.repair_tasks: dict[tuple[str, str], asyncio.Task] = {}
@@ -599,12 +601,58 @@ class CalculationPlans:
         else:
             await self.chat.service.call("resume_quota_job", {"job_id": state["job_id"]})
 
+    @staticmethod
+    def step_status(state: dict) -> str:
+        if state["status"] == "running" and state.get("job"):
+            return task_state(state["job"])[0]
+        return state["status"]
+
+    def record_steps(self, session: str, plan: dict, nodes: list[dict]) -> None:
+        """Project saved checkpoints, including pre-restart attempts, without waking a model."""
+        with self.chat.progress.connect() as db:
+            for node in nodes:
+                state = plan["runtime"][node["id"]]
+                attempts = state.get("attempts", [])
+                for attempt, saved in enumerate(
+                    [*(a["state"] for a in attempts if "state" in a), state]
+                ):
+                    job = saved.get("job") or {}
+                    status = self.step_status(saved)
+                    if status == "pending":
+                        continue
+                    detail = {
+                        "attempt": attempt,
+                        "node_kind": node["kind"],
+                        "completed_at": saved.get("completed_at"),
+                        "job_id": job.get("id"),
+                        "pk": job.get("pk"),
+                        "scheduler_job_id": job.get("scheduler_job_id"),
+                        "error": saved.get("error"),
+                        "structure_id": (saved.get("outputs") or {}).get("structure_id"),
+                    }
+                    self.chat.progress.insert(
+                        db,
+                        session,
+                        plan["id"],
+                        node["id"],
+                        "step",
+                        status,
+                        node["title"],
+                        detail,
+                        f"step:{node['id']}:{attempt}:{status}",
+                    )
+
     async def tick_plan(self, session: str, identifier: str) -> None:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
+            projection_key = (session, identifier, plan["revision"])
+            if projection_key not in self.projected:
+                self.record_steps(session, plan, plan["nodes"])
+                self.projected.add(projection_key)
             if plan["status"] in {"running", "paused"}:
                 for node in plan["nodes"]:
                     state = plan["runtime"][node["id"]]
+                    before = self.step_status(state)
                     try:
                         if state.get("job_id") and state["status"] == "running":
                             await self.inspect_vasp(session, plan, node, state)
@@ -651,7 +699,11 @@ class CalculationPlans:
                             state.update(status="failed", error=exc.message, error_code=exc.code)
                     except (ValueError, OSError) as exc:
                         state.update(status="failed", error=str(exc))
-                    self.save(session, plan)
+                    finally:
+                        if self.step_status(state) != before:
+                            self.save(session, plan)
+                            self.record_steps(session, plan, [node])
+                    # The graph-level checkpoint below also retains unchanged-phase job snapshots.
                 states = [state["status"] for state in plan["runtime"].values()]
                 if all(status in TERMINAL for status in states):
                     plan["status"] = (
@@ -689,6 +741,21 @@ class CalculationPlans:
                 if await self.store.append_task_report(
                     session, f"plan:{identifier}:{plan['revision']}", answer
                 ):
+                    with self.chat.progress.connect() as db:
+                        self.chat.progress.insert(
+                            db,
+                            session,
+                            identifier,
+                            None,
+                            "plan",
+                            plan["status"],
+                            f"方案「{plan['title']}」{title}",
+                            {
+                                "revision": plan["revision"],
+                                "chat_event": f"plan:{identifier}:{plan['revision']}",
+                            },
+                            f"final:{plan['revision']}",
+                        )
                     plan["reported"] = True
                     self.save(session, plan)
 

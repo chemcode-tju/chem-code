@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from functools import cached_property
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4, uuid5
@@ -16,6 +17,7 @@ from chemistry_agent.automation.models import (
     StructureInput,
     SurfacePlan,
 )
+from chemistry_agent.automation.progress import ProgressStore
 from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
@@ -93,6 +95,10 @@ class CalculationChat:
         self.import_lock = asyncio.Lock()
         self.plans = CalculationPlans(self)
         self.analysis = CalculationAnalysis(self)
+
+    @cached_property
+    def progress(self) -> ProgressStore:
+        return ProgressStore(self.service.settings.aiida_path / "task-monitor.sqlite3")
 
     def directory(self, session_id: str, kind: str) -> Path:
         directory = self.root / str(UUID(session_id)) / kind

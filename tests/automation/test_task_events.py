@@ -373,3 +373,79 @@ def test_vibration_retains_electronic_gate_without_relaxation_gate():
     assert task_state({**job, "vibrational": False})[0] == "unconverged"
     status["electronic_converged"] = False
     assert task_state(job)[0] == "unconverged"
+
+
+async def test_legacy_children_and_retry_are_progress_until_root_ends(tmp_path):
+    from chemistry_agent.automation.reporting import deliver_pending
+    from chemistry_agent.store import Store
+
+    db = tmp_path / "monitor.db"
+    events = EventStore(db)
+    sessions = await Store.open(tmp_path / "chat.db")
+    try:
+        sid = (await sessions.create_session("legacy"))["id"]
+        first = {
+            "id": "root",
+            "pk": 4,
+            "workflow": "relax_static",
+            "process_state": "waiting",
+            "steps": [
+                {
+                    "id": "child",
+                    "pk": 5,
+                    "process_state": "finished",
+                    "finished_ok": True,
+                    "results": {"run_status": {"electronic_converged": True}},
+                }
+            ],
+        }
+        events.observe(sid, "p1", first, report=True)
+        failed = first | {"process_state": "finished", "exit_status": 1}
+        events.observe(sid, "p1", failed, report=True, diagnose=True)
+        events.update_recovery("root", "submitted", result={"reason": "已提交重试"})
+        for row in events.pending_reports():
+            events.save_report(row["event_key"], "原作业失败，修复已提交")
+        monitor = SimpleNamespace(events=events, session_store=sessions)
+        await deliver_pending(monitor)
+        assert not (await sessions.get_session(sid))["messages"]
+        last = {
+            "id": "retry",
+            "pk": 6,
+            "recovery_root_id": "root",
+            "process_state": "finished",
+            "finished_ok": True,
+            "results": {"run_status": {"electronic_converged": True}},
+        }
+        events.observe(sid, "p2", last, report=True)
+        events.save_report(events.pending_reports()[0]["event_key"], "完成")
+        await deliver_pending(monitor)
+        events.observe(sid, "p2", last, report=True)
+        await deliver_pending(monitor)
+        assert [m["content"] for m in (await sessions.get_session(sid))["messages"]] == ["完成"]
+        fresh = EventStore(db)
+        one = fresh.timeline(sid, 0, 2, "root")
+        assert one["has_more"]
+        rest = fresh.timeline(sid, one["next_cursor"], 100, "root")
+        all_rows = one["events"] + rest["events"]
+        assert len(all_rows) == len({e["seq"] for e in all_rows})
+        assert len([e for e in all_rows if e["kind"] == "plan"]) == 1
+        assert len(fresh.timeline(sid, 0, 100, "root", "child")["events"]) == 1
+        assert fresh.timeline("other", 0, 100)["events"] == []
+    finally:
+        await sessions.close()
+
+
+async def test_upgrade_routes_pending_reviewed_plan_report_to_node(tmp_path):
+    from chemistry_agent.automation.reporting import deliver_pending
+
+    events = EventStore(tmp_path / "monitor.sqlite3")
+    job = {"id": "job", "pk": 10, "process_state": "finished", "finished_ok": False}
+    events.observe("session", "preview", job, report=True)
+    events.save_report(events.pending_reports()[0]["event_key"], "旧版保存的解读")
+    chat = SimpleNamespace(load=lambda *_: {"plan_id": "plan", "plan_node": "relax"})
+    monitor = SimpleNamespace(chat=chat, events=events)
+    await deliver_pending(monitor)
+    await deliver_pending(monitor)
+    rows = events.timeline("session", 0, 10, "plan", "relax")["events"]
+    assert [(r["kind"], r["message"]) for r in rows] == [("interpretation", "旧版保存的解读")]
+    assert not events.latest_report("session")

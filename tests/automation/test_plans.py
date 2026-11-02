@@ -628,9 +628,15 @@ async def test_failed_auto_node_wakes_model_with_tools_and_hides_wake_prompt(gra
         await plans.repair_tasks[sid, plan["id"]]
         fixed = chat.load(sid, "plans", plan["id"])
         assert fixed["status"] == "running" and fixed["runtime"]["build"]["status"] == "pending"
-        assert [m["content"] for m in (await store.get_session(sid))["messages"]] == [
-            "已修复建模代码。"
+        assert not (await store.get_session(sid))["messages"]
+        events = chat.progress.timeline(sid, 0, 100, plan["id"], "build")["events"]
+        assert [(e["kind"], e["status"]) for e in events] == [
+            ("step", "failed"),
+            ("diagnosis", "running"),
+            ("repair", "pending"),
+            ("interpretation", "completed"),
         ]
+        assert events[-1]["message"] == "已修复建模代码。"
     finally:
         await store.close()
 
@@ -808,3 +814,47 @@ async def test_quota_waits_for_one_real_queue_completion(graph, monkeypatch, fal
     else:
         await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
         assert len(calls) == 1
+
+
+async def test_manual_plan_final_only_after_all_steps_and_chat_turn(graph, tmp_path):
+    from chemistry_agent.schemas import TokenUsage
+    from chemistry_agent.store import Store
+
+    chat, _, engine, _ = graph
+    store = await Store.open(tmp_path / "final.sqlite3")
+    try:
+        sid = (await store.create_session("manual plan"))["id"]
+        ctx = ToolContext(sid, str(uuid4()))
+        structure = await chat.import_structure(
+            ImportInput(
+                name="Cu", structure=StructureInput(format="vasp", content=structure_text())
+            ),
+            ctx,
+        )
+        nodes = [vasp("a", {"structure_id": structure["id"]}), vasp("b", {"node": "a"})]
+        plan = await chat.plans.draft(draft(nodes), ctx)
+        pid = plan["id"]
+        chat.plans.store = store
+        await chat.plans.confirm(sid, pid, 1)
+        await chat.plans.tick_plan(sid, pid)
+        engine.finish(engine.submits[0])
+        await chat.plans.tick_plan(sid, pid)
+        assert ("a", "completed") in [
+            (e["node_id"], e["status"]) for e in chat.progress.timeline(sid, 0, 100, pid)["events"]
+        ]
+        assert not (await store.get_session(sid))["messages"]
+        run, _ = await store.begin_run(sid)
+        engine.finish(engine.submits[1])
+        await chat.plans.tick_plan(sid, pid)
+        assert not (await store.get_session(sid))["messages"]
+        await store.fail_run(sid, run, "test", tool_calls=[], usage=TokenUsage())
+        await chat.plans.tick_plan(sid, pid)
+        await chat.plans.tick_plan(sid, pid)
+        messages = (await store.get_session(sid))["messages"]
+        finals = [
+            e for e in chat.progress.timeline(sid, 0, 100, pid)["events"] if e["kind"] == "plan"
+        ]
+        assert len(finals) == len(messages) == 1
+        assert finals[0]["detail"]["chat_event"] == messages[0]["task_event"]
+    finally:
+        await store.close()
