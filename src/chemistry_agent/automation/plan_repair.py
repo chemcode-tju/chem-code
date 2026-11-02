@@ -166,6 +166,18 @@ async def replace_node(plans, args: NodeRepair, context: ToolContext) -> dict:
                 plan["runtime"][dep] = {"status": "pending"}
         plan.update(status="running", reported=False)
         plan.pop("completed_at", None)
+        with plans.chat.progress.connect() as db:
+            plans.chat.progress.insert(
+                db,
+                session,
+                identifier,
+                key,
+                "repair",
+                "pending",
+                args.reason,
+                {"attempt": len(attempts)},
+                f"repair:{key}:{len(attempts)}",
+            )
         plans.save(session, plan)
         return {"id": identifier, "node": key, "attempt": len(attempts), "status": "pending"}
 
@@ -221,6 +233,19 @@ async def diagnose(plans, session: str, identifier: str) -> None:
                             },
                         }
                     )
+            with plans.chat.progress.connect() as db:
+                for key in failures:
+                    plans.chat.progress.insert(
+                        db,
+                        session,
+                        identifier,
+                        key,
+                        "diagnosis",
+                        "running",
+                        "Agent 正在诊断",
+                        {"run_id": run_id},
+                        f"diagnosis:{run_id}:{key}",
+                    )
             plans.save(session, plan)
         _, cfg = plans.provider.configuration()
         plans.provider.select_model(
@@ -246,10 +271,24 @@ async def diagnose(plans, session: str, identifier: str) -> None:
                 history_count=0,
             )
         answer = result["messages"][-1]["content"]
+        with plans.chat.progress.connect() as db:
+            for key in failures:
+                plans.chat.progress.insert(
+                    db,
+                    session,
+                    identifier,
+                    key,
+                    "interpretation",
+                    "completed",
+                    answer,
+                    {"run_id": run_id},
+                    f"interpretation:{run_id}:{key}",
+                )
+        progress.context.automation_event = "diagnosis"
         await plans.store.complete_run(
             session,
             run_id,
-            [{"role": "assistant", "content": answer}],
+            [],
             answer,
             result["tool_calls"],
             result["usage"],
@@ -257,27 +296,38 @@ async def diagnose(plans, session: str, identifier: str) -> None:
         )
     except (Exception, asyncio.CancelledError) as exc:
         if run_id:
+            progress.context.automation_event = "diagnosis"
             await plans.store.fail_run(
                 session,
                 run_id,
                 "plan_diagnosis_failed",
                 tool_calls=progress.tool_calls,
                 usage=progress.usage,
+                context=progress.context,
             )
             repaired = [
                 t.result["node"]
                 for t in progress.tool_calls
                 if t.name == "calculation_plan_repair" and t.success and "node" in t.result
             ]
-            await plans.store.append_task_report(
-                session,
-                f"diagnosis:{run_id}",
-                (
-                    f"Agent 已修复 {', '.join(repaired)}，后续步骤由方案调度。模型总结未完成。"
-                    if repaired
-                    else f"自动诊断未完成（{type(exc).__name__}）；已保留失败节点和原始输出。"
-                ),
+            message = (
+                f"Agent 已修复 {', '.join(repaired)}，模型总结未完成。"
+                if repaired
+                else f"自动诊断未完成（{type(exc).__name__}）；已保留失败节点和原始输出。"
             )
+            with plans.chat.progress.connect() as db:
+                for key in failures:
+                    plans.chat.progress.insert(
+                        db,
+                        session,
+                        identifier,
+                        key,
+                        "interpretation",
+                        "failed",
+                        message,
+                        {"run_id": run_id},
+                        f"diagnosis-error:{run_id}:{key}",
+                    )
         if isinstance(exc, asyncio.CancelledError):
             raise
     finally:

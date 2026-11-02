@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Body, Request
+from fastapi import APIRouter, Body, Query, Request
 from fastapi.responses import FileResponse, Response
 
 from chemistry_agent.automation.chat import (
@@ -18,7 +18,7 @@ from chemistry_agent.automation.plan_models import PlanConfirmation, PlanControl
 from chemistry_agent.automation.recovery import RecoveryPolicy
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.errors import AgentError
-from chemistry_agent.schemas import ChatResponse, TokenUsage, ToolExecution
+from chemistry_agent.schemas import ChatResponse, ContextUsage, TokenUsage, ToolExecution
 from chemistry_agent.tools import ToolContext
 
 router = APIRouter(prefix="/api/automation/chat", tags=["chat calculations"])
@@ -234,12 +234,15 @@ async def confirm(
             root_id = preview.get("recovery_root_id", job["id"])
             if policy is not None and not result["reused"]:
                 monitor.events.set_policy(root_id, policy.model_dump())
+            job["recovery_root_id"] = root_id
             monitor.events.observe(
                 session,
                 str(preview_id),
                 job,
-                report=True,
-                diagnose=monitor.events.policy(root_id)["mode"] != "off",
+                legacy=not preview.get("plan_id"),
+                report=not preview.get("plan_id"),
+                diagnose=not preview.get("plan_id")
+                and monitor.events.policy(root_id)["mode"] != "off",
             )
         call_id = str(uuid4())
         execution = ToolExecution(
@@ -256,30 +259,27 @@ async def confirm(
         )
         if preview.get("workflow") == "bulk_surface":
             answer += " 已确认整个表面流程，AiiDA 将自动推进；完成或失败会更新任务卡并通知。"
-        messages = [
-            {
-                "role": "user",
-                "content": f"确认提交预览 {preview_id}"
-                f"（{preview['structure']['formula']}，{preview['resources']['queue']}）。",
-            },
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": call_id,
-                        "type": "function",
-                        "function": {
-                            "name": execution.name,
-                            "arguments": json.dumps(execution.arguments),
-                        },
-                    }
-                ],
-            },
-            {"role": "tool", "tool_call_id": call_id, "content": json.dumps(result)},
-            {"role": "assistant", "content": answer},
-        ]
-        await store.complete_run(session, run_id, messages, answer, [execution], TokenUsage())
+        with chat.progress.connect() as db:
+            chat.progress.insert(
+                db,
+                session,
+                preview.get("plan_id") or preview.get("recovery_root_id") or job["id"],
+                preview.get("plan_node") or job["id"],
+                "submission",
+                "accepted",
+                answer,
+                {"job_id": job["id"], "pk": job["pk"], "preview_id": str(preview_id)},
+                f"submit:{job['id']}",
+            )
+        await store.complete_run(
+            session,
+            run_id,
+            [],
+            answer,
+            [execution],
+            TokenUsage(),
+            ContextUsage(automation_event="submission"),
+        )
         return ChatResponse(
             session_id=session_id,
             run_id=run_id,
@@ -292,6 +292,21 @@ async def confirm(
             session, run_id, "confirmation_failed", tool_calls=[], usage=TokenUsage()
         )
         raise
+
+
+@router.get("/{session_id}/progress")
+async def calculation_progress(
+    session_id: UUID,
+    request: Request,
+    after: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    plan_id: UUID | None = None,
+    node_id: str | None = Query(None, max_length=120),
+) -> dict:
+    chat = await session_chat(request, session_id)
+    return chat.progress.timeline(
+        str(session_id), after, limit, str(plan_id) if plan_id else None, node_id
+    )
 
 
 @router.get("/{session_id}/events")

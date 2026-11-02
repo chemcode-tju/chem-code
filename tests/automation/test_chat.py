@@ -117,7 +117,9 @@ def test_chat_preview_user_confirmation_restart_and_query(settings_factory, tmp_
         if calls == 2:
             return completion("请检查预览后点击确认提交。")
         if calls == 3:
-            assert any("确认提交预览" in str(item.get("content")) for item in payload["messages"])
+            assert not any(
+                "确认提交预览" in str(item.get("content")) for item in payload["messages"]
+            )
             return completion(name="calculation_job", args={"job_id": "42"})
         return completion("任务结束，能量 -1.6 eV，科学精度尚未验证。")
 
@@ -178,6 +180,14 @@ def test_chat_preview_user_confirmation_restart_and_query(settings_factory, tmp_
     with local_client(app) as client:
         response = client.post(f"/api/automation/chat/{session}/confirm/{preview}")
         assert response.json()["tool_calls"][0]["result"]["reused"]
+        url = f"/api/automation/chat/{session}/progress"
+        rows = client.get(url).json()["events"]
+        assert len([row for row in rows if row["kind"] == "submission"]) == 1
+        assert not client.get(f"/api/automation/chat/{other}/progress?plan_id={job}").json()[
+            "events"
+        ]
+        assert client.get(f"/api/automation/chat/{uuid4()}/progress").status_code == 404
+        assert client.get(url, headers={"Origin": "https://evil.example"}).status_code == 403
         assert len(engine.jobs) == 1
         response = client.post("/chat", json={"session_id": session, "message": "结果呢？"})
         assert response.status_code == 200, response.text

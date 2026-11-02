@@ -1,8 +1,9 @@
-"""Turn a durable task event into an ordinary assistant reply without storing its wake prompt."""
+"""Route background analysis to progress and publish only completed legacy lifecycles."""
 
 import asyncio
 import json
 
+from chemistry_agent.errors import AgentError
 from chemistry_agent.model_runtime import ModelScope, current_model_scope
 
 RESULT_PROMPT = (
@@ -92,16 +93,71 @@ async def deliver_pending(monitor) -> None:
         job = json.loads(item["detail"])
         key = item["event_key"]
         answer = item["answer"]
-        if not answer:
-            recovery = monitor.events.recovery(job["id"]) or {}
-            if item["kind"] != "completed" and recovery.get("state") in {
-                "queued",
-                "running",
-                "submitting",
-                "diagnosed",
-            }:
+        session = item["session_id"]
+        root = job.get("recovery_root_id") or job["id"]
+        recovery = monitor.events.recovery(job["id"]) or {}
+        # Drain old per-node reports created before general plans owned reporting.
+        if hasattr(monitor, "chat"):
+            try:
+                preview = monitor.chat.load(session, "previews", item["preview_id"])
+            except AgentError as exc:
+                if exc.code != "artifact_not_found":
+                    raise
+                # An orphaned report cannot prove workflow ownership. Keep the
+                # original event in the inbox and continue draining other sessions.
+                monitor.events.dismiss_report(key)
                 continue
+            if preview.get("plan_id"):
+                if answer:
+                    with monitor.events.connect() as db:
+                        monitor.events.insert(
+                            db,
+                            session,
+                            preview["plan_id"],
+                            preview.get("plan_node"),
+                            "interpretation",
+                            item["kind"],
+                            answer,
+                            {"job_id": job["id"]},
+                            f"interpretation:{key}",
+                        )
+                monitor.events.dismiss_report(key)
+                continue
+        if recovery.get("state") in {"queued", "running", "submitting", "diagnosed"}:
+            continue
+        if not answer:
             answer = f"**{item['title']}**\n\n" + await summarize(monitor, item, job)
             monitor.events.save_report(key, answer)
-        if await monitor.session_store.append_task_report(item["session_id"], key, answer):
-            monitor.events.deliver_report(key)
+        final = job.get("process_state") in {"finished", "excepted", "killed"} and recovery.get(
+            "state"
+        ) not in {"submitted", "awaiting_confirmation"}
+        with monitor.events.connect() as db:
+            monitor.events.insert(
+                db,
+                session,
+                root,
+                job["id"],
+                "interpretation",
+                item["kind"],
+                answer,
+                {"job_id": job["id"]},
+                f"interpretation:{key}",
+            )
+        if not final:
+            monitor.events.dismiss_report(key)
+            continue
+        chat_event = f"workflow:{root}"
+        if await monitor.session_store.append_task_report(session, chat_event, answer):
+            with monitor.events.connect() as db:
+                monitor.events.insert(
+                    db,
+                    session,
+                    root,
+                    None,
+                    "plan",
+                    item["kind"],
+                    item["title"],
+                    {"job_id": job["id"], "chat_event": chat_event},
+                    "final",
+                )
+            monitor.events.deliver_report(key, chat_event)

@@ -53,6 +53,7 @@ class ToolExecution(BaseModel):
 
 
 class ContextUsage(BaseModel):
+    automation_event: Literal["diagnosis", "submission"] | None = None
     manual_compaction: bool = False
     compressed: bool = False
     summary_used: bool = False

@@ -2,12 +2,11 @@
 
 import hashlib
 import json
-import sqlite3
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
+
+from chemistry_agent.automation.progress import ProgressStore
 
 
 def utc_now() -> str:
@@ -77,10 +76,9 @@ def task_state(job: dict) -> tuple[str, str]:
 FAILURE_STATES = {"failed", "unconverged", "submission_rejected", "paused", "needs_review"}
 
 
-class EventStore:
+class EventStore(ProgressStore):
     def __init__(self, path: Path):
-        self.path = path
-        path.parent.mkdir(parents=True, exist_ok=True)
+        super().__init__(path)
         with self.connect() as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -114,19 +112,13 @@ class EventStore:
                     preview_id TEXT NOT NULL, created_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             """)
+            if "chat_event" not in {
+                row["name"] for row in db.execute("PRAGMA table_info(reports)")
+            }:
+                db.execute("ALTER TABLE reports ADD COLUMN chat_event TEXT")
             db.execute(
                 "UPDATE recoveries SET state='interrupted' WHERE state IN ('running','diagnosed')"
             )
-
-    @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=5)
-        db.row_factory = sqlite3.Row
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
 
     def initialized(self) -> bool:
         with self.connect() as db:
@@ -161,12 +153,33 @@ class EventStore:
         job: dict,
         *,
         diagnose: bool = False,
+        legacy: bool = True,
         report: bool = False,
     ) -> bool:
         state, title = task_state(job)
         snapshot = {**job, "display_state": state, "display_title": title}
         with self.connect() as db:
             for item in [job, *job.get("steps", [])]:
+                if legacy:
+                    child_state, child_title = task_state(item)
+                    self.insert(
+                        db,
+                        session,
+                        job.get("recovery_root_id") or job["id"],
+                        item["id"],
+                        "step",
+                        child_state,
+                        child_title,
+                        {
+                            "job_id": item["id"],
+                            "pk": item["pk"],
+                            "label": item.get("label"),
+                            "scheduler_job_id": item.get("scheduler_job_id"),
+                            "preview_id": preview_id,
+                            "exit_status": item.get("exit_status"),
+                        },
+                        f"step:{item['id']}:{child_state}",
+                    )
                 if (
                     item.get("server_id")
                     and item.get("queue")
@@ -280,18 +293,24 @@ class EventStore:
         with self.connect() as db:
             db.execute("UPDATE reports SET answer=? WHERE event_key=?", (answer, key))
 
-    def deliver_report(self, key: str) -> None:
+    def dismiss_report(self, key: str) -> None:
+        with self.connect() as db:
+            db.execute("UPDATE reports SET delivered=-1 WHERE event_key=? AND delivered=0", (key,))
+
+    def deliver_report(self, key: str, chat_event: str) -> None:
         with self.connect() as db:
             db.execute(
-                "UPDATE reports SET delivered=(SELECT MAX(delivered)+1 FROM reports) "
+                "UPDATE reports SET chat_event=?,delivered="
+                "(SELECT MAX(0,MAX(delivered))+1 FROM reports) "
                 "WHERE event_key=? AND delivered=0",
-                (key,),
+                (chat_event, key),
             )
 
     def latest_report(self, session: str) -> str | None:
         with self.connect() as db:
             row = db.execute(
-                "SELECT r.event_key FROM reports r JOIN events e USING(event_key) "
+                "SELECT COALESCE(r.chat_event,r.event_key) FROM reports r "
+                "JOIN events e USING(event_key) "
                 "WHERE e.session_id=? AND delivered>0 ORDER BY delivered DESC LIMIT 1",
                 (session,),
             ).fetchone()
@@ -393,6 +412,27 @@ class EventStore:
         self, job_id: str, state: str, *, decision: dict | None = None, result: dict | None = None
     ) -> None:
         with self.connect() as db:
+            row = db.execute(
+                "SELECT r.session_id,s.payload FROM recoveries r LEFT JOIN snapshots s "
+                "ON r.job_id=s.job_id WHERE r.job_id=?",
+                (job_id,),
+            ).fetchone()
+            if row:
+                snapshot = json.loads(row["payload"] or "{}")
+                reason = (result or {}).get("reason") or (decision or {}).get("decision", {}).get(
+                    "reason"
+                )
+                self.insert(
+                    db,
+                    row["session_id"],
+                    snapshot.get("recovery_root_id") or job_id,
+                    job_id,
+                    "diagnosis",
+                    state,
+                    reason or state,
+                    {"job_id": job_id},
+                    f"recovery:{job_id}:{state}:{reason or ''}",
+                )
             db.execute(
                 "UPDATE recoveries SET state=?,decision=COALESCE(?,decision),"
                 "result=COALESCE(?,result),updated_at=? WHERE job_id=?",
