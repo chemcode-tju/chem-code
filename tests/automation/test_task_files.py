@@ -57,9 +57,18 @@ def test_arbitrary_retrieved_files_staging_and_ranges(tmp_path, monkeypatch):
             relative_path(path)
 
 
-def test_remote_arbitrary_files_binary_staging_and_symlink_boundary(tmp_path, monkeypatch):
+@pytest.mark.parametrize("has_normalize", [True, False])
+def test_remote_arbitrary_files_binary_staging_and_symlink_boundary(
+    tmp_path, monkeypatch, has_normalize
+):
     from aiida.transports.plugins.local import LocalTransport
 
+    if not has_normalize:
+
+        def unavailable(self, path):
+            raise NotImplementedError
+
+        monkeypatch.setattr(LocalTransport, "normalize", unavailable)
     remote = tmp_path / "remote"
     remote.mkdir()
     (remote / "custom.data").write_text("0123456789")

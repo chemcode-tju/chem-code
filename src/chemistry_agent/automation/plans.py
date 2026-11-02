@@ -26,7 +26,7 @@ from chemistry_agent.automation.events import (
 )
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import StructureInput
-from chemistry_agent.automation.plan_authority import auto_queue, auto_request
+from chemistry_agent.automation.plan_authority import auto_queue, auto_request, repair_target
 from chemistry_agent.automation.plan_models import (
     NodeRepair,
     PlanDraft,
@@ -37,6 +37,7 @@ from chemistry_agent.automation.plan_models import (
     ProgramSource,
 )
 from chemistry_agent.automation.plan_repair import diagnose, eligible, replace_node
+from chemistry_agent.automation.plan_stop import PlanStop, job_ids
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
 
@@ -75,6 +76,7 @@ class CalculationPlans:
         self.projected: set[tuple[str, str, int]] = set()
         self.store = None
         self.agent = self.provider = None
+        self.stop_requests: set[tuple[str, str]] = set()
         self.repair_tasks: dict[tuple[str, str], asyncio.Task] = {}
 
     def lock(self, session: str, plan: str) -> asyncio.Lock:
@@ -299,6 +301,31 @@ class CalculationPlans:
                 plan.pop("reported", None)
                 self.save(session, plan)
             return {"plan_id": identifier, "node_id": key, "status": plan["runtime"][key]["status"]}
+
+    async def stop(self, args: PlanStop, context: ToolContext) -> dict:
+        if not auto_request.get() or repair_target.get():
+            raise AgentError(
+                "stop_not_authorized", "仅可在用户对话回合中按要求停止本方案。", 403
+            )
+        session, identifier = context.session_id, str(args.plan_id)
+        self.chat.load(session, "plans", identifier)
+        self.stop_requests.add((session, identifier))
+        async with self.lock(session, identifier):
+            self.stop_requests.discard((session, identifier))
+            plan = self.chat.load(session, "plans", identifier)
+            if plan["status"] == "completed":
+                return {"status": "completed"}
+            plan["status"] = "stopping"
+            self.save(session, plan)
+            result = await self.chat.service.call("stop_plan_jobs", {"job_ids": job_ids(plan)})
+            if result["verified_stopped"]:
+                plan["status"] = "stopped"
+                for state in plan["runtime"].values():
+                    if state["status"] not in TERMINAL:
+                        state["status"] = "stopped"
+            plan["stop_result"] = result
+            self.save(session, plan)
+            return {"status": plan["status"], **result}
 
     async def query(self, args: PlanQuery, context: ToolContext) -> dict:
         def summary(plan: dict) -> dict:
@@ -645,12 +672,16 @@ class CalculationPlans:
     async def tick_plan(self, session: str, identifier: str) -> None:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
+            if plan["status"] in {"stopping", "stopped"}:
+                return
             projection_key = (session, identifier, plan["revision"])
             if projection_key not in self.projected:
                 self.record_steps(session, plan, plan["nodes"])
                 self.projected.add(projection_key)
             if plan["status"] in {"running", "paused"}:
                 for node in plan["nodes"]:
+                    if (session, identifier) in self.stop_requests:
+                        return
                     state = plan["runtime"][node["id"]]
                     before = self.step_status(state)
                     try:
@@ -721,6 +752,8 @@ class CalculationPlans:
                 labels = {"completed": "已完成", "failed": "失败", "blocked": "上游失败，未执行"}
                 rows = []
                 for node in plan["nodes"]:
+                    if (session, identifier) in self.stop_requests:
+                        return
                     state = plan["runtime"][node["id"]]
                     reason = f" · {state['error']}" if state.get("error") else ""
                     rows.append(f"- {node['title']}：{labels[state['status']]}{reason}")
@@ -797,6 +830,14 @@ class CalculationPlans:
 
     def tools(self) -> list[Tool]:
         return [
+            Tool(
+                "calculation_plan_stop",
+                "Stop this session plan and its submitted jobs on explicit user request. "
+                "Repeat to verify remaining jobs. Preserve results.",
+                PlanStop,
+                self.stop,
+                True,
+            ),
             Tool(
                 "calculation_plan_save",
                 "Create or revise a general executable calculation DAG. "
