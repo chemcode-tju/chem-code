@@ -378,8 +378,10 @@ def create_app(
         )
 
     @app.get("/sessions/{session_id}/chat-requests", tags=["sessions"])
-    async def pending_chat(session_id: UUID, request: Request):
-        return await request.app.state.chat_queue.list(str(session_id), request.state.user_id)
+    async def pending_chat(session_id: UUID, request: Request, compact: bool = False):
+        return await request.app.state.chat_queue.list(
+            str(session_id), request.state.user_id, compact=compact
+        )
 
     @app.get("/sessions/{session_id}/chat-requests/{request_id}/stream", tags=["sessions"])
     async def stream_answer(session_id: UUID, request_id: UUID, request: Request):

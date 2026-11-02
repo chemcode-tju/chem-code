@@ -33,7 +33,6 @@ class ChatQueue:
         self, identifier: str, body: ChatRequest, request: Request, retry: bool
     ) -> dict:
         session = str(body.session_id)
-        await self.store.get_session(session, request.state.user_id)
         encoded = json.dumps(body.model_dump(mode="json", exclude_unset=True), sort_keys=True)
         user_id, config = self.provider.configuration()
         try:
@@ -42,6 +41,11 @@ class ChatQueue:
         except AgentError:
             local = False
         async with self.store.transaction():
+            if not await self.store._one(
+                "SELECT 1 FROM sessions WHERE id=? AND owner_id IS ?",
+                (session, request.state.user_id),
+            ):
+                raise AgentError("session_not_found", "会话不存在。", 404)
             existing = await self.store._one(
                 "SELECT * FROM chat_requests WHERE id=?", (identifier,)
             )
@@ -133,9 +137,9 @@ class ChatQueue:
 
     @staticmethod
     def public(row: aiosqlite.Row) -> dict:
-        return {**dict(row), "body": json.loads(row["body"])}
+        return {**dict(row), "body": json.loads(row["body"]) if row["body"] else None}
 
-    async def list(self, session: str, owner: str | None) -> dict:
+    async def list(self, session: str, owner: str | None, *, compact: bool = False) -> dict:
         async with self.store.lock:
             state = await self.store._one(
                 "SELECT active_run_id,updated_at FROM sessions WHERE id=? AND owner_id IS ?",
@@ -144,8 +148,13 @@ class ChatQueue:
             if state is None:
                 raise AgentError("session_not_found", "会话不存在。", 404)
             async with self.store.db.execute(
-                "SELECT * FROM chat_requests WHERE session_id=? ORDER BY rowid DESC LIMIT 100",
-                (session,),
+                "SELECT id,session_id,created_at,run_id,status,error,"
+                "CASE WHEN status='completed' AND ? THEN NULL ELSE body END AS body "
+                "FROM chat_requests WHERE session_id=? AND (status IN ('queued','running') OR "
+                "rowid IN (SELECT rowid FROM chat_requests WHERE session_id=? "
+                "ORDER BY rowid DESC LIMIT 100)) "
+                "ORDER BY rowid DESC",
+                (compact, session, session),
             ) as cursor:
                 rows = await cursor.fetchall()
         return {**dict(state), "requests": [self.public(row) for row in reversed(rows)]}

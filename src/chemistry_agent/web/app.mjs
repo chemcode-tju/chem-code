@@ -491,7 +491,7 @@ async function syncChat() {
   if (!id || state.loading || state.busy || syncingChat) return;
   syncingChat = true;
   try {
-    const receipt = await api(`/sessions/${id}/chat-requests`);
+    const receipt = await api(`/sessions/${id}/chat-requests?compact=true`);
     if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
     const signature = JSON.stringify([receipt.updated_at, receipt.active_run_id,
       receipt.requests.map(item=>[item.id,item.status,item.error])]);

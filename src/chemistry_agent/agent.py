@@ -119,9 +119,28 @@ class ChemistryAgent:
             progress.preview.set_text("")
         token = current_answer.set(progress.preview)
         try:
-            completion = await self.provider.complete(
-                messages, self.registry.schemas(), allow_tools=allow_tools
-            )
+            for attempt in range(2):
+                try:
+                    completion = await self.provider.complete(
+                        messages, self.registry.schemas(), allow_tools=allow_tools
+                    )
+                    break
+                except AgentError as exc:
+                    # Retry inference before visible output. Never replay tools here.
+                    if (
+                        attempt
+                        or progress.preview is None
+                        or progress.preview.text
+                        or exc.code
+                        not in {
+                            "provider_unreachable",
+                            "provider_timeout",
+                            "chatgpt_stream_interrupted",
+                            "provider_stream_interrupted",
+                        }
+                    ):
+                        raise
+                    await asyncio.sleep(0.5)
         finally:
             current_answer.reset(token)
         progress.usage = progress.usage.plus(completion.usage)

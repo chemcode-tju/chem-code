@@ -128,6 +128,14 @@ class Store:
             await db.execute(
                 "UPDATE chat_requests SET status='queued',run_id=NULL WHERE status='running'"
             )
+            # Previous releases offered blind retries after a service restart, even after
+            # a command may have started. Never replay such a legacy run without evidence.
+            await db.execute(
+                "UPDATE chat_requests SET status='uncertain',error=? WHERE status='failed' "
+                "AND run_id IS NOT NULL AND error LIKE '服务已重启%' AND NOT EXISTS "
+                "(SELECT 1 FROM chat_checkpoints c WHERE c.request_id=chat_requests.id)",
+                (UNCERTAIN,),
+            )
             await db.commit()
         except BaseException:
             await db.close()

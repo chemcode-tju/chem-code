@@ -212,3 +212,39 @@ async def test_restart_after_tool_boundary_never_reexecutes_tool(
         assert (
             await client.get(f"/sessions/{uuid4()}/chat-requests/{body['request_id']}/stream")
         ).status_code == 404
+
+
+async def test_transient_failure_before_first_text_retries_inference_not_tool(settings_factory):
+    received_roles = []
+
+    def provider(request):
+        role = json.loads(request.content)["messages"][-1]["role"]
+        received_roles.append(role)
+        if role == "user":
+            return httpx.Response(200, json=completion(None, calls=[tool_call()]))
+        if len(received_roles) == 2:
+            raise httpx.ReadError("transient")
+        return httpx.Response(200, json=completion("done"))
+
+    app = create_app(settings_factory(), transport=httpx.MockTransport(provider))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+    ):
+        session = (await client.post("/sessions", json={})).json()["id"]
+        await client.post(
+            "/chat/requests",
+            json={
+                "session_id": session,
+                "request_id": str(uuid4()),
+                "message": "Use tool",
+            },
+        )
+        await asyncio.wait_for(asyncio.gather(*app.state.chat_queue.tasks), 3)
+        row = (await client.get(f"/sessions/{session}/chat-requests?compact=true")).json()[
+            "requests"
+        ][0]
+        assert row["status"] == "completed" and row["body"] is None
+        messages = (await client.get(f"/sessions/{session}")).json()["messages"]
+        assert received_roles == ["user", "tool", "tool"]
+        assert [m["role"] for m in messages] == ["user", "assistant", "tool", "assistant"]

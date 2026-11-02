@@ -157,7 +157,9 @@ class PlanResponses:
             )
         except (httpx.TimeoutException, TimeoutError) as exc:
             raise AgentError("provider_timeout", "ChatGPT 响应超时，请稍后重试。", 504) from exc
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        except httpx.RequestError as exc:
+            raise AgentError("provider_unreachable", "与 ChatGPT 的连接中断。", 502) from exc
+        except (ValueError, KeyError, TypeError) as exc:
             raise AgentError(
                 "provider_invalid_response", "ChatGPT 返回了无法解析的响应。", 502
             ) from exc
