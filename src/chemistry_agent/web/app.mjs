@@ -1,3 +1,4 @@
+import {liveAnswer} from "./live-answer.mjs";
 import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
@@ -269,6 +270,7 @@ function renderConversation(scroll = true) {
   $("welcome").hidden = hasConversation || state.loading;
   $("conversation").hidden = !hasConversation && !state.loading;
   if (state.loading) {
+    streamed.close();
     $("conversation").innerHTML = '<div class="thinking-indicator">正在打开这段研究对话…</div>';
     return;
   }
@@ -279,13 +281,14 @@ function renderConversation(scroll = true) {
   for (const item of state.outbox) {
     const article = document.createElement("article");
     article.className = "turn";
-    const label = item.status === "failed" ? item.error || "处理失败，消息已保存。"
+    const label = ["failed","uncertain"].includes(item.status) ? item.error || "处理失败，消息已保存。"
       : item.status === "running" ? "正在生成回答 · 消息已保存，可离开页面"
       : "等待上一条回复 · 消息已保存";
     article.innerHTML = renderUser(item.body.message, item.body.context || "") +
-      `<div class="assistant-message"><div class="assistant-body"><div class="${item.status === "failed" ? "message-error" : "thinking-indicator"}">${escapeHtml(label)}</div>${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
+      `<div class="assistant-message"><div class="assistant-body"><div class="${item.status === "failed" ? "message-error" : "thinking-indicator"}">${escapeHtml(label)}</div><div class="markdown" hidden data-live-request="${escapeHtml(item.id)}"></div>${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
     $("conversation").append(article);
   }
+  streamed.follow(state.sessionId, (state.outbox.find(item => item.status === "running") || state.outbox.find(item => item.status === "queued"))?.id);
   if (state.pending) {
     const pending = state.pending;
     const article = document.createElement("article");
@@ -426,6 +429,19 @@ function restoreDraft() {
   } catch { state.pending = null; }
 }
 
+const streamed = liveAnswer({
+  render(request, text) {
+    const el = document.querySelector(`[data-live-request="${CSS.escape(request)}"]`);
+    if (!el || el.dataset.preview === text) return;
+    const scroll = $("chat-scroll");
+    const pinned = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 56;
+    el.dataset.preview = text;
+    el.innerHTML = text ? (markdown.renderPartial?.(text) ?? markdown.render(text)) : "";
+    el.hidden = !text;
+    if (pinned) scroll.scrollTop = scroll.scrollHeight;
+  },
+  settle: () => void syncChat(),
+});
 let syncingChat = false;
 async function syncChat() {
   const id = state.sessionId, generation = state.navigation;
@@ -491,11 +507,15 @@ async function sendChat(message, context = "", files = uploads.files, retryReque
     }
     state.pending.request = outbound;
     saveDraft(outbound);
-    await api("/chat/requests" + (retryRequest ? "?retry=true" : ""), {
-      method:"POST", body:JSON.stringify(outbound), keepalive:true,
+    const receipt = await api("/chat/requests" + (retryRequest ? "?retry=true" : ""), {
+      method:"POST", body:JSON.stringify(outbound),
     });
     if (accountVersion !== state.accountVersion) return;
     state.pending = null;
+    if (receipt && ["queued","running"].includes(receipt.status)) {
+      state.outbox = [...state.outbox.filter(item => item.id !== receipt.id), {...receipt, body:outbound}];
+      renderConversation(false);
+    }
     calculations.clearSelection();
     clearRevision();
     if ($("message-input").value.trim() === message.trim()) {

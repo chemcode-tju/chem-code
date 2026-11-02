@@ -242,6 +242,7 @@ def test_shared_mode_has_no_calculation_tools(settings_factory):
         assert set(app.state.agent.registry.tools) == {
             "molecular_properties",
             "molecular_similarity",
+            "web_search",
         }
         assert client.get("/api/automation/status").status_code in {401, 403}
 

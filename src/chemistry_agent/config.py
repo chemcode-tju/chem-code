@@ -15,6 +15,21 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
+    web_search_enabled: bool = Field(default=True, validation_alias="CHEMISTRY_WEB_SEARCH_ENABLED")
+    search_endpoint: str = Field(default="", validation_alias="CHEMISTRY_SEARXNG_URL")
+    ssh_hosts: str = Field(default="", validation_alias="CHEMISTRY_SSH_HOSTS")
+
+    @property
+    def allowed_ssh_hosts(self) -> tuple[str, ...]:
+        from chemistry_agent.runtime.shell import SSH_ALIAS
+
+        hosts = tuple(
+            dict.fromkeys(value.strip() for value in self.ssh_hosts.split(",") if value.strip())
+        )
+        if any(not SSH_ALIAS.fullmatch(host) for host in hosts):
+            raise ValueError("CHEMISTRY_SSH_HOSTS requires comma-separated OpenSSH aliases")
+        return () if self.auth_enabled else hosts
+
     automation_enabled: bool = Field(default=False, validation_alias="CHEMISTRY_AUTOMATION_ENABLED")
     automation_monitor_enabled: bool = Field(
         default=True, validation_alias="CHEMISTRY_AUTOMATION_MONITOR_ENABLED"

@@ -56,7 +56,7 @@ async def test_navigation_reconnect_queue_and_duplicate_receipts(settings_factor
             assert len(prompts) == 2
 
 
-async def test_failed_and_interrupted_requests_preserve_text_and_can_retry(settings_factory):
+async def test_interrupted_model_request_recovers_without_browser_retry(settings_factory):
     settings = settings_factory()
     started = asyncio.Event()
 
@@ -84,13 +84,15 @@ async def test_failed_and_interrupted_requests_preserve_text_and_can_retry(setti
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             path = f"/sessions/{session}/chat-requests"
-            item = (await client.get(path)).json()["requests"][0]
-            assert item["status"] == "failed"
-            assert item["body"]["message"] == body["message"]
-            assert (await client.post("/chat/requests", json=body)).json()["status"] == "failed"
-            assert (await client.post("/chat/requests?retry=true", json=body)).status_code == 202
             await asyncio.wait_for(asyncio.gather(*app.state.chat_queue.tasks), 5)
-            assert (await client.get(path)).json()["requests"][0]["status"] == "completed"
+            item = (await client.get(path)).json()["requests"][0]
+            assert item["body"]["message"] == body["message"]
+            assert item["status"] == "completed"
+            assert (await client.post("/chat/requests?retry=true", json=body)).json()[
+                "status"
+            ] == "completed"
+            history = (await client.get(f"/sessions/{session}")).json()["messages"]
+            assert [m["content"] for m in history] == ["原文必须保留", "恢复完成"]
 
 
 async def test_receipt_conflict_and_unknown_session(settings_factory):

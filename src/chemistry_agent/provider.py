@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from chemistry_agent.config import Settings
 from chemistry_agent.errors import AgentError
+from chemistry_agent.runtime.completion_stream import read_chat_stream
+from chemistry_agent.runtime.live import current_answer
 from chemistry_agent.schemas import TokenUsage
 
 
@@ -97,26 +99,29 @@ class DeepSeekClient:
             payload["tool_choice"] = "auto" if allow_tools else "none"
         key = self.settings.deepseek_api_key
         headers = {"Authorization": f"Bearer {key.get_secret_value()}"} if key else {}
+        preview = current_answer.get()
         try:
-            response = await self.http.post("chat/completions", json=payload, headers=headers)
+            if preview:
+                payload["stream"] = True
+                if not self.compatible:
+                    payload["stream_options"] = {"include_usage": True}
+            async with self.http.stream(
+                "POST", "chat/completions", json=payload, headers=headers
+            ) as response:
+                self.check_status(response)
+                if preview and "event-stream" in response.headers.get("content-type", ""):
+                    data = await read_chat_stream(response, preview)
+                else:
+                    await response.aread()
+                    data = response.json()
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise AgentError("provider_invalid_response", "模型服务返回了无法解析的响应。") from exc
         except httpx.TimeoutException as exc:
             raise AgentError("provider_timeout", "DeepSeek 响应超时，请稍后重试。", 504) from exc
         except httpx.RequestError as exc:
             raise AgentError("provider_unreachable", "无法连接 DeepSeek，请检查网络配置。") from exc
 
-        if response.status_code in {401, 403}:
-            raise AgentError(
-                "provider_authentication_failed", "DeepSeek 认证失败，请检查 API Key。"
-            )
-        if response.status_code == 402:
-            raise AgentError("provider_insufficient_balance", "DeepSeek 账户余额不足。")
-        if response.status_code == 429:
-            raise AgentError("provider_rate_limited", "DeepSeek 请求受限，请稍后重试。", 503)
-        if not response.is_success:
-            # Do not expose upstream response bodies: they can contain credentials or input text.
-            raise AgentError("provider_error", f"DeepSeek 返回 HTTP {response.status_code}。")
         try:
-            data = response.json()
             choice = data["choices"][0]
             if not isinstance(choice, dict):
                 raise ValueError("Expected a choice object")
@@ -139,3 +144,17 @@ class DeepSeekClient:
                 "provider_invalid_response", "DeepSeek 返回了无法解析的响应。"
             ) from exc
         return Completion(message=message, usage=usage)
+
+    @staticmethod
+    def check_status(response: httpx.Response) -> None:
+        if response.status_code in {401, 403}:
+            raise AgentError(
+                "provider_authentication_failed", "DeepSeek 认证失败，请检查 API Key。"
+            )
+        if response.status_code == 402:
+            raise AgentError("provider_insufficient_balance", "DeepSeek 账户余额不足。")
+        if response.status_code == 429:
+            raise AgentError("provider_rate_limited", "DeepSeek 请求受限，请稍后重试。", 503)
+        if not response.is_success:
+            # Do not expose upstream response bodies: they can contain credentials or input text.
+            raise AgentError("provider_error", f"DeepSeek 返回 HTTP {response.status_code}。")

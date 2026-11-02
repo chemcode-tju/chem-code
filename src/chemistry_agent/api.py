@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import httpx
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
@@ -32,6 +32,8 @@ from chemistry_agent.model_routes import router as model_router
 from chemistry_agent.model_runtime import ProviderRouter
 from chemistry_agent.projects import router as projects_router
 from chemistry_agent.provider import ToolCall
+from chemistry_agent.runtime.search import web_search_tool
+from chemistry_agent.runtime.shell import authorized_host, remote_shell_tool, shell_grant
 from chemistry_agent.schemas import (
     ChatRequest,
     ChatResponse,
@@ -69,7 +71,13 @@ def create_app(
     automation = AutomationService(settings)
     calculation_chat = CalculationChat(automation)
     calculation_enabled = settings.automation_enabled and not settings.auth_enabled
-    registry = ToolRegistry(calculation_chat.tools() if calculation_enabled else [])
+    extras = calculation_chat.tools() if calculation_enabled else []
+    if settings.web_search_enabled:
+        extras.append(web_search_tool(settings.search_endpoint))
+    ssh_hosts = settings.allowed_ssh_hosts
+    if ssh_hosts:
+        extras.append(remote_shell_tool(ssh_hosts))
+    registry = ToolRegistry(extras)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -108,6 +116,7 @@ def create_app(
                     monitor.start()
                 if calculation_enabled:
                     calculation_chat.plans.start(store, app.state.agent, provider)
+                await app.state.chat_queue.recover(app)
                 try:
                     yield
                 finally:
@@ -353,7 +362,7 @@ def create_app(
 
     @app.post("/chat/requests", status_code=202, tags=["agent"])
     async def enqueue_chat(body: QueuedChatRequest, request: Request, retry: bool = False):
-        if calculation_enabled:
+        if calculation_enabled or (ssh_hosts and body.message.lstrip().startswith("/shell")):
             local_service(request)
         message = ChatRequest.model_validate(
             body.model_dump(mode="json", exclude={"request_id"}, exclude_unset=True)
@@ -366,9 +375,28 @@ def create_app(
     async def pending_chat(session_id: UUID, request: Request):
         return await request.app.state.chat_queue.list(str(session_id), request.state.user_id)
 
+    @app.get("/sessions/{session_id}/chat-requests/{request_id}/stream", tags=["sessions"])
+    async def stream_answer(session_id: UUID, request_id: UUID, request: Request):
+        store = request.app.state.store
+        async with store.lock:
+            row = await store._one(
+                "SELECT r.status FROM chat_requests r JOIN sessions s ON s.id=r.session_id "
+                "WHERE r.id=? AND s.id=? AND s.owner_id IS ?",
+                (str(request_id), str(session_id), request.state.user_id),
+            )
+        if not row:
+            raise AgentError("request_not_found", "消息不存在。", 404)
+        preview = request.app.state.chat_queue.live.get(str(request_id))
+        events = preview.events() if preview else iter(["event: settled\ndata: {}\n\n"])
+        return StreamingResponse(
+            events,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
     @app.post("/chat", response_model=ChatResponse, tags=["agent"])
     async def chat(body: ChatRequest, request: Request):
-        if calculation_enabled:
+        if calculation_enabled or (ssh_hosts and body.message.lstrip().startswith("/shell")):
             local_service(request)
         if body.structure_ids and not calculation_enabled:
             raise AgentError("automation_disabled", "结构附件需要本地自动化功能。", 422)
@@ -399,6 +427,7 @@ def create_app(
             )
             for identifier in body.structure_ids
         ]
+        selected_host = authorized_host(body.message, ssh_hosts)
         run_id, history = await store.begin_run(
             session_id,
             request.state.user_id,
@@ -414,7 +443,7 @@ def create_app(
                 attached_structures, ensure_ascii=False
             )
         messages = [*history, {"role": "user", "content": content}]
-        progress = RunProgress()
+        progress = RunProgress(preview=getattr(request.state, "live_answer", None))
 
         async def record_failure(code: str, *, cancelled=False):
             await store.fail_run(
@@ -434,6 +463,7 @@ def create_app(
         )
 
         source_request = auto_request.set(getattr(request.state, "chat_request_id", run_id))
+        shell_token = shell_grant.set(selected_host)
         grant = auto_queue.set(authorized_queue(body.message) if calculation_enabled else None)
         try:
             async with asyncio.timeout(settings.run_timeout_seconds):
@@ -469,6 +499,7 @@ def create_app(
             logger.error("Agent run failed (%s)", type(exc).__name__)
             raise AgentError("internal_error", "任务执行失败，请重试。", 500) from exc
         finally:
+            shell_grant.reset(shell_token)
             auto_queue.reset(grant)
             auto_request.reset(source_request)
         return ChatResponse(

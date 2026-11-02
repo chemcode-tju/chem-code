@@ -5,6 +5,7 @@ from typing import Any, Protocol
 from chemistry_agent.config import Settings
 from chemistry_agent.errors import AgentError
 from chemistry_agent.provider import DeepSeekClient
+from chemistry_agent.runtime.turn_memory import fold_tool_rounds
 from chemistry_agent.schemas import ContextMemory, ContextUsage, TokenUsage
 from chemistry_agent.store import Store
 from chemistry_agent.tokens import TokenCounter
@@ -67,6 +68,9 @@ class ContextManager:
         }
         important = [
             "error",
+            "url",
+            "plan_id",
+            "exit_code",
             "message",
             "id",
             "structure_id",
@@ -95,6 +99,22 @@ class ContextManager:
             "source",
         ]
         items = data if isinstance(data, dict) else {"items": data}
+        if "provider" in items and isinstance(items.get("results"), list):
+            # Preserve citable links even when dropping verbose snippets.
+            links = []
+            for row in items["results"]:
+                if not isinstance(row, dict):
+                    continue
+                link = {
+                    "url": row.get("url"),
+                    "title": self.counter.prefix(str(row.get("title", "")), 60),
+                }
+                candidate = {**wrapper, "data": {"results": links + [link]}}
+                if self.counter.text_tokens(json.dumps(candidate, ensure_ascii=False)) <= budget:
+                    links.append(link)
+            if links:
+                wrapper["data"]["results"] = links
+                items = {k: v for k, v in items.items() if k != "results"}
         keys = [key for key in important if key in items]
         keys.extend(key for key in items if key not in keys)
         identifiers = {
@@ -134,7 +154,12 @@ class ContextManager:
         return encoded, True
 
     def _wire(
-        self, history: list[dict[str, Any]], current: list[dict[str, Any]], memory: ContextMemory
+        self,
+        history: list[dict[str, Any]],
+        current: list[dict[str, Any]],
+        memory: ContextMemory,
+        *,
+        active_limit: int | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         messages = [{"role": "system", "content": self.system_prompt}]
         if memory.summary:
@@ -159,6 +184,8 @@ class ContextManager:
             for call in message.get("tool_calls", [])
         }
         calculation_tools = {
+            "web_search",
+            "remote_shell",
             "calculation_plan_save",
             "calculation_plan_get",
             "calculation_setup",
@@ -193,7 +220,11 @@ class ContextManager:
                         data["diagnostics_are_excerpts"] = True
                         message["content"] = json.dumps(data, ensure_ascii=False)
                         compacted += 1
-                    continue
+                    if (
+                        active_limit is None
+                        or self.counter.text_tokens(message["content"]) <= active_limit
+                    ):
+                        continue
                 message["content"], changed = self.compact_tool_content(message["content"])
                 compacted += int(changed)
         return [*messages, *tail], compacted
@@ -303,11 +334,32 @@ class ContextManager:
                 self.tools,
             ),
         )
-        wire, compacted = self._wire(history, current, memory)
+        # Large ongoing plans can exceed a window in a single user turn. Fold only
+        # completed older tool groups in the model view; durable originals stay intact.
+        folded = 0
+        active, _ = self._wire([], current, ContextMemory())
+        if self.counter.request_tokens(active, self.tools) > info.trigger_tokens:
+            current, folded = fold_tool_rounds(
+                current,
+                self.counter,
+                min(self.settings.context_summary_tokens, info.input_budget_tokens // 8),
+            )
+        active_limit = (
+            max(1024, info.input_budget_tokens // 8)
+            if (self.counter.request_tokens(active, self.tools) > info.trigger_tokens)
+            else None
+        )
+
+        def fit(
+            history: list[dict], current: list[dict], memory: ContextMemory
+        ) -> tuple[list, int]:
+            return self._wire(history, current, memory, active_limit=active_limit)
+
+        wire, compacted = fit(history, current, memory)
         tokens = self.counter.request_tokens(wire, self.tools)
 
         # Check the protected recent turns and current task before spending tokens on a summary.
-        protected, _ = self._wire(history[eligible_end:], current, ContextMemory())
+        protected, _ = fit(history[eligible_end:], current, ContextMemory())
         # Long completed modeling turns may exceed the recent-turn target. Summarize
         # the oldest whole turns rather than failing while compressible history exists.
         retained = sum(index >= eligible_end for index in boundaries)
@@ -319,7 +371,7 @@ class ContextManager:
         while required_space() > info.input_budget_tokens and retained > 0:
             retained -= 1
             eligible_end = boundaries[-retained] if retained else len(history)
-            protected, _ = self._wire(history[eligible_end:], current, ContextMemory())
+            protected, _ = fit(history[eligible_end:], current, ContextMemory())
         if self.counter.request_tokens(protected, self.tools) > info.input_budget_tokens:
             raise AgentError(
                 "context_budget_exceeded",
@@ -333,14 +385,14 @@ class ContextManager:
             summary = await self._summarize(memory.summary, transcript, progress)
             memory = ContextMemory(summary=summary, covered_messages=eligible_end)
             await self.store.save_context_memory(session_id, run_id, memory)
-            wire, compacted = self._wire(history, current, memory)
+            wire, compacted = fit(history, current, memory)
             tokens = self.counter.request_tokens(wire, self.tools)
 
         info.input_tokens_after = tokens
         info.summary_used = bool(memory.summary)
         info.summarized_messages = memory.covered_messages
         info.retained_turns = sum(index >= memory.covered_messages for index in boundaries)
-        info.compacted_tool_results = max(info.compacted_tool_results, compacted)
+        info.compacted_tool_results = max(info.compacted_tool_results, compacted + folded)
         info.compressed = info.summary_used or info.compacted_tool_results > 0
         if tokens > info.input_budget_tokens:
             raise AgentError(

@@ -9,6 +9,7 @@ import httpx
 from chemistry_agent.chatgpt_plan import RESOURCE, ChatGPTPlan
 from chemistry_agent.errors import AgentError
 from chemistry_agent.provider import AssistantMessage, Completion
+from chemistry_agent.runtime.live import StructuredPreview
 from chemistry_agent.schemas import TokenUsage
 
 
@@ -164,6 +165,7 @@ class PlanResponses:
 
 async def read_completed(response: httpx.Response) -> dict:
     """Only a completed terminal event proves success; partial text is not a result."""
+    preview = StructuredPreview()
     completed_items: dict[int, dict] = {}
     data: list[str] = []
     size = 0
@@ -177,6 +179,8 @@ async def read_completed(response: httpx.Response) -> dict:
             event = json.loads("\n".join(data))
             data.clear()
             kind = event.get("type")
+            if kind == "response.output_text.delta":
+                preview.feed(event["delta"])
             if kind == "response.output_item.done":
                 item = event.get("item") or {}
                 if item.get("type") == "message" and item.get("role") == "assistant":

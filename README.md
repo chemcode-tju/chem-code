@@ -159,3 +159,5 @@ node --test tests/frontend.test.mjs
 ## 本地 AiiDA 自动化
 
 本地单用户模式可连接 SSH 集群，通过聊天建模、预览并确认 VASP 计算。支持按需注册赝势、任务通知、优化后单点工作流和受限故障恢复。会话压缩保留原始记录与计算产物。配置及边界见 [AiiDA 自动化说明](docs/AUTOMATION.md)。共享账号服务不会开放集群执行工具。
+
+[远程终端、联网搜索、流式对话与重启恢复](docs/agent-runtime.md) · [自动化计算](docs/AUTOMATION.md)

@@ -15,6 +15,8 @@ from chemistry_agent.chatgpt_responses import PlanResponses
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_settings import ModelSettings, ModelSettingsStore
 from chemistry_agent.provider import AssistantMessage, Completion
+from chemistry_agent.runtime.codex_stream import read_codex_turn
+from chemistry_agent.runtime.live import current_answer
 from chemistry_agent.schemas import TokenUsage
 
 LOGIN_TIMEOUT = 900
@@ -386,6 +388,7 @@ class ChatGPTClient:
                     "-c",
                     "project_doc_max_bytes=0",
                 ]
+                isolation = []
                 for feature in (
                     "shell_tool",
                     "unified_exec",
@@ -402,7 +405,8 @@ class ChatGPTClient:
                     "code_mode_host",
                     "skill_search",
                 ):
-                    arguments.extend(["--disable", feature])
+                    isolation.extend(["--disable", feature])
+                arguments.extend(isolation)
                 if configuration.model:
                     arguments.extend(["--model", configuration.model])
                 arguments.append("-")
@@ -424,25 +428,49 @@ class ChatGPTClient:
                         ensure_ascii=False,
                     )
                 )
+                live = current_answer.get() is not None
+                if live:
+                    arguments = [
+                        "app-server",
+                        "--listen",
+                        "stdio://",
+                        "-c",
+                        'web_search="disabled"',
+                        "-c",
+                        "project_doc_max_bytes=0",
+                        *isolation,
+                    ]
                 process = await self.process(
                     user_id,
                     *arguments,
+                    limit=16 * 1024 * 1024,
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
                 try:
-                    events, _ = await asyncio.wait_for(
-                        process.communicate(prompt.encode()),
-                        self.store.settings.codex_timeout_seconds,
-                    )
+                    if live:
+                        raw, usage = await asyncio.wait_for(
+                            read_codex_turn(
+                                process, directory, configuration.model, prompt, response_schema()
+                            ),
+                            self.store.settings.codex_timeout_seconds,
+                        )
+                    else:
+                        events, _ = await asyncio.wait_for(
+                            process.communicate(prompt.encode()),
+                            self.store.settings.codex_timeout_seconds,
+                        )
+                        usage = event_usage(events)
                     if process.returncode:
                         raise AgentError(
                             "chatgpt_response_failed",
                             "ChatGPT 请求失败，请检查登录、模型权限及额度。",
                             502,
                         )
-                    message = AssistantMessage.model_validate_json(output.read_text())
+                    message = AssistantMessage.model_validate_json(
+                        raw if live else output.read_text()
+                    )
                     names = {tool["function"]["name"] for tool in tools} if allow_tools else set()
                     ids = [call.id for call in message.tool_calls]
                     if (
@@ -451,12 +479,12 @@ class ChatGPTClient:
                         or (not message.tool_calls and not (message.content or "").strip())
                     ):
                         raise ValueError("Invalid model response")
-                    return Completion(message=message, usage=event_usage(events))
+                    return Completion(message=message, usage=usage)
                 except TimeoutError as exc:
                     raise AgentError(
                         "provider_timeout", "ChatGPT 响应超时，请稍后重试。", 504
                     ) from exc
-                except (ValueError, OSError) as exc:
+                except (ValueError, OSError, TypeError, KeyError) as exc:
                     raise AgentError(
                         "provider_invalid_response", "ChatGPT 返回了无法解析的响应。", 502
                     ) from exc

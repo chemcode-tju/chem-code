@@ -14,6 +14,7 @@ from chemistry_agent.attachments import init_attachment_schema
 from chemistry_agent.auth import init_auth_schema
 from chemistry_agent.errors import AgentError
 from chemistry_agent.projects import init_project_schema
+from chemistry_agent.runtime.checkpoint import UNCERTAIN
 from chemistry_agent.schemas import ContextMemory, ContextUsage, TokenUsage, ToolExecution
 
 
@@ -79,6 +80,11 @@ class Store:
                     created_at TEXT NOT NULL, run_id TEXT, error TEXT
                 );
                 CREATE INDEX IF NOT EXISTS chat_requests_session ON chat_requests(session_id);
+                CREATE TABLE IF NOT EXISTS chat_checkpoints (
+                    request_id TEXT PRIMARY KEY REFERENCES chat_requests(id) ON DELETE CASCADE,
+                    phase TEXT NOT NULL DEFAULT 'model', payload TEXT, local INTEGER NOT NULL,
+                    provider TEXT NOT NULL, destination TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS context_memory (
                     session_id TEXT PRIMARY KEY REFERENCES sessions(id),
                     summary TEXT NOT NULL, covered_messages INTEGER NOT NULL,
@@ -106,7 +112,7 @@ class Store:
             )
             await init_project_schema(db)
             await init_attachment_schema(db)
-            # This service runs one worker. A previous worker's active jobs cannot be resumed.
+            # End old run leases but preserve replayable request checkpoints.
             await db.execute(
                 "UPDATE runs SET status='interrupted', error_code='service_restarted', "
                 "finished_at=? WHERE status='running'",
@@ -114,8 +120,13 @@ class Store:
             )
             await db.execute("UPDATE sessions SET active_run_id=NULL")
             await db.execute(
-                "UPDATE chat_requests SET status='failed', "
-                "error='服务已重启，消息已保存，可点击重试。' WHERE status IN ('queued','running')"
+                "UPDATE chat_requests SET status='uncertain',error=? WHERE status='running' AND "
+                "NOT EXISTS(SELECT 1 FROM chat_checkpoints c WHERE c.request_id=chat_requests.id "
+                "AND c.phase='model')",
+                (UNCERTAIN,),
+            )
+            await db.execute(
+                "UPDATE chat_requests SET status='queued',run_id=NULL WHERE status='running'"
             )
             await db.commit()
         except BaseException:
@@ -313,6 +324,11 @@ class Store:
                     (context or ContextUsage()).model_dump_json(),
                     run_id,
                 ),
+            )
+            await self.db.execute(
+                "DELETE FROM chat_checkpoints WHERE request_id IN "
+                "(SELECT id FROM chat_requests WHERE run_id=?)",
+                (run_id,),
             )
             await self.db.execute(
                 "UPDATE chat_requests SET status='completed',error=NULL WHERE run_id=?",
