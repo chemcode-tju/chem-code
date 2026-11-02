@@ -84,7 +84,12 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
       }
     }
   }
+  // Do not replace a card under the pointer or an active search during a live update.
+  let deferredRender=false;
+  panel.addEventListener('mapidle',()=>{if(deferredRender) requestAnimationFrame(()=>{if(deferredRender) render();});});
   function render() {
+    if(panel.querySelector('[data-gesture],.map-pop:not([hidden])')) {deferredRender=true;return;}
+    deferredRender=false;
     drawReportFigures();
     drawStructures();
     const savedFolds = new Set([...panel.querySelectorAll('details[open]')].map(d => `${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`));
@@ -98,16 +103,10 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
       detail.update(item,job);
       return renderTaskCard(item, job, records.recovery?.[ref?.id], path(session),records.policies?.[ref?.id] || {});
     }).join('');
-    const selectedNode = panel.querySelector('.map-node[aria-pressed="true"]');
-    const selection = selectedNode && [selectedNode.closest('[data-task]').dataset.task,selectedNode.dataset.generalStep || selectedNode.dataset.openStep];
     const panelTop = panel.parentElement.parentElement.scrollTop;
-    const mapViews = captureMaps(panel);
+    const mapViews = captureMaps(panel,{suspend:true,dispose:true});
     panel.innerHTML = graphs + cards || '<p class="empty-result">本对话暂无计算方案</p>';
     mountMaps(panel,mapViews);
-    if(selection) {
-      const [task,step]=selection.map(value=>CSS.escape(value));
-      panel.querySelector(`[data-task="${task}"] :is([data-general-step="${step}"],[data-open-step="${step}"])`)?.setAttribute('aria-pressed','true');
-    }
     panel.parentElement.parentElement.scrollTop = panelTop;
     for (const [id,value] of knownSteps) displayCount(...id.split('/'),value.count);
     for (const e of panel.querySelectorAll("[data-retry-limit]")) if (limits.has(e.dataset.retryLimit)) e.value = limits.get(e.dataset.retryLimit);
@@ -161,10 +160,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   async function onAction(event) {
     const target = event.target.closest("button");
     if (!target || target.dataset.openKind) return;
-    if(target.matches('.map-node')) {
-      panel.querySelector('[aria-pressed="true"].map-node')?.removeAttribute('aria-pressed');
-      target.setAttribute('aria-pressed','true');
-    }
+    if (target.closest('.map-board') && !target.matches('.map-node')) return;
     if(target.dataset.generalStep) {
       const plan=records.plans.find(p=>p.id===target.closest('[data-general-plan]').dataset.generalPlan);
       detail.openGeneral(plan,plan.nodes.find(n=>n.id===target.dataset.generalStep),path(session)); return;
@@ -296,7 +292,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     selection() { return [...selected]; },
     selectedIds() { return selected.map((item) => item.id); },
     clearSelection() { selected = []; drawAttachments(); },
-    reset() { knownSteps.clear(); detail.close(); selected = []; records = null; session = null; drawAttachments(); render(); },
+    reset() { knownSteps.clear(); detail.close(); captureMaps(panel,{suspend:true,dispose:true});panel.replaceChildren(); selected = []; records = null; session = null; drawAttachments(); render(); },
     busy() { return pending; },
   };
 }

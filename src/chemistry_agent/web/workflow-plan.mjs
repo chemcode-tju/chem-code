@@ -46,20 +46,25 @@ export function stepRows(rows) {
   return rows.map(([key,value])=>`<dt>${esc(key)}</dt><dd>${esc(String(value))}</dd>`).join('');
 }
 
-export function workflowPlan(item,job,sessionPath='') {
+export function workflowGroups(item) {
   const stages = planSteps(item);
   const groups = [];
   for (const step of stages) {
     if (step.parallel && groups.at(-1)?.[0].parallel) groups.at(-1).push(step);
     else groups.push([step]);
   }
+  return groups;
+}
+
+export function workflowPlan(item,job,sessionPath='') {
+  const groups=workflowGroups(item);
   if (sessionPath) {
     const layers = groups.map((group,index)=>group.map(step=>{
       const detail=describeStep(item,job,step);
       return {id:detail.key,title:detail.title,status:detail.status,state:detail.tone,
         auxiliary:step.stage==='energies',dependencies:index?groups[index-1].map(parent=>parent.stage):[]};
     }));
-    return planMap(layers,item.preview_id,'data-open-step');
+    return planMap(layers,item.preview_id,'data-open-step',item.structure?.formula);
   }
   const active = groups.findIndex(group => group.some(step => {
     const child = job?.steps?.find(s=>s.label?.split(':').at(-1)===step.stage);

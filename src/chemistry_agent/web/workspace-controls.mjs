@@ -29,11 +29,6 @@ export function initWorkspaceControls() {
     maximize.setAttribute('aria-pressed',String(active));
     maximize.title=active?'还原面板':'最大化面板';
   };
-  const screen=document.getElementById('step-screen');
-  document.getElementById('step-full').onclick=()=>{
-    if(document.fullscreenElement===screen) document.exitFullscreen();
-    else screen.requestFullscreen().catch(()=>maximize.click());
-  };
   for(const dialog of document.querySelectorAll('dialog[data-workspace-dialog]')) {
     document.querySelector('[data-dialog="'+dialog.id+'"]').onclick=()=>dialog.showModal();
     dialog.querySelector('[data-close]').onclick=()=>dialog.close();

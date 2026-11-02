@@ -2,8 +2,10 @@ import {captureMaps,mountMaps} from './plan-map.mjs';
 import {resultFigures} from './result-figures.mjs';
 import {escapeHtml as esc} from './core.mjs';
 import {createStructureBridge} from './structure-links.mjs';
-import {describeStep, planSteps, stepRows} from './workflow-plan.mjs';
+import {describeStep, planSteps, workflowGroups, stepRows} from './workflow-plan.mjs';
 import {generalRows,nodeStatus} from './general-plan.mjs';
+import {kindName, taskLabel} from './plan-layout.mjs';
+import {t} from './i18n.mjs';
 
 const fileNames = ['POSCAR', 'CONTCAR', 'XDATCAR'];
 
@@ -33,22 +35,75 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     $('step-viewer-shell').hidden=false;
     if (!frame.hasAttribute('src')) frame.src='/structures?embed=1';
   }});
-  let overviewTop=0, overviewMaps=new Map();
-  function close() {
-    const returning=!screen.hidden;
-    if(document.fullscreenElement===screen) document.exitFullscreen();
-    current=null; activeFile=''; info=null; bridge.reset();
-    screen.hidden=true; $('plan-overview').hidden=false; $('step-viewer-shell').hidden=true;
-    if(returning) {
-      mountMaps($('plan-overview'),overviewMaps);
-      $('plan-overview').querySelector('[aria-pressed="true"]')?.focus({preventScroll:true});
-      screen.parentElement.scrollTop=overviewTop;
-    }
-    $('step-figures').replaceChildren(); $('step-code-section').hidden=true; $('step-output-section').hidden=true;
+  const host=screen.parentElement, dialog=$('step-dialog');
+  let overviewTop=0, overviewMaps=new Map(), fromFull=false;
+  function syncFull() {
+    const label=t(dialog.open || document.fullscreenElement===screen ? '退出全屏':'全屏详情');
+    $('step-full').title=label;$('step-full').setAttribute('aria-label',label);
+    $('step-full').setAttribute('aria-pressed',String(dialog.open || document.fullscreenElement===screen));
   }
+  function expandDetail(on) {
+    if(on===dialog.open) return;
+    if(on) {dialog.append(screen);dialog.showModal();}
+    else {dialog.close();host.insertBefore(screen,dialog);}
+    syncFull();
+  }
+  $('step-full').onclick=()=>{
+    if(dialog.open) expandDetail(false);
+    else if(document.fullscreenElement===screen) document.exitFullscreen().catch(()=>{});
+    else if(screen.requestFullscreen) screen.requestFullscreen().catch(()=>expandDetail(true));
+    else expandDetail(true);
+  };
+  document.addEventListener('fullscreenchange',syncFull);
+  dialog.addEventListener('cancel',event=>{event.preventDefault();if(fromFull) close();else expandDetail(false);});
+  function resetContent() {
+    activeFile=''; info=null; bridge.reset(); $('step-viewer-shell').hidden=true;
+    for (const id of ['step-note','step-error','step-progress','step-file-source','step-downloads','step-output','step-code','step-chart','step-figures','step-investigation-log']) $(id).replaceChildren();
+    for (const id of ['step-investigation','step-output-section','step-code-section']) $(id).hidden=true;
+    for (const section of screen.querySelectorAll('.step-sections > details')) section.open=false;
+  }
+  function enter() {
+    if(screen.hidden) {
+      overviewTop=screen.parentElement.scrollTop;
+      overviewMaps=captureMaps($('plan-overview'),{suspend:true});
+      fromFull=[...overviewMaps.values()].some(view=>view.full);
+      $('plan-overview').hidden=true; screen.hidden=false;
+      if(fromFull) expandDetail(true);
+    }
+    resetContent();
+    screen.scrollTop=0;screen.parentElement.scrollTop=0;
+  }
+  function close() {
+    if(screen.hidden) return;
+    if(document.fullscreenElement===screen) document.exitFullscreen().catch(()=>{});
+    current=null;resetContent();expandDetail(false);
+    screen.hidden=true; $('plan-overview').hidden=false;
+    mountMaps($('plan-overview'),overviewMaps);
+    screen.parentElement.scrollTop=overviewTop;
+  }
+  function heading(title,kind,id,index,total,planName,purpose='') {
+    $('step-plan-name').textContent=planName || ''; $('step-plan-name').title=planName || '';
+    $('step-title').textContent=title;$('step-kind').textContent=t(kind);
+    $('step-index').textContent=String(index+1).padStart(2,'0')+' / '+total;
+    $('step-key').textContent=id;$('step-purpose').textContent=purpose;
+  }
+  function status(label,tone) {
+    $('step-status').textContent=label;$('step-status').dataset.state=tone;
+  }
+  function relations(before,after) {
+    const chip=n=>`<button type="button" data-related="${esc(n.id)}" title="${esc(n.id)}">${esc(taskLabel(n))}</button>`;
+    const line=(label,nodes)=>`<div><h3>${t(label)} <small>${nodes.length}</small></h3><div class="relation-chips">${nodes.slice(0,3).map(chip).join('')}${nodes.length>3?`<details><summary>+ ${nodes.length-3}</summary><div class="relation-chips">${nodes.slice(3).map(chip).join('')}</div></details>`:''}</div></div>`;
+    $('step-relations').innerHTML=(before.length?line('直接上游',before):'')+(after.length?line('直接下游',after):'');
+    $('step-relations').hidden=!before.length && !after.length;
+  }
+  $('step-relations').onclick=event=>{
+    const id=event.target.closest('[data-related]')?.dataset.related;
+    if(id && current?.related) current.related(id);
+  };
   function drawFiles() {
-    $('step-files').innerHTML=fileNames.map(name=>
-      `<button type="button" data-step-file="${name}" aria-pressed="${name===activeFile}" ${info?.files[name]?'':'disabled'}>${name}</button>`).join('');
+    const options=fileNames.filter(name=>info?.files[name]);
+    $('step-files').innerHTML=options.map(name=>
+      `<button type="button" data-step-file="${name}" aria-pressed="${name===activeFile}">${name}</button>`).join('') || '<span class="step-empty">'+t('暂无可查看的结构文件')+'</span>';
   }
   function selectFile(name) {
     if (!current || !info?.files[name]) return;
@@ -98,7 +153,11 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
         ? `已完成 ${next.ionic_step} 个离子步${view.nsw>0?' · NSW 上限 '+view.nsw:''}`
         : next.pk ? '等待首个完整离子步记录' : '尚无离子步记录';
       $('step-chart').innerHTML=energyCurve(next.points);
-      if (!activeFile || sourceChanged) selectFile(next.files[activeFile]?activeFile:next.files.POSCAR?'POSCAR':'CONTCAR');
+      if (!activeFile || sourceChanged) {
+        const nextFile=next.files[activeFile]?activeFile:fileNames.find(name=>next.files[name]);
+        if(nextFile && $('step-structures').open && !$('step-structures').hidden) selectFile(nextFile);
+        else if(activeFile) {activeFile='';bridge.reset();$('step-viewer-shell').hidden=true;$('step-file-source').textContent='';}
+      }
       else if (manual && activeFile!=='POSCAR') selectFile(activeFile);
       if (next.ionic_step!=null) rememberCount(view.id,view.key,next.ionic_step);
     } catch(error) {
@@ -106,20 +165,23 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     } finally { view.loading=false; }
   }
   function open(item,job,key,sessionPath) {
-    close();
-    const step=planSteps(item).find(s=>s.stage===key);
+    const steps=planSteps(item), step=steps.find(s=>s.stage===key);
     if (!step) return;
+    enter();
     const details=describeStep(item,job,step);
     const path=key==='single'?'POSCAR':key+'/POSCAR';
     current={id:item.preview_id,key,failed:details.tone==='failed',title:details.title,nsw:details.nsw,preview:item.files?.[path],
+      related:id=>open(item,job,id,sessionPath),
       base:`${sessionPath}/plans/${encodeURIComponent(item.preview_id)}/steps/${encodeURIComponent(key)}`};
-    overviewTop=screen.parentElement.scrollTop;
-    overviewMaps=captureMaps($('plan-overview'));
-    $('plan-overview').hidden=true; screen.hidden=false;
     screen.dataset.planId=job?.id || '';
     screen.dataset.nodeId=details.child?.id || '';
     screen.dispatchEvent(new Event('stepchange'));
-    $('step-title').textContent=details.title; $('step-status').textContent=details.status;
+    heading(details.title,key==='energies'?'数据分析':'VASP 计算',key,steps.indexOf(step),steps.length,item.structure?.formula);
+    status(details.status,details.tone);
+    const groups=workflowGroups(item), level=groups.findIndex(g=>g.some(n=>n.stage===key));
+    const names=group=>(group || []).map(n=>({id:n.stage,title:describeStep(item,job,n).title}));
+    relations(names(groups[level-1]),names(groups[level+1]));
+    $('step-config').hidden=false;delete $('step-parameters').dataset.html;
     $('step-parameters').innerHTML=stepRows(details.rows);
     $('step-revise').hidden=Boolean(job);
     const aggregate=key==='energies';
@@ -138,40 +200,47 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   }
   $('step-back').onclick=close;
   $('step-refresh').onclick=()=>refresh(true);
+  $('step-structures').addEventListener('toggle',()=>{
+    if(!current || !$('step-structures').open || activeFile) return;
+    const name=fileNames.find(name=>info?.files[name]);if(name) selectFile(name);
+  });
   $('step-files').onclick=event=>{if(event.target.dataset.stepFile)selectFile(event.target.dataset.stepFile);};
   $('step-revise').onclick=()=>{if(current)reviseStep(current.id,current.title,current.revision);};
   setInterval(()=>{if(current && (!info?.terminal || current.failed || info?.investigations?.some(row=>!row.terminal)) && !document.hidden && screen.getClientRects().length)refresh();},20000);
   function drawGeneral(plan,node) {
     const state=plan.runtime[node.id];
-    $('step-status').textContent=nodeStatus(plan,node);
-    $('step-parameters').innerHTML=generalRows(plan,node);
+    status(nodeStatus(plan,node),state.status);
+    const config=$('step-parameters'), html=generalRows(plan,node);
+    if (config.dataset.html!==html) {config.innerHTML=html;config.dataset.html=html;}
     $('step-revise').hidden=plan.status!=='draft';
+    $('step-config').hidden=!html && $('step-revise').hidden;
     $('step-code-section').hidden=!node.code; $('step-code').textContent=node.code || '';
-    const result=node.kind==='analysis' && state.outputs?.result;
-    $('step-output-section').hidden=!result; $('step-output').textContent=result?JSON.stringify(result,null,2):'';
-    const base = current.sessionPath + '/workflows/' + plan.id + '/artifacts/' + node.id;
-    $('step-figures').innerHTML=resultFigures(base,state.outputs?.files,node.title);
-    $('step-downloads').innerHTML=(state.outputs?.files || []).map(name=>`<p><a download href="${current.sessionPath}/workflows/${plan.id}/artifacts/${node.id}/${name.split('/').map(encodeURIComponent).join('/')}">${esc(name)}</a></p>`).join('');
-    if(state.error || state.sync_error) $('step-note').textContent=state.error || state.sync_error;
+    const files=state.outputs?.files || [], result=node.kind==='analysis' && state.outputs?.result;
+    $('step-output-section').hidden=!result && !files.length;
+    $('step-output').textContent=result?JSON.stringify(result,null,2):'';
+    const base = current.sessionPath + '/workflows/' + encodeURIComponent(plan.id) + '/artifacts/' + encodeURIComponent(node.id);
+    const figures=resultFigures(base,files,node.title);
+    if($('step-figures').innerHTML!==figures) $('step-figures').innerHTML=figures;
+    $('step-downloads').innerHTML=files.map(name=>`<a download href="${esc(base+'/'+name.split('/').map(encodeURIComponent).join('/'))}">${esc(name)} <span aria-hidden="true">↓</span></a>`).join('');
+    $('step-error').textContent=state.error || state.sync_error || '';
+    current.plan=plan;
   }
   function openGeneral(plan,node,sessionPath) {
-    close();
+    enter();
     current={id:plan.id,key:node.id,general:true,revision:plan.revision,title:node.title,sessionPath,
       failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar.NSW,
+      related:id=>{const p=current.plan,n=p.nodes.find(n=>n.id===id);if(n) openGeneral(p,n,sessionPath);},
       base:`${sessionPath}/workflows/${plan.id}/steps/${node.id}`};
-    overviewTop=screen.parentElement.scrollTop;
-    overviewMaps=captureMaps($('plan-overview'));
-    $('plan-overview').hidden=true; screen.hidden=false; $('step-title').textContent=node.title;
+    heading(taskLabel(node),kindName(node.kind),node.id,plan.nodes.indexOf(node),plan.nodes.length,plan.title,node.purpose);
     screen.dataset.planId=plan.id;screen.dataset.nodeId=node.id;
     screen.dispatchEvent(new Event('stepchange'));
+    const index=new Map(plan.nodes.map(n=>[n.id,n]));
+    relations(node.depends_on.map(id=>index.get(id)).filter(Boolean),plan.nodes.filter(n=>n.depends_on.includes(node.id)));
     drawGeneral(plan,node);
-    screen.parentElement.scrollTop=0;
     $('step-back').focus({preventScroll:true});
-    for(const id of ['step-structures','step-energies','step-refresh','step-progress']) $(id).hidden=false;
-    $('step-energies').hidden=node.kind!=='vasp'; $('step-progress').hidden=node.kind!=='vasp';
+    $('step-energies').hidden=node.kind!=='vasp'; $('step-progress').hidden=node.kind!=='vasp';$('step-refresh').hidden=false;
     $('step-structures').hidden=node.kind==='analysis';
-    $('step-parameters').closest('details').open=true; $('step-structures').open=true;
-    $('step-progress').textContent=''; $('step-file-source').textContent=''; $('step-chart').replaceChildren();
+    $('step-config').open=true; $('step-structures').open=node.kind==='model';
     info={files:{},points:[]}; drawFiles(); refresh();
   }
   return {open,close,openGeneral,updateGeneral(plan) {
@@ -184,7 +253,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     const step=planSteps(item).find(s=>s.stage===current.key);
     if (!step) return;
     const details=describeStep(item,job,step);
-    $('step-status').textContent=details.status; $('step-parameters').innerHTML=stepRows(details.rows);
+    status(details.status,details.tone); $('step-parameters').innerHTML=stepRows(details.rows);
     $('step-revise').hidden=Boolean(job);
   }};
 }

@@ -11,6 +11,7 @@
   <script type="module" src="/assets/i18n.mjs"></script>
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/plan-workspace.css">
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
   <script type="module" src="/assets/app.mjs?v=20261102-general-plans"></script>
 </head>
@@ -119,24 +120,35 @@
       <div id="plan-overview"><div id="calculation-cards" class="calculation-workspace" hidden></div>
       <p class="inspector-empty">此对话暂无计算方案。</p></div>
       <section id="step-screen" hidden aria-label="步骤详情">
-        <button type="button" id="step-back">‹ 返回方案</button> <button type="button" id="step-full">全屏</button>
-        <h2 id="step-title"></h2>
-        <div class="step-meta"><span id="step-status"></span><button type="button" id="step-refresh">刷新</button></div>
-        <p id="step-progress" role="status"></p>
-        <details><summary>计算参数</summary><dl id="step-parameters"></dl><button type="button" id="step-revise">提出修改</button></details>
-        <details id="step-code-section" hidden><summary>执行代码</summary><pre id="step-code"></pre></details>
-        <div id="step-figures"></div>
-        <details id="step-output-section" hidden><summary>分析结果</summary><div id="step-downloads"></div><pre id="step-output"></pre></details>
-        <details id="step-structures" open><summary>结构</summary>
-          <div class="step-file-options" id="step-files"></div>
-          <p id="step-file-source"></p>
-          <div class="structure-viewer-shell" id="step-viewer-shell" hidden><iframe id="step-viewer-frame" title="步骤结构查看器"></iframe></div>
-        </details>
-        <details id="step-energies"><summary>能量收敛曲线</summary><div id="step-chart"></div></details>
-        <details id="step-investigation" hidden open><summary>排查记录</summary><ol id="step-investigation-log"></ol></details>
-        <details id="step-replies" hidden><summary>步骤进度与解读</summary><div id="step-reply-list"></div></details>
-        <p id="step-note" role="status"></p>
+        <nav class="step-tools" aria-label="步骤导航">
+          <button type="button" id="step-back"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>返回画布</button>
+          <span id="step-plan-name"></span>
+          <button type="button" id="step-full" title="全屏详情" aria-label="全屏详情"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5m0 8v5h-5M3 16v5h5"/></svg></button>
+        </nav>
+        <header class="step-heading">
+          <div class="step-kicker"><span id="step-kind"></span><span id="step-index"></span></div>
+          <h2 id="step-title"></h2><code id="step-key"></code><p id="step-purpose"></p>
+          <div class="step-meta"><span class="step-status" id="step-status"></span><span id="step-progress" role="status"></span>
+            <button type="button" id="step-refresh">刷新</button></div>
+        </header>
+        <p id="step-error" role="status"></p>
+        <section id="step-relations" aria-label="依赖关系"></section>
+        <div class="step-sections">
+          <details id="step-config"><summary><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>步骤参数</summary>
+            <dl id="step-parameters"></dl><button type="button" id="step-revise">提出修改</button></details>
+          <details id="step-structures"><summary><svg class="icon" aria-hidden="true"><use href="#i-molecule"/></svg>结构文件</summary>
+            <div class="step-file-options" id="step-files"></div><p id="step-file-source"></p>
+            <div class="structure-viewer-shell" id="step-viewer-shell" hidden><iframe id="step-viewer-frame" title="步骤结构查看器"></iframe></div>
+          </details>
+          <details id="step-energies"><summary><svg class="icon" aria-hidden="true"><use href="#i-compare"/></svg>能量收敛曲线</summary><div id="step-chart"></div></details>
+          <div id="step-figures"></div>
+          <details id="step-output-section" hidden><summary><svg class="icon" aria-hidden="true"><use href="#i-document"/></svg>结果与下载</summary><div id="step-downloads"></div><pre id="step-output"></pre></details>
+          <details id="step-code-section" hidden><summary><svg class="icon" aria-hidden="true"><use href="#i-document"/></svg>执行代码</summary><pre id="step-code"></pre></details>
+          <details id="step-investigation" hidden open><summary><svg class="icon" aria-hidden="true"><use href="#i-flask"/></svg>排查记录</summary><ol id="step-investigation-log"></ol></details>
+          <details id="step-replies" hidden><summary><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>步骤进度与解读</summary><div id="step-reply-list"></div></details>
+        </div><p id="step-note" role="status"></p>
       </section>
+      <dialog id="step-dialog" aria-labelledby="step-title"></dialog>
     </section>
     <section class="inspector-scroll" id="inspector-panel-structure" role="tabpanel" aria-labelledby="inspector-tab-structure" tabindex="0" hidden>
       <div id="structure-list"></div>
