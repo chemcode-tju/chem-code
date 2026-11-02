@@ -887,3 +887,142 @@ async def test_agent_stop_blocks_dispatch_and_checks_remaining_jobs(graph, monke
         assert (await chat.plans.stop(args, context))["status"] == "stopped"
     finally:
         auto_request.reset(token)
+
+
+async def test_stopped_plan_projects_all_279_nodes_without_external_work(graph, monkeypatch):
+    chat, ctx, engine, _ = graph
+    pid = str(uuid4())
+    nodes = [{"id": f"s{i}", "title": f"步骤 {i}", "kind": "vasp"} for i in range(279)]
+    runtime = {n["id"]: {"status": "stopped"} for n in nodes}
+    runtime["s0"] = {"status": "completed", "job": {"id": str(uuid4()), "pk": 3}}
+    chat.save(
+        ctx.session_id,
+        "plans",
+        pid,
+        {"id": pid, "revision": 1, "status": "stopped", "nodes": nodes, "runtime": runtime},
+    )
+    path = chat.directory(ctx.session_id, "plans") / f"{pid}.json"
+    original = path.read_bytes()
+
+    async def no_server(*args, **kwargs):
+        pytest.fail("历史投影不能访问计算后端")
+
+    monkeypatch.setattr(engine, "call", no_server)
+    for runtime_plans in (chat.plans, chat.plans, CalculationPlans(chat)):
+        await runtime_plans.tick_plan(ctx.session_id, pid)
+        assert not await runtime_plans.interpret_next_step()
+    first = chat.progress.timeline(ctx.session_id, 0, 200, pid)
+    second = chat.progress.timeline(ctx.session_id, first["next_cursor"], 200, pid)
+    rows = first["events"] + second["events"]
+    assert len(rows) == len({r["node_id"] for r in rows}) == 279
+    assert {r["kind"] for r in rows} == {"step"}
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("available", [True, False])
+async def test_new_vasp_completion_queues_one_background_interpretation(graph, available):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    chat, ctx, engine, structure = graph
+    plan = await chat.plans.draft(
+        draft([vasp("a", {"structure_id": structure}), vasp("b", {"node": "a"})]), ctx
+    )
+    pid, sid = plan["id"], ctx.session_id
+    await chat.plans.confirm(sid, pid, 1)
+    await chat.plans.tick_plan(sid, pid)
+    preview = engine.submits[0]
+    engine.finish(preview)
+    await chat.plans.tick_plan(sid, pid)
+    # The dependent step was submitted before the summary worker/model ran.
+    assert len(engine.submits) == 2
+    store = SimpleNamespace(
+        get_session=AsyncMock(return_value={"messages": []}),
+        get_session_model=AsyncMock(return_value="test"),
+    )
+    provider = SimpleNamespace(
+        configuration=lambda: (None, SimpleNamespace(provider="test", base_url="")),
+        select_model=Mock(),
+        ready=AsyncMock(return_value=available),
+        complete=AsyncMock(
+            return_value=SimpleNamespace(
+                message=SimpleNamespace(
+                    content="电子和离子收敛，外推能量 −10.5 eV。", tool_calls=[]
+                )
+            )
+        ),
+    )
+    restarted = CalculationPlans(chat)
+    restarted.store, restarted.provider = store, provider
+    await restarted.tick_plan(sid, pid)
+    assert await restarted.interpret_next_step()
+    assert not await restarted.interpret_next_step()
+    await CalculationPlans(chat).tick_plan(sid, pid)
+    assert not await restarted.interpret_next_step()
+    rows = chat.progress.timeline(sid, 0, 100, pid, "a")["events"]
+    (summary,) = [r for r in rows if r["kind"] == "interpretation"]
+    assert summary["detail"]["step_seq"] in {
+        r["seq"] for r in rows if r["status"] == "completed" and r["kind"] == "step"
+    }
+    assert summary["detail"]["job_id"] == engine.jobs[preview]["id"]
+    assert summary["status"] == ("completed" if available else "unavailable")
+    assert ("−10.5" if available else "暂不可用") in summary["message"]
+    provider.ready.assert_awaited_once()
+    assert provider.complete.await_count == int(available)
+    if available:
+        args, kwargs = provider.complete.await_args
+        evidence = json.loads(args[0][-1]["content"])
+        assert evidence["step"] == "a" and evidence["energies"]["energy_extrapolated"] == -10.5
+        assert not kwargs["allow_tools"]
+
+
+def test_step_summary_expired_claim_recovers_without_duplicate_event(tmp_path, monkeypatch):
+    from chemistry_agent.automation.progress import ProgressStore
+
+    path = tmp_path / "events.sqlite3"
+    store = ProgressStore(path)
+    with store.connect() as db:
+        detail = {"attempt": 0, "pk": 7, "job_id": "job", "scheduler_job_id": "123"}
+        store.insert(db, "s", "p", "n", "step", "completed", "step", detail, "step:n:0:completed")
+        store.queue_summary(db, "s", "p", "step:n:0:completed", {})
+    claim = store.claim_summary()
+    reopened = ProgressStore(path)
+    assert reopened.claim_summary() is None
+    monkeypatch.setattr(
+        "chemistry_agent.automation.progress.time.time", lambda: claim["lease_until"] + 1
+    )
+    reclaimed = reopened.claim_summary()
+    store.finish_summary(claim, "completed", "stale answer")
+    reopened.finish_summary(reclaimed, "completed", "accepted answer")
+    reopened.finish_summary(reclaimed, "completed", "duplicated answer")
+    assert [r["message"] for r in reopened.timeline("s", 0, 10)["events"]] == [
+        "step",
+        "accepted answer",
+    ]
+
+
+async def test_restore_only_enqueues_checkpointed_vasp_summary_intent(graph):
+    chat, ctx, _, _ = graph
+    pid = str(uuid4())
+    kinds = ("vasp", "vasp", "model", "analysis")
+    nodes = [{"id": str(i), "title": kind, "kind": kind} for i, kind in enumerate(kinds)]
+    runtime = {n["id"]: {"status": "completed"} for n in nodes}
+    for key in ("0", "1"):
+        runtime[key]["job"] = {"id": str(uuid4()), "pk": 10 + int(key)}
+    # The first job predates interpretations. The second completed just before
+    # a crash between saving its plan JSON and projecting the SQLite event.
+    runtime["1"]["summary_requested"] = True
+    plan = {
+        "id": pid,
+        "status": "completed",
+        "runtime": runtime,
+        "revision": 1,
+        "nodes": nodes,
+        "reported": True,
+    }
+    chat.save(ctx.session_id, "plans", pid, plan)
+    await chat.plans.tick_plan(ctx.session_id, pid)
+    await CalculationPlans(chat).tick_plan(ctx.session_id, pid)
+    item = chat.progress.claim_summary()
+    assert item["node_id"] == "1"
+    assert chat.progress.claim_summary() is None
