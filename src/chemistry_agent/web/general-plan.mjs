@@ -1,7 +1,7 @@
 import {planMap} from './plan-map.mjs';
 import {escapeHtml as esc} from './core.mjs';
 
-export const planStatus = status => ({draft:'待确认',running:'执行中',paused:'已暂停推进',completed:'已完成',failed:'有步骤失败',pending:'等待依赖',preparing:'准备中',blocked:'上游失败，未执行'})[status] || status;
+export const planStatus = status => ({draft:'待确认',running:'执行中',paused:'已暂停推进',stopping:'停止中',stopped:'已停止',completed:'已完成',failed:'有步骤失败',pending:'等待依赖',preparing:'准备中',blocked:'上游失败，未执行'})[status] || status;
 export function nodeStatus(plan,node) {
   const state=plan.runtime[node.id], job=state.job;
   if(plan.status==='draft') return '待确认';

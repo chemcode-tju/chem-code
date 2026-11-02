@@ -1,5 +1,7 @@
 """Read/stage arbitrary files within a calculation's retrieved or remote directory."""
 
+import base64
+import json
 import os
 import shlex
 import shutil
@@ -20,8 +22,26 @@ def relative_path(value: str) -> str:
 
 
 def remote_path(transport, root: str, name: str) -> str:
-    base = transport.normalize(root)
-    target = transport.normalize(str(PurePosixPath(base) / relative_path(name)))
+    candidate = str(PurePosixPath(root) / relative_path(name))
+    try:
+        base = transport.normalize(root)
+        target = transport.normalize(candidate)
+    except NotImplementedError:
+        # core.ssh_async does not implement normalize. Resolve symlinks on the host
+        # that owns the paths, including the job directory itself.
+        command = shlex.join(
+            [
+                "python3",
+                "-c",
+                "import json,os,sys; print(json.dumps(list(map(os.path.realpath,sys.argv[1:]))))",
+                root,
+                candidate,
+            ]
+        )
+        code, output, _ = transport.exec_command_wait(command)
+        if code:
+            raise AgentError("task_file_unreadable", "无法解析远端作业目录。", 422) from None
+        base, target = json.loads(output)
     if target != base and not target.startswith(base.rstrip("/") + "/"):
         raise AgentError("invalid_task_path", "文件链接指向计算目录之外。", 422)
     return target
@@ -68,13 +88,23 @@ def task_files(payload: dict) -> dict:
                     if entry != "archive"
                 ]
                 return {"source": source, "path": name, "entries": entries}
-            command = (
-                f"dd if={shlex.quote(target)} bs=1 skip={offset} count={length + 1} 2>/dev/null"
+            # ssh_async supports text commands. Encode before transport so offsets
+            # remain byte offsets even for binary or multibyte files.
+            command = shlex.join(
+                [
+                    "python3",
+                    "-c",
+                    "import sys,base64; f=open(sys.argv[1],'rb'); f.seek(int(sys.argv[2])); "
+                    "print(base64.b64encode(f.read(int(sys.argv[3]))).decode())",
+                    target,
+                    str(offset),
+                    str(length + 1),
+                ]
             )
-            code, output, error = transport.exec_command_wait_bytes(command)
+            code, output, _ = transport.exec_command_wait(command)
             if code:
                 raise AgentError("task_file_unreadable", "无法读取该任务文件。", 422)
-            data = output if isinstance(output, bytes) else output.encode()
+            data = base64.b64decode(output.strip(), validate=True)
     return {
         "source": source,
         "path": name,

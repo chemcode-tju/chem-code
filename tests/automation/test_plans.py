@@ -858,3 +858,32 @@ async def test_manual_plan_final_only_after_all_steps_and_chat_turn(graph, tmp_p
         assert finals[0]["detail"]["chat_event"] == messages[0]["task_event"]
     finally:
         await store.close()
+
+
+async def test_agent_stop_blocks_dispatch_and_checks_remaining_jobs(graph, monkeypatch):
+    from chemistry_agent.automation.plan_authority import auto_request
+    from chemistry_agent.automation.plan_stop import PlanStop
+
+    chat, context, engine, structure = graph
+    plan = await chat.plans.draft(draft([vasp("a", {"structure_id": structure})]), context)
+    args = PlanStop(plan_id=plan["id"])
+    with pytest.raises(AgentError):
+        await chat.plans.stop(args, context)
+    await chat.plans.confirm(context.session_id, plan["id"], 1)
+    await chat.plans.tick_plan(context.session_id, plan["id"])
+    expected = engine.jobs[engine.submits[0]]["id"]
+    verified = False
+
+    async def stop(action, payload):
+        assert action == "stop_plan_jobs" and payload["job_ids"] == [expected]
+        return {"verified_stopped": verified}
+
+    monkeypatch.setattr(engine, "call", stop)
+    token = auto_request.set(context.run_id)
+    try:
+        assert (await chat.plans.stop(args, context))["status"] == "stopping"
+        await chat.plans.tick_plan(context.session_id, plan["id"])
+        verified = True
+        assert (await chat.plans.stop(args, context))["status"] == "stopped"
+    finally:
+        auto_request.reset(token)
