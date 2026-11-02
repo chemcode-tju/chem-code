@@ -1,3 +1,5 @@
+import {folderLinks, indexFolders, inSection} from './plan-folders.mjs';
+
 // Geometry is in world pixels. Zoom and the viewport never change the dependency graph.
 export const CARD = {width:184, height:82, column:234, row:100};
 export const kindName = kind => ({vasp:'VASP 计算',model:'结构建模',analysis:'数据分析'})[kind] || '计算步骤';
@@ -36,7 +38,8 @@ export function buildGraph(nodes, all = false) {
   for (const node of vertices) {
     const lead = byId.get(node.primary);
     const shared = lead && node.parents.some(id => byId.get(id).depth === lead.depth && byId.get(id).group !== lead.group);
-    node.group = heads.has(node.id) || shared ? node.id : lead.group;
+    const leavesFolder = lead?.groupPath?.length && !node.groupPath?.length;
+    node.group = heads.has(node.id) || shared || leavesFolder ? node.id : lead.group;
     if (!groups.has(node.group)) groups.set(node.group,{id:node.id,title:taskLabel(node),members:[]});
     groups.get(node.group).members.push(node.id);
   }
@@ -48,7 +51,8 @@ export function buildGraph(nodes, all = false) {
     if (!ordered.has(node.group)) ordered.set(node.group,groups.get(node.group));
     for (let i=node.tree.length-1;i>=0;i--) stack.push(node.tree[i]);
   }
-  return {byId,vertices,groups:[...ordered.values()].sort((a,b)=>Number(!heads.has(a.id))-Number(!heads.has(b.id)))};
+  const lanes=[...ordered.values()].sort((a,b)=>Number(!heads.has(a.id))-Number(!heads.has(b.id)));
+  return {byId,vertices,groups:lanes,...indexFolders(vertices,byId,lanes)};
 }
 
 export function reachableVertices(vertices, folded) {
@@ -63,49 +67,71 @@ export function overviewFolds(graph) {
   for (const node of graph.vertices) {
     // Keep trunk-to-lane edges open. Fold the fan-out inside a branch.
     const laneBridge=node.tree.some(id=>heads.has(id));
+    if (node.folderIds.length || node.children.some(id=>graph.byId.get(id).folderIds.length)) continue;
     // A shared reference can independently reveal dozens of terminal analyses.
     if (!laneBridge && (node.tree.length > 1 || node.children.length > 8)) folds.add(node.id);
   }
   return folds;
 }
 
-export function layoutGraph(graph, folded, moves = new Map(), groupId = null, compact = false) {
-  const candidates = groupId ? graph.vertices.filter(n=>n.group===groupId).map(n=>({
-    id:n.id, parents:n.parents.filter(p=>graph.byId.get(p).group===groupId)
-  })) : graph.vertices;
+export const FOLDER_HEIGHT = 36;
+
+export function layoutGraph(graph, folded, moves = new Map(), scope = null, compact = false, closed = new Set()) {
+  const candidates = scope == null ? graph.vertices : graph.vertices.filter(node=>inSection(node,scope)).map(node=>({
+    id:node.id, parents:node.parents.filter(id=>inSection(graph.byId.get(id),scope))
+  }));
   const visible=reachableVertices(candidates,folded), trees=new Map(), incoming=new Set();
-  for (const node of graph.vertices) {
+  for (const node of candidates) {
     if (!visible.has(node.id)) continue;
-    const parent = graph.byId.get(node.primary);
-    if (!parent || parent.group !== node.group || !visible.has(parent.id) || folded.has(parent.id)) continue;
+    const vertex=graph.byId.get(node.id), parent=graph.byId.get(vertex.primary);
+    if (!parent || parent.section!==vertex.section || !visible.has(parent.id) || folded.has(parent.id)) continue;
     if (!trees.has(parent.id)) trees.set(parent.id,[]);
     trees.get(parent.id).push(node.id); incoming.add(node.id);
   }
-  const points=new Map(), lanes=[];
-  const baseDepth=groupId && graph.byId.has(groupId) ? graph.byId.get(groupId).depth : 0;
+  const points=new Map(), lanes=[], headers=new Map(), represented=new Map();
+  const sections=scope == null ? graph.sections : graph.filters.filter(section=>section.id===scope);
+  const baseDepth=scope == null ? 0 : sections[0]?.depth || 0;
+  const banded=graph.sections.length>1;
   let y=12, right=0, bottom=0;
-  for (const group of graph.groups) {
-    const members=group.members.filter(id=>visible.has(id));
-    if (!members.length) continue;
-    const banded = graph.groups.length > 1;
-    const start=y, stack=members.filter(id=>!incoming.has(id)).reverse();
-    if (banded) y+=32;
+
+  function placeTasks(section,members,level) {
+    const stack=members.filter(id=>!incoming.has(id)).reverse();
     while (stack.length) {
       const id=stack.pop(), node=graph.byId.get(id), move=moves.get(id);
-      const inset=compact && banded ? 38 : 18;
-      const depth=compact && banded ? node.depth-graph.byId.get(group.id).depth : node.depth-baseDepth;
+      const depth=node.depth-(compact && (banded || section.folder) ? section.depth : baseDepth);
+      const inset=compact && (banded || section.folder) ? 38+level*14 : 18;
       const x=Math.max(12,inset+depth*CARD.column+(move?.x || 0));
       const top=Math.max(10,y+(move?.y || 0));
-      points.set(id,{x,y:top});
+      points.set(id,{x,y:top});represented.set(id,id);
       right=Math.max(right,x+CARD.width); bottom=Math.max(bottom,top+CARD.height);
       const children=trees.get(id);
       if (children?.length) {
         for (let i=children.length-1;i>=0;i--) stack.push(children[i]);
       } else y+=CARD.row;
     }
-    if (banded) { lanes.push({group,start,height:y-start,count:members.length}); y+=10; }
   }
-  return {points,lanes,width:Math.ceil(right+24),height:Math.ceil(Math.max(bottom+20,y))};
+  function placeSection(section,level) {
+    const members=section.members.filter(id=>visible.has(id));
+    if (!members.length) return;
+    const start=y;
+    if (section.folder) {
+      const x=compact ? 20+level*14 : 18+(section.depth-baseDepth)*CARD.column+level*14;
+      headers.set(section.id,{x,y,section,level,count:members.length});
+      right=Math.max(right,x+CARD.width);y+=FOLDER_HEIGHT+7;
+      if (closed.has(section.id)) {
+        for (const id of members) represented.set(id,section.id);
+        return;
+      }
+    } else if (banded) y+=32;
+    const direct=section.direct.filter(id=>visible.has(id));
+    const blocks=section.children.map(child=>({depth:child.depth,place:()=>placeSection(child,level+1)}));
+    if (direct.length) blocks.push({depth:graph.byId.get(direct[0]).depth,place:()=>placeTasks(section,direct,level)});
+    blocks.sort((a,b)=>a.depth-b.depth).forEach(block=>block.place());
+    if (!section.folder && banded) {lanes.push({group:section,start,height:y-start,count:members.length});y+=10;}
+  }
+  for (const section of sections) placeSection(section,0);
+  const links=graph.folders.size ? folderLinks(graph,represented,folded) : [];
+  return {points,lanes,headers,links,width:Math.ceil(right+24),height:Math.ceil(Math.max(bottom+20,y))};
 }
 
 export function edgePath(a,b,rail=false) {

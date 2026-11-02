@@ -28,7 +28,7 @@ export function bindMapGestures({board,view,grip,resize,zoomBy,getScale,save,sta
   }
   view.onpointerdown=e=>{
     ignoreClick=false;
-    if(!e.isPrimary || e.button!==0 || e.target.closest('[data-branch]')) return;
+    if(!e.isPrimary || e.button!==0 || e.target.closest('[data-branch],[data-reset-card],[data-folder]')) return;
     const id=e.target.closest('[data-vertex]')?.dataset.vertex;
     if(!id && e.pointerType==='touch') return; // Empty paper retains native touch scrolling.
     drag={pid:e.pointerId,id,start:id && startNode(id),sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,left:view.scrollLeft,top:view.scrollTop,moving:false};

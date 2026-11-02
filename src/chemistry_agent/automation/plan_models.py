@@ -1,9 +1,9 @@
 """The executable graph is also the reviewable, versioned user plan."""
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import Field, StringConstraints, model_validator
 
 from chemistry_agent.automation.models import Resources, StrictModel
 
@@ -37,10 +37,19 @@ class VaspSettings(StrictModel):
         return self
 
 
+GroupLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+
+
 class PlanNode(StrictModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     title: str = Field(min_length=1, max_length=120)
     kind: Literal["model", "vasp", "analysis"]
+    group_path: list[GroupLabel] | None = Field(
+        default=None,
+        max_length=8,
+        description="Display folders from outer to inner, e.g. material, adsorbate, initial site. "
+        "Use meaningful labels for repeated experiments. [] keeps a shared step at the root.",
+    )
     depends_on: list[str] = Field(default_factory=list)
     inputs: dict[str, InputReference] = Field(default_factory=dict)
     code: str = Field(default="", max_length=50000)
@@ -48,6 +57,16 @@ class PlanNode(StrictModel):
     purpose: str = Field(default="", max_length=1000)
     result_files: list[str] = Field(default_factory=list)
     file_source: Literal["retrieved", "remote"] = "retrieved"
+
+    def stored_record(self, previous: dict | None = None) -> dict:
+        """An omitted path preserves the previous annotation during draft edits or repairs."""
+        body = self.model_dump(mode="json", exclude={"group_path"})
+        path = self.group_path
+        if path is None and previous:
+            path = previous.get("group_path")
+        if path is not None:
+            body["group_path"] = path
+        return body
 
     @model_validator(mode="after")
     def valid_operation(self):

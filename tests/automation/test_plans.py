@@ -1026,3 +1026,32 @@ async def test_restore_only_enqueues_checkpointed_vasp_summary_intent(graph):
     item = chat.progress.claim_summary()
     assert item["node_id"] == "1"
     assert chat.progress.claim_summary() is None
+
+
+async def test_group_paths_survive_draft_revision_and_match_single_node_query(graph):
+    from chemistry_agent.automation.plan_models import PlanQuery
+
+    chat, context, engine, _ = graph
+    seed = {"kind": "model", "id": "opaque", "title": "Seed", "code": "pass"}
+    analysis = {"kind": "analysis", "id": "inspect", "title": "Inspect", "code": "pass",
+                "inputs": {"sample": {"node": "opaque"}}}
+    first = await chat.plans.draft(
+        draft([{**seed, "group_path": ["Method B", "High T"]}, analysis]), context
+    )
+    key = first["id"]
+    revised = await chat.plans.draft(
+        draft([seed, analysis], plan_id=key, expected_revision=1), context
+    )
+    assert not revised["changed_nodes"]
+    stored = chat.load(context.session_id, "plans", key)
+    assert stored["nodes"][0]["group_path"] == ["Method B", "High T"]
+    assert "group_path" not in stored["nodes"][1]
+    node = (await chat.plans.query(PlanQuery(plan_id=key, node_id="inspect"), context))["node"]
+    assert node == chat.plans.records(context.session_id)[0]["nodes"][1]
+    assert node["group_path"] == ["Method B", "High T"]
+    cleared = await chat.plans.draft(
+        draft([{**seed, "group_path": []}, analysis], plan_id=key, expected_revision=2), context
+    )
+    assert cleared["changed_nodes"] == ["opaque"]
+    assert not cleared["nodes"][1].get("group_path")
+    assert not engine.submits

@@ -68,3 +68,42 @@ test('a drop near two neighbors settles into the closest gap without covering ei
   assert.deepEqual(clear,{x:296,y:124});
   points.set('drag',clear);assert.deepEqual(clearDrop(points,'drag'),clear);
 });
+
+test('opaque task IDs with arbitrary nested metadata form expandable folders without changing any real edge',()=>{
+  const data=[node('x'), ...['q','z','m','n'].map(id=>node(id,['x'])),node('out',['q','z','m','n'])];
+  [['Heavy water','10 ps'],['n-octane','10 ps'],['Heavy water','20 ps'],['n-octane','10 ps']].forEach((path,i)=>data[i+1].groupPath=path);
+  const graph=buildGraph(data), folders=graph.folders;
+  const id=(...path)=>[...folders.values()].find(f=>JSON.stringify(f.path)===JSON.stringify(path)).id;
+  const closed=new Set(folders.keys());
+  const overview=layoutGraph(graph,new Set(),new Map(),null,false,closed);
+  assert.deepEqual([...overview.points.keys()],['x','out']);
+  assert.deepEqual([...overview.headers.keys()],[id('Heavy water'),id('n-octane')]);
+  assert.equal(overview.links.length,4);
+  closed.delete(id('n-octane'));closed.delete(id('n-octane','10 ps'));
+  const expanded=layoutGraph(graph,new Set(),new Map(),null,false,closed);
+  assert.ok(expanded.points.has('z') && expanded.points.has('n'));
+  assert.ok(!expanded.points.has('q') && !expanded.points.has('m'));
+  assert.deepEqual(graph.byId.get('out').parents,['q','z','m','n']);
+  const filtered=layoutGraph(graph,new Set(),new Map(),id('n-octane','10 ps'),true,closed);
+  assert.deepEqual([...filtered.points.keys()],['z','n']);
+  assert.equal(graph.vertices.length,data.length);
+});
+
+test('wide unlabeled forks get neutral batches while shared results remain outside them',()=>{
+  const leaves=Array.from({length:29},(_,i)=>node('op'+i,['base']));
+  const graph=buildGraph([node('base'),...leaves,node('join',leaves.map(n=>n.id))]);
+  assert.deepEqual([...graph.folders.values()].map(g=>[g.title,g.members.length]),[['1–12',12],['13–24',12],['25–29',5]]);
+  assert(graph.folders.size && [...graph.folders.values()].every(g=>g.batch));
+  assert.deepEqual(graph.byId.get('join').folderIds,[]);
+  const closed=layoutGraph(graph,overviewFolds(graph),new Map(),null,false,new Set(graph.folders.keys()));
+  assert.equal(closed.points.size,2);assert.equal(closed.links.length,6);
+});
+
+test('a later anonymous sweep is still paged in a workflow with other explicitly named branches',()=>{
+  const nodes=[node('a'),node('small',['a']),node('sweep',['a']),
+    ...Array.from({length:30},(_,i)=>node('t'+i,['sweep']))];
+  nodes[1].groupPath=['Control'];
+  const graph=buildGraph(nodes);
+  assert.deepEqual([...graph.folders.values()].filter(g=>g.batch).map(g=>g.members.length),[12,12,6]);
+  assert.equal(graph.byId.get('a').folderIds.length,0);
+});

@@ -84,7 +84,7 @@ async def replace_node(plans, args: NodeRepair, context: ToolContext) -> dict:
             or len(state.get("attempts", [])) >= plan.get("repair_limit", 2)
         ):
             raise AgentError("repair_state", "当前节点不可重试、已暂停或已用完重试次数。", 409)
-        node = args.node.model_dump(mode="json") if args.node else copy.deepcopy(old)
+        node = args.node.stored_record(old) if args.node else copy.deepcopy(old)
         deps = set(node["depends_on"]) | {r["node"] for r in node["inputs"].values() if r["node"]}
         if old["kind"] != node["kind"] or sorted(deps) != sorted(old["depends_on"]):
             raise AgentError(

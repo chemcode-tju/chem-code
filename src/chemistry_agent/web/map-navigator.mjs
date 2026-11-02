@@ -12,7 +12,9 @@ export function createNavigator(button, view, read) {
   function draw() {
     const {layout,width,height}=read();
     svg.setAttribute('viewBox',`0 0 ${layout.width} ${layout.height}`);
-    dots.setAttribute('d',[...layout.points.values()].map(p=>`M${p.x} ${p.y}h${width}v${height}h-${width}z`).join(''));
+    const cards=[...layout.points.values()].map(p=>`M${p.x} ${p.y}h${width}v${height}h-${width}z`);
+    for(const header of layout.headers.values()) cards.push(`M${header.x} ${header.y}h${width}v18h-${width}z`);
+    dots.setAttribute('d',cards.join(''));
     position();
   }
   function pan(e) {

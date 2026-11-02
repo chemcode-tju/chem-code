@@ -24,11 +24,21 @@ class PlanWriter:
     def ref(node: str, output: str = "structure") -> dict:
         return {"node": node, "output": output}
 
-    def model(self, key: str, function, *, inputs=None, arguments=None, title=None) -> str:
+    def model(
+        self,
+        key: str,
+        function,
+        *,
+        inputs=None,
+        arguments=None,
+        title=None,
+        group_path: list[str] | None = None,
+    ) -> str:
         self.nodes.append(
             {
                 "id": key,
                 "title": title or key,
+                **({"group_path": list(group_path)} if group_path is not None else {}),
                 "kind": "model",
                 "code": node_code(function, arguments),
                 "inputs": inputs or {},
@@ -46,11 +56,13 @@ class PlanWriter:
         result_files=None,
         file_source="retrieved",
         title=None,
+        group_path: list[str] | None = None,
     ) -> str:
         self.nodes.append(
             {
                 "id": key,
                 "title": title or key,
+                **({"group_path": list(group_path)} if group_path is not None else {}),
                 "kind": "analysis",
                 "code": node_code(function, arguments),
                 "inputs": inputs,
@@ -72,11 +84,13 @@ class PlanWriter:
         require_ionic=False,
         require_electronic=True,
         title=None,
+        group_path: list[str] | None = None,
     ) -> str:
         self.nodes.append(
             {
                 "id": key,
                 "title": title or key,
+                **({"group_path": list(group_path)} if group_path is not None else {}),
                 "kind": "vasp",
                 "inputs": {"structure": self.ref(structure)},
                 "calculation": {

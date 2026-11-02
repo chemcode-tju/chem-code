@@ -57,6 +57,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   document.addEventListener('fullscreenchange',syncFull);
   dialog.addEventListener('cancel',event=>{event.preventDefault();if(fromFull) close();else expandDetail(false);});
   function resetContent() {
+    $('step-group-path').hidden=true;
     activeFile=''; info=null; bridge.reset(); $('step-viewer-shell').hidden=true;
     for (const id of ['step-note','step-error','step-progress','step-file-source','step-downloads','step-output','step-code','step-chart','step-figures','step-investigation-log']) $(id).replaceChildren();
     for (const id of ['step-investigation','step-output-section','step-code-section']) $(id).hidden=true;
@@ -209,6 +210,8 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   setInterval(()=>{if(current && (!info?.terminal || current.failed || info?.investigations?.some(row=>!row.terminal)) && !document.hidden && screen.getClientRects().length)refresh();},20000);
   function drawGeneral(plan,node) {
     const state=plan.runtime[node.id];
+    const path=$('step-group-path');
+    path.textContent=(node.group_path || []).join(' › ');path.hidden=!path.textContent;
     status(nodeStatus(plan,node),state.status);
     const config=$('step-parameters'), html=generalRows(plan,node);
     if (config.dataset.html!==html) {config.innerHTML=html;config.dataset.html=html;}

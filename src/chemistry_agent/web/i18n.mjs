@@ -1,5 +1,6 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "归位":"Reset", "所属分支":"Branch", "恢复这张卡片原位":"Reset this card’s position", "并行分支":"Parallel branches", "步":"steps", "项计算":"calculations",
   "步骤失败":"Step failed", "全屏缩略导航":"Minimap in full screen", "缩略图导航":"Minimap navigation", "点击或拖动缩略图定位":"Click or drag to navigate", "可见节点 / 总节点":"Visible / total nodes", "拖动卡片移动，拖动空白平移":"Drag a card to move it, or drag the paper to pan",
   "方案画布":"Plan canvas", "全屏方案画布":"Full-screen plan canvas", "计算依赖图":"Dependency map",
   "查找步骤":"Find step", "查找名称或步骤 ID":"Find by name or step ID", "没有匹配的步骤":"No matching steps",

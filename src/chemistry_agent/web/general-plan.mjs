@@ -42,7 +42,7 @@ export function renderGeneralPlan(plan) {
   const compute = plan.nodes.filter(node => node.kind==='vasp');
   const completed = compute.filter(node=>plan.runtime[node.id].status==='completed').length;
   const layers = graphLayers(plan.nodes).map(layer => layer.map(node => ({
-    id:node.id, title:node.title, dependencies:node.depends_on, auxiliary:node.kind!=='vasp',
+    id:node.id, title:node.title, groupPath:node.group_path, dependencies:node.depends_on, auxiliary:node.kind!=='vasp',
     description:(layer.length>1?'独立分支 · 可并行。':'')+(node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):node.title),
     state:plan.runtime[node.id].status, status:(plan.runtime[node.id].job?.scheduler_job_id?'#'+plan.runtime[node.id].job.scheduler_job_id+' · ':'')+(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
   })));

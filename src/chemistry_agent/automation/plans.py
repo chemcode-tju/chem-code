@@ -27,6 +27,7 @@ from chemistry_agent.automation.events import (
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import StructureInput
 from chemistry_agent.automation.plan_authority import auto_queue, auto_request, repair_target
+from chemistry_agent.automation.plan_groups import display_nodes
 from chemistry_agent.automation.plan_models import (
     NodeRepair,
     PlanDraft,
@@ -91,7 +92,9 @@ class CalculationPlans:
     @staticmethod
     def public(plan: dict) -> dict:
         # Execution snapshots are retained privately; effective inputs remain reviewable.
-        return {key: value for key, value in plan.items() if key != "snapshots"}
+        return {key: value for key, value in plan.items() if key != "snapshots"} | {
+            "nodes": display_nodes(plan)
+        }
 
     def records(self, session: str) -> list[dict]:
         return [self.public(item) for item in self.chat.list_records(session, "plans")]
@@ -138,7 +141,8 @@ class CalculationPlans:
                         identities[key] = await self.chat.service.call("plan_identity", protocol)
                     identity = identities[key]
                     snapshots[node.id] = {"protocol": protocol, "source": source, **identity}
-            nodes = [node.model_dump(mode="json") for node in args.nodes]
+            previous = {node["id"]: node for node in old["nodes"]} if old else {}
+            nodes = [node.stored_record(previous.get(node.id)) for node in args.nodes]
             for node in nodes:
                 if node["id"] in snapshots:
                     protocol = snapshots[node["id"]]["protocol"]
@@ -153,7 +157,6 @@ class CalculationPlans:
                             "code_id",
                         )
                     }
-            previous = {node["id"]: node for node in old["nodes"]} if old else {}
             changed = [node["id"] for node in nodes if previous.get(node["id"]) != node]
             removed = sorted(previous.keys() - {node["id"] for node in nodes})
             revision = old["revision"] + 1 if old else 1
@@ -285,7 +288,7 @@ class CalculationPlans:
             if key not in plan["runtime"]:
                 self.chat.save(session, "plan_versions", str(uuid4()), plan)
                 plan.setdefault("figure_nodes", []).append(key)
-                plan["nodes"].append(node.model_dump(mode="json"))
+                plan["nodes"].append(node.stored_record())
                 plan["runtime"][key] = {"status": "pending"}
                 plan["changed_nodes"], plan["removed_nodes"] = [key], []
                 plan["revision"] += 1
@@ -340,7 +343,7 @@ class CalculationPlans:
         if args.plan_id:
             plan = self.chat.load(context.session_id, "plans", str(args.plan_id))
             if args.node_id:
-                node = next((n for n in plan["nodes"] if n["id"] == args.node_id), None)
+                node = next((n for n in display_nodes(plan) if n["id"] == args.node_id), None)
                 if not node:
                     raise AgentError("missing_node", "此方案中没有指定节点。", 404)
                 return {"node": node, "state": plan["runtime"][args.node_id]}
@@ -898,7 +901,10 @@ class CalculationPlans:
                 "Dependencies include all input references. Branches execute concurrently after "
                 "authorization (auto mode or panel confirmation). Revisions require plan_id and "
                 "expected_revision; confirmed plans are immutable. Use this for new multi-step "
-                "research workflows, not just a prose plan.",
+                "research workflows, not just a prose plan. Set group_path on repeated branches, "
+                "e.g. [material, adsorbate, initial_site] or [method, scan_value]. Shared inputs "
+                "and cross-branch results belong at their common level. Only depends_on and "
+                "input references determine execution.",
                 PlanDraft,
                 self.draft,
                 True,
@@ -914,7 +920,10 @@ class CalculationPlans:
                 "p=W(title,goal); define standalone normal functions with imports inside. "
                 "p.model(id,fn,inputs={},arguments={}); p.vasp(id,source_id,protocol_id,incar=...,"
                 "resources=...,kmesh=...,require_ionic=...); p.analysis(id,fn,inputs=...,"
-                "result_files=['OUTCAR']); p.ref(id,'structure' or 'result'); p.write(). "
+                "result_files=['OUTCAR']); all three accept group_path=[outer_label, inner_label]. "
+                "Group repeated candidates by their meaningful dimensions, such as adsorbate then "
+                "initial site. Single-source descendants inherit the path for display. "
+                "p.ref(id,'structure' or 'result'); p.write(). "
                 "Use previous_id to stage a saved generator as previous.py: patch or reuse its "
                 "source in Python and execute the corrected program to emit result.json. For an "
                 "unterminated multiline literal you can opt in to the helper: import runpy; "
