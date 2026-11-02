@@ -218,6 +218,11 @@ def create_app(
     async def health(request: Request):
         provider = request.app.state.provider
         _, configuration = provider.configuration()
+        try:
+            local_service(request)
+            local_shell_access = True
+        except AgentError:
+            local_shell_access = False
         ready = (
             False if settings.auth_enabled and not request.state.user else await provider.ready()
         )
@@ -232,6 +237,7 @@ def create_app(
             "context_input_budget_tokens": settings.context_input_budget,
             "context_recent_turns": settings.context_recent_turns,
             "automation_enabled": calculation_enabled,
+            "ssh_hosts": ssh_hosts if local_shell_access else (),
         }
 
     @app.get("/tools", tags=["tools"])

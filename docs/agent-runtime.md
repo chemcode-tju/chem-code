@@ -2,7 +2,7 @@
 
 对不确定的公开问题，Agent 可以调用 `web_search`，再用结果中的来源链接回答。每次只向搜索服务发送查询词。默认使用 [Mwmbl 搜索 API](https://developer.mwmbl.org/)，无需模型供应商的搜索权限；索引对某些中文或小众问题覆盖有限。可以设置 `CHEMISTRY_SEARXNG_URL` 改用启用 JSON 格式的 [SearXNG](https://docs.searxng.org/dev/search_api.html)，或设 `CHEMISTRY_WEB_SEARCH_ENABLED=false` 关闭。无结果、超时和被限流都不能当作已核实的事实。
 
-本地运行服务时，在其 .env 中设置 `CHEMISTRY_SSH_HOSTS=cluster-b`（多个别名用逗号隔开），并事先确保运行服务的系统用户可用 OpenSSH 非交互登录该别名、已信任主机密钥。重启服务。在对话中发送：
+本地运行服务时，在其 .env 中设置 `CHEMISTRY_SSH_HOSTS=cluster-b`（多个别名用逗号隔开），并事先确保运行服务的系统用户可用 OpenSSH 非交互登录该别名、已信任主机密钥。重启服务。在输入框的 **＋ → 远程终端 · cluster-b** 可以插入本轮授权，也可以直接发送：
 
 ```text
 /shell cluster-b

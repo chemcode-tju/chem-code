@@ -192,6 +192,21 @@ async function refreshHealth() {
   try {
     const previousProvider = state.health?.provider;
     state.health = await api("/health");
+    $("shell-options").replaceChildren(...(state.health.ssh_hosts || []).map(host => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "远程终端 · " + host;
+      button.title = "允许本轮对话使用 " + host + " 的终端";
+      button.onclick = () => {
+        const field = $("message-input");
+        field.value = "/shell " + host + "\n" + field.value.replace(/^\/shell[ \t]+[^\n]*\n?/, "");
+        field.dispatchEvent(new Event("input", {bubbles:true}));
+        $("composer-upload-menu").hidden = true;
+        $("composer-add").setAttribute("aria-expanded", "false");
+        field.focus(); field.setSelectionRange(field.value.length, field.value.length);
+      };
+      return button;
+    }));
     calculations.enabled(Boolean(state.health.automation_enabled));
     notifications.enabled(Boolean(state.health.automation_enabled));
     $("automation-link").hidden = !state.health.automation_enabled;
@@ -304,7 +319,7 @@ function renderConversation(scroll = true) {
       : item.status === "running" ? "正在生成回答 · 消息已保存，可离开页面"
       : "等待上一条回复 · 消息已保存";
     article.innerHTML = renderUser(item.body.message, item.body.context || "") +
-      `<div class="assistant-message"><div class="assistant-body"><div class="${item.status === "failed" ? "message-error" : "thinking-indicator"}">${escapeHtml(label)}</div><div class="markdown" hidden data-live-request="${escapeHtml(item.id)}"></div>${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
+      `<div class="assistant-message"><div class="assistant-body"><div class="${["failed","uncertain"].includes(item.status) ? "message-error" : "thinking-indicator"}">${escapeHtml(label)}</div><div class="markdown" hidden data-live-request="${escapeHtml(item.id)}"></div>${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
     $("conversation").append(article);
   }
   streamed.follow(state.sessionId, (state.outbox.find(item => item.status === "running") || state.outbox.find(item => item.status === "queued"))?.id);
@@ -365,18 +380,19 @@ async function selectSession(id, quiet = false) {
   closeDrawers();
   try {
     // Message history is authoritative. All tool details can be reconstructed from it.
-    const session = await api(`/sessions/${encodeURIComponent(id)}`);
-    const runs = await api(`/sessions/${encodeURIComponent(id)}/runs?limit=100`).catch(() => []);
+    const [session, runs] = await Promise.all([
+      api(`/sessions/${encodeURIComponent(id)}`),
+      api(`/sessions/${encodeURIComponent(id)}/runs?limit=100`).catch(() => []),
+    ]);
     if (navigation !== state.navigation) return;
-    await chatModels.loadSession(id);
+    await chatModels.loadSession(id).catch(() => {});
     if (navigation !== state.navigation) return;
     state.sessionId = id;
     state.runs = runs;
     state.turns = buildTurns(session.messages, runs);
+    state.loadedAt = session.updated_at;
     $("conversation-title").textContent = session.title;
     rememberSession(id);
-    await calculations.refresh();
-    await refreshContext();
     const lastCall = state.turns.flatMap((turn) => turn.calls).at(-1);
     renderResult(lastCall || null);
   } catch (error) {
@@ -393,10 +409,12 @@ async function selectSession(id, quiet = false) {
     if (navigation === state.navigation) {
       state.loading = false;
       restoreDraft();
-      await syncChat();
       renderConversation();
       restorePosition=false;
       renderSessions();
+      void syncChat();
+      void calculations.refresh().catch(() => {});
+      void refreshContext();
     }
   }
 }
@@ -483,18 +501,23 @@ async function syncChat() {
       saveDraft();
     }
     if (signature === state.chatSignature) return;
-    const [session,runs] = await Promise.all([
-      api(`/sessions/${id}`),api(`/sessions/${id}/runs?limit=100`),
-    ]);
-    if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
+    let runs = state.runs;
+    if (receipt.updated_at !== state.loadedAt) {
+      const [session, latest] = await Promise.all([
+        api(`/sessions/${id}`), api(`/sessions/${id}/runs?limit=100`),
+      ]);
+      if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
+      runs = latest;
+      state.runs = runs;
+      state.turns = buildTurns(session.messages, runs);
+      state.loadedAt = session.updated_at;
+      void calculations.refresh().catch(() => {});
+      void refreshContext();
+    }
     state.outbox = receipt.requests.filter(item=>item.status!=="completed" &&
       !runs.some(run=>run.id===item.run_id && run.status==="completed"));
-    state.runs = runs;
-    state.turns = buildTurns(session.messages,runs);
     state.chatSignature = signature;
     renderConversation(false);
-    await calculations.refresh().catch(()=>{});
-    await refreshContext();
   } catch { /* Keep saved messages and drafts visible while disconnected. */ }
   finally { syncingChat = false; }
 }
