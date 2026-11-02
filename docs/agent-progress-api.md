@@ -34,7 +34,7 @@
 | step | 通用方案的 message 为步骤标题，status 反映观测到的步骤/调度状态；旧工作流的 message 为状态说明，detail.label 为作业标签，detail.pk 为 AiiDA 编号。按 plan_id 和 node_id 关联，不按标题关联。 |
 | diagnosis | 对应节点的自动诊断开始或诊断状态变化。 |
 | repair | 通用方案节点登记修复，message 为原因，detail.attempt 从 1 起计。旧工作流的重试决定见 diagnosis。 |
-| interpretation | Agent 回复原文位于 message；通用方案 detail.run_id 指向回合，阶段解读不插入聊天。单次诊断涵盖多个节点时，各节点均可查询，可用 run_id 在消息窗口合并。 |
+| interpretation | Agent 回复原文位于 message；故障诊断的 detail.run_id 指向回合，阶段解读不插入聊天。单次诊断涵盖多个节点时，各节点均可查询，可用 run_id 在消息窗口合并。 |
 | plan | 唯一的最终报告标记。node_id 为 null，detail.chat_event 等于正式 assistant 消息的 task_event。收到后重新读取会话并按 task_event 合并，无需将事件文本伪装成聊天回复。 |
 
 诊断与按钮确认的运行记录可审计，run.context.automation_event 分别为 diagnosis、submission。UI 将聊天轮次与 runs 关联时排除这些运行。status=completed 的 interpretation 只代表解读已产出；科学有效性和频率、自由能等结果应读取对应步骤的实际产物。
@@ -44,4 +44,7 @@
 - 事件保存在本地 task-monitor.sqlite3 新表 progress。通用方案按节点及修复轮次去重，旧工作流按实际子作业及状态去重。等待配额、暂停、待修复确认或已自动提交重试都不会生成正式终态消息。
 - 通用方案每个终态版本最多一条正式消息；旧工作流按最初根作业标识处理。用户正在聊天时，正式报告等待投递；进度仍可读取。重复轮询、服务重启后重放及重复确认保留事件 ID。
 - 升级时保留历史聊天和原有 /events、通知与未读接口。调度器下次观察时可记录旧节点现存状态，历史上从未持久保存的瞬时事件不做重建。仅查询本接口不会触发回填、提交或恢复。
-- 基线为 0a3bf36，无第三方新依赖。接口独立于本地未提交的停止工具、远端文件读取修复和 UI 分支。基线中的“整体终态”指完成或失败；手动停算工具如要提供额外的最终报告，需由其接入终态投递。
+- 已停止方案在后台第一次扫描时，从本地 runtime 投影各节点及已保存尝试；不改变方案、不查询服务器，也不为回填的历史节点生成模型解读。
+- 新观察到的 VASP 节点通过其既有完成条件后，将解读请求随完成检查点保存。SQLite 工作队列在调度之外调用原会话的模型，写入同一 plan_id/node_id 的 interpretation，detail.step_seq 指向对应的完成事件，并包含 attempt、job_id、pk、scheduler_job_id。建模和普通统计节点不入队。
+- 解读状态为 completed 或 unavailable（模型不可用时只写一次提示）。已入队但尚未领取的解读遇到停算时记为 skipped。方案终态报告不等待逐节点解读，UI 可在收到终态后继续按游标读取。服务重启能续处理未完成的请求；已领取的请求在五分钟租约过期后可再次领取。若模型已应答、进程却在结果落盘前崩溃，恢复时可能再次调用模型，同一完成事件最多展示一条解读。
+- 无新增第三方依赖。手动停算从原始用户回合回复，此接口的 plan 正式终态标记对应方案正常完成或失败。

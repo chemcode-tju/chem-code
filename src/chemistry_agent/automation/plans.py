@@ -38,6 +38,7 @@ from chemistry_agent.automation.plan_models import (
 )
 from chemistry_agent.automation.plan_repair import diagnose, eligible, replace_node
 from chemistry_agent.automation.plan_stop import PlanStop, job_ids
+from chemistry_agent.automation.reporting import job_evidence, summarize_result
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
 
@@ -73,7 +74,8 @@ class CalculationPlans:
         self.chat = chat
         self.locks: dict[str, asyncio.Lock] = {}
         self.task: asyncio.Task | None = None
-        self.projected: set[tuple[str, str, int]] = set()
+        self.summary_task: asyncio.Task | None = None
+        self.projected: set[tuple[str, str, int, bool]] = set()
         self.store = None
         self.agent = self.provider = None
         self.stop_requests: set[tuple[str, str]] = set()
@@ -304,9 +306,7 @@ class CalculationPlans:
 
     async def stop(self, args: PlanStop, context: ToolContext) -> dict:
         if not auto_request.get() or repair_target.get():
-            raise AgentError(
-                "stop_not_authorized", "仅可在用户对话回合中按要求停止本方案。", 403
-            )
+            raise AgentError("stop_not_authorized", "仅可在用户对话回合中按要求停止本方案。", 403)
         session, identifier = context.session_id, str(args.plan_id)
         self.chat.load(session, "plans", identifier)
         self.stop_requests.add((session, identifier))
@@ -551,7 +551,9 @@ class CalculationPlans:
             incar = {k.upper(): v for k, v in node["effective"]["incar"].items()}
             if not int(incar.get("NSW", 0)):
                 outputs["structure_id"] = state["input_structure_id"]
-        state.update(status="completed", outputs=outputs, completed_at=utc_now())
+        state.update(
+            status="completed", outputs=outputs, completed_at=utc_now(), summary_requested=True
+        )
 
     async def resume_quota_waiter(self, session: str, plan: dict, node: dict, state: dict) -> None:
         job = state.get("job", {})
@@ -645,7 +647,7 @@ class CalculationPlans:
                 ):
                     job = saved.get("job") or {}
                     status = self.step_status(saved)
-                    if status == "pending":
+                    if status == "pending" and plan["status"] != "stopped":
                         continue
                     detail = {
                         "attempt": attempt,
@@ -657,6 +659,7 @@ class CalculationPlans:
                         "error": saved.get("error"),
                         "structure_id": (saved.get("outputs") or {}).get("structure_id"),
                     }
+                    key = f"step:{node['id']}:{attempt}:{status}"
                     self.chat.progress.insert(
                         db,
                         session,
@@ -666,24 +669,37 @@ class CalculationPlans:
                         status,
                         node["title"],
                         detail,
-                        f"step:{node['id']}:{attempt}:{status}",
+                        key,
                     )
+                    if (
+                        saved.get("summary_requested")
+                        and saved["status"] == "completed"
+                        and node["kind"] == "vasp"
+                        and plan["status"] not in {"stopping", "stopped"}
+                    ):
+                        evidence = job_evidence(job) | {
+                            "step": node["title"],
+                            "purpose": node.get("purpose"),
+                            "scheduler_job_id": job.get("scheduler_job_id"),
+                        }
+                        self.chat.progress.queue_summary(db, session, plan["id"], key, evidence)
 
     async def tick_plan(self, session: str, identifier: str) -> None:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
-            if plan["status"] in {"stopping", "stopped"}:
-                return
-            projection_key = (session, identifier, plan["revision"])
+            stopped = plan["status"] in {"stopping", "stopped"}
+            projection_key = (session, identifier, plan["revision"], plan["status"] == "stopped")
             if projection_key not in self.projected:
                 self.record_steps(session, plan, plan["nodes"])
                 self.projected.add(projection_key)
+            if stopped:
+                return
             if plan["status"] in {"running", "paused"}:
                 for node in plan["nodes"]:
                     if (session, identifier) in self.stop_requests:
                         return
                     state = plan["runtime"][node["id"]]
-                    before = self.step_status(state)
+                    before = (state["status"], self.step_status(state))
                     try:
                         if state.get("job_id") and state["status"] == "running":
                             await self.inspect_vasp(session, plan, node, state)
@@ -731,7 +747,7 @@ class CalculationPlans:
                     except (ValueError, OSError) as exc:
                         state.update(status="failed", error=str(exc))
                     finally:
-                        if self.step_status(state) != before:
+                        if (state["status"], self.step_status(state)) != before:
                             self.save(session, plan)
                             self.record_steps(session, plan, [node])
                     # The graph-level checkpoint below also retains unchanged-phase job snapshots.
@@ -815,11 +831,41 @@ class CalculationPlans:
                     logger.exception("Plan scheduling delayed")
             await asyncio.sleep(5)
 
+    async def interpret_next_step(self) -> bool:
+        progress = self.chat.progress
+        item = progress.claim_summary()
+        if item is None:
+            return False
+        plan = self.chat.load(item["session_id"], "plans", item["plan_id"])
+        if plan["status"] in {"stopped", "stopping"}:
+            progress.finish_summary(item, "skipped", "方案已停止，跳过待处理解读。")
+            return True
+        status, answer = await summarize_result(
+            self.provider, self.store, item["session_id"], item["evidence"]
+        )
+        progress.finish_summary(item, status, answer)
+        return True
+
+    async def watch_summaries(self) -> None:
+        while True:
+            try:
+                if await self.interpret_next_step():
+                    continue
+            except Exception:
+                logger.exception("Step interpretation delayed")
+            await asyncio.sleep(5)
+
     def start(self, store, agent=None, provider=None) -> None:
         self.store, self.agent, self.provider = store, agent, provider
         self.task = asyncio.create_task(self.watch())
+        if provider is not None and store is not None:
+            self.summary_task = asyncio.create_task(self.watch_summaries())
 
     async def close(self) -> None:
+        if self.summary_task:
+            self.summary_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.summary_task
         for task in self.repair_tasks.values():
             task.cancel()
         await asyncio.gather(*self.repair_tasks.values(), return_exceptions=True)

@@ -13,6 +13,11 @@ RESULT_PROMPT = (
 )
 
 
+MODEL_UNAVAILABLE = (
+    "本次模型分析暂不可用。可展开右侧任务状态查看退出码、收敛记录和结果，再继续询问。"
+)
+
+
 async def summarize(monitor, item: dict, job: dict) -> str:
     recovery = monitor.events.recovery(job["id"]) or {}
     reason = (recovery.get("decision") or {}).get("decision", {}).get("reason")
@@ -28,6 +33,14 @@ async def summarize(monitor, item: dict, job: dict) -> str:
         return f"{reason}\n\n{outcome}。" + (
             f" {result['reason']}" if result.get("reason") not in {None, reason} else ""
         )
+    _, answer = await summarize_result(
+        monitor.recovery.provider, monitor.session_store, item["session_id"], job_evidence(job)
+    )
+    return answer
+
+
+def job_evidence(job: dict) -> dict:
+    """Keep scheduler facts and parsed results, without copying whole output files."""
     evidence = {
         k: job.get(k)
         for k in (
@@ -46,10 +59,15 @@ async def summarize(monitor, item: dict, job: dict) -> str:
         {k: s.get(k) for k in ("pk", "label", "process_state", "exit_status", "exit_message")}
         for s in job.get("steps", [])
     ]
-    provider = monitor.recovery.provider
+    return evidence
+
+
+async def summarize_result(
+    provider, session_store, session_id: str, evidence: dict
+) -> tuple[str, str]:
     token = current_model_scope.set(ModelScope(user_id=None))
     try:
-        conversation = await monitor.session_store.get_session(item["session_id"])
+        conversation = await session_store.get_session(session_id)
         requests = [
             m["content"].split("\n\n", 1)[0][:500]
             for m in conversation["messages"]
@@ -59,8 +77,8 @@ async def summarize(monitor, item: dict, job: dict) -> str:
         ]
         evidence["recent_user_requests"] = requests[-3:]
         _, config = provider.configuration()
-        model = await monitor.session_store.get_session_model(
-            item["session_id"], None, config.provider, config.base_url
+        model = await session_store.get_session_model(
+            session_id, None, config.provider, config.base_url
         )
         provider.select_model(model)
         async with asyncio.timeout(120):
@@ -81,9 +99,9 @@ async def summarize(monitor, item: dict, job: dict) -> str:
             )
         if not result.message.content or result.message.tool_calls:
             raise ValueError("empty report")
-        return result.message.content.strip()
+        return "completed", result.message.content.strip()
     except Exception:
-        return "本次模型分析暂不可用。可展开右侧任务状态查看退出码、收敛记录和结果，再继续询问。"
+        return "unavailable", MODEL_UNAVAILABLE
     finally:
         current_model_scope.reset(token)
 
