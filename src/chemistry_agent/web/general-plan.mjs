@@ -1,3 +1,4 @@
+import {planMap} from './plan-map.mjs';
 import {escapeHtml as esc} from './core.mjs';
 
 export const planStatus = status => ({draft:'待确认',running:'执行中',paused:'已暂停推进',completed:'已完成',failed:'有步骤失败',pending:'等待依赖',preparing:'准备中',blocked:'上游失败，未执行'})[status] || status;
@@ -27,14 +28,15 @@ export function graphLayers(nodes) {
 }
 export function renderGeneralPlan(plan) {
   const titles=Object.fromEntries(plan.nodes.map(n=>[n.id,n.title]));
-  const completed=Object.values(plan.runtime).filter(s=>s.status==='completed').length;
-  const layers=graphLayers(plan.nodes).map((nodes,index)=>`<div class="plan-group"><span class="plan-number">${index+1}</span><div class="plan-nodes">${nodes.length>1?'<small>独立分支 · 可并行</small>':''}${nodes.map(node=>{
-    const state=plan.runtime[node.id], active=['running','preparing'].includes(state.status);
-    const changed=plan.revision>1 && plan.changed_nodes.includes(node.id);
-    const deps=node.depends_on.map(id=>titles[id]).join('、');
-    return `<button type="button" class="plan-entry" data-general-step="${esc(node.id)}" data-state="${active?'active':state.status}" ${active?'aria-current="step"':''}><span><strong>${esc(node.title)}</strong>${deps?`<span class="graph-dependency">依赖：${esc(deps)}</span>`:''}</span><small>${changed && plan.status==='draft'?'已修改 · ':''}${esc(nodeStatus(plan,node))}</small><span aria-hidden="true">›</span></button>`;
-  }).join('')}</div></div>`).join('');
-  return `<article class="calculation-preview general-plan" data-task="${esc(plan.id)}" data-general-plan="${esc(plan.id)}"><header><strong>${esc(plan.title)}</strong><small>v${plan.revision}</small></header><p class="task-parameters">${esc(planStatus(plan.status))} · ${completed}/${plan.nodes.length} 步 · ${plan.max_parallel ? `最多 ${esc(plan.max_parallel)} 个计算并行` : '就绪即提交'}</p><div class="graph-progress" role="progressbar" aria-label="方案完成步骤" aria-valuemin="0" aria-valuemax="${plan.nodes.length}" aria-valuenow="${completed}"><span style="width:${100*completed/plan.nodes.length}%"></span></div><div class="workflow-plan">${layers}</div><details data-fold="goal"><summary>研究目标与版本</summary><p>${esc(plan.goal)}</p>${plan.history.map(h=>`<p>v${h.revision} · 修改 ${h.changed_nodes.length} 步${h.removed_nodes.length?` · 移除 ${h.removed_nodes.map(esc).join('、')}`:''}</p>`).join('')}</details>${plan.status==='draft'?`<div class="task-actions"><button data-revise-plan="${esc(plan.id)}">提出修改</button><button class="tool-submit" data-confirm-plan="${esc(plan.id)}">确认方案并执行</button></div>`:['running','paused'].includes(plan.status)?`<button data-control-plan="${esc(plan.id)}" data-plan-action="${plan.status==='running'?'pause':'resume'}">${plan.status==='running'?'暂停后续步骤':'继续执行'}</button>`:''}</article>`;
+  const compute = plan.nodes.filter(node => node.kind==='vasp');
+  const completed = compute.filter(node=>plan.runtime[node.id].status==='completed').length;
+  const layers = graphLayers(plan.nodes).map(layer => layer.map(node => ({
+    id:node.id, title:node.title, dependencies:node.depends_on, auxiliary:node.kind!=='vasp',
+    description:(layer.length>1?'独立分支 · 可并行。':'')+(node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):node.title),
+    state:plan.runtime[node.id].status, status:(plan.runtime[node.id].job?.scheduler_job_id?'#'+plan.runtime[node.id].job.scheduler_job_id+' · ':'')+(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
+  })));
+  const graph = planMap(layers,plan.id,'data-general-step');
+  return `<article class="calculation-preview general-plan" data-task="${esc(plan.id)}" data-general-plan="${esc(plan.id)}"><header><strong>${esc(plan.title)}</strong><small>v${plan.revision}</small></header><p class="task-parameters">${esc(planStatus(plan.status))} · ${completed}/${compute.length} 项计算 · ${plan.max_parallel ? `最多 ${esc(plan.max_parallel)} 个计算并行` : '就绪即提交'}</p><div class="graph-progress" role="progressbar" aria-label="方案完成步骤" aria-valuemin="0" aria-valuemax="${compute.length}" aria-valuenow="${completed}"><span style="width:${100*completed/Math.max(1,compute.length)}%"></span></div>${graph}<details data-fold="goal"><summary>研究目标与版本</summary><p>${esc(plan.goal)}</p>${plan.history.map(h=>`<p>v${h.revision} · 修改 ${h.changed_nodes.length} 步${h.removed_nodes.length?` · 移除 ${h.removed_nodes.map(esc).join('、')}`:''}</p>`).join('')}</details>${plan.status==='draft'?`<div class="task-actions"><button data-revise-plan="${esc(plan.id)}">提出修改</button><button class="tool-submit" data-confirm-plan="${esc(plan.id)}">确认方案并执行</button></div>`:['running','paused'].includes(plan.status)?`<button data-control-plan="${esc(plan.id)}" data-plan-action="${plan.status==='running'?'pause':'resume'}">${plan.status==='running'?'暂停后续步骤':'继续执行'}</button>`:''}</article>`;
 }
 export function generalRows(plan,node) {
   const params=node.effective, names={model:'ASE 建模',vasp:'VASP 计算',analysis:'Python 分析'};

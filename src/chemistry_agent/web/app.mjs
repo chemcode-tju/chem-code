@@ -1,4 +1,6 @@
 import {liveAnswer} from "./live-answer.mjs";
+import {createProgressFeed} from './progress-feed.mjs';
+import {initWorkspaceControls} from './workspace-controls.mjs';
 import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
@@ -21,6 +23,9 @@ const state = {
   busy: false, loading: false, hasMore: false, navigation: 0, results: new Map(),
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
+initWorkspaceControls();
+const chatPositions=new Map();
+let restorePosition=false;
 let toastTimer;
 let chatModels;
 const notifications = createNotifications({ api });
@@ -29,8 +34,7 @@ const selectInspectorTab = initInspectorTabs(() => {
   setInspectorOpen(true, { focus:false });
 });
 const viewer = createStructureBridge({selectTab:selectInspectorTab, toast});
-const calculations = createCalculations({
-  async syncReport(id,event) {
+async function syncReport(id,event) {
     if (state.busy || state.loading || state.turns.some(t=>t.event===event)) return;
     const generation = state.navigation;
     const [session,runs] = await Promise.all([api("/sessions/"+id),api("/sessions/"+id+"/runs?limit=100")]);
@@ -39,7 +43,18 @@ const calculations = createCalculations({
       state.turns = buildTurns(session.messages,runs);
       renderConversation(false);
     }
-  },
+  }
+const progressFeed=createProgressFeed({
+  api,getSession:()=>state.sessionId,markdown,
+  async onFinal(id,key) {
+    await syncReport(id,key);
+    if(id!==state.sessionId) return false;
+    renderConversation(false);
+    return state.turns.some(turn=>turn.event===key);
+  }
+});
+const calculations = createCalculations({
+  syncReport, refreshProgress:id=>progressFeed.refresh(id),
   reviseStep(id,title,planRevision) {
     const field = $("message-input");
     if (innerWidth<=760) setInspectorOpen(false);
@@ -265,6 +280,9 @@ function renderContextBadge(context) {
 }
 
 function renderConversation(scroll = true) {
+  const viewport=$("chat-scroll");
+  const previousTop=viewport.scrollTop;
+  const pinned=viewport.scrollHeight-viewport.clientHeight-previousTop<48;
   state.results.clear();
   const hasConversation = state.turns.length > 0 || state.pending !== null || state.outbox.length > 0;
   $("welcome").hidden = hasConversation || state.loading;
@@ -274,8 +292,9 @@ function renderConversation(scroll = true) {
     $("conversation").innerHTML = '<div class="thinking-indicator">正在打开这段研究对话…</div>';
     return;
   }
+  progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
   calculations.drawReportFigures();
   for (const item of state.outbox) {
@@ -323,16 +342,20 @@ function renderConversation(scroll = true) {
     link.after(button);
   }
   calculations.drawStructures();
-  if (scroll) requestAnimationFrame(() => {
-    $("chat-scroll").scrollTo({ top: $("chat-scroll").scrollHeight, behavior: "smooth" });
-  });
+  if (restorePosition && state.sessionId) {
+    viewport.scrollTop=chatPositions.get(state.sessionId) ?? viewport.scrollHeight;
+  } else {
+    viewport.scrollTop=pinned ? viewport.scrollHeight : previousTop;
+  }
   updateControls();
 }
 
 async function selectSession(id, quiet = false) {
   if (state.busy) return;
+  if(state.sessionId && !state.loading) chatPositions.set(state.sessionId,$("chat-scroll").scrollTop);
+  restorePosition=true;
   saveDraft();
-  if (id !== state.sessionId) { clearRevision(); state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
+  if (id !== state.sessionId) { progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
   uploads.clear();
   calculations.clearSelection();
   const navigation = ++state.navigation;
@@ -372,6 +395,7 @@ async function selectSession(id, quiet = false) {
       restoreDraft();
       await syncChat();
       renderConversation();
+      restorePosition=false;
       renderSessions();
     }
   }
@@ -384,6 +408,7 @@ function clearRevision() {
 $("revision-chip").addEventListener("click",clearRevision);
 
 function newConversation() {
+  if(state.sessionId) chatPositions.set(state.sessionId,$("chat-scroll").scrollTop);
   if (state.busy || state.loading || chatModels.saving) return;
   saveDraft();
   chatModels.newConversation();
@@ -394,7 +419,7 @@ function newConversation() {
   state.runs = [];
   state.pending = null; state.outbox = []; state.chatSignature = "";
   viewer.reset(); calculations.reset();
-  $("context-panel").hidden = true;
+  $("context-ring").hidden = true; $("context-panel").close();
   rememberSession(null);
   $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
@@ -667,7 +692,7 @@ $("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false);
 $("inspector-close").addEventListener("click", () => setDrawer("inspector", false));
 $("screen-overlay").addEventListener("click", closeDrawers);
 document.addEventListener("keydown", (event) => {
-  if ($("project-dialog").open) return;
+  if (document.querySelector("dialog[open]")) return;
   if (event.key === "Escape") { closeDrawers(); setInspectorOpen(false); }
   if (event.key !== "Tab") return;
   const openPanel = document.body.classList.contains("sidebar-open") ? $("sidebar") : null;
@@ -687,8 +712,9 @@ window.addEventListener("resize", () => {
 });
 
 function showLogin(message = "") {
+  chatPositions.clear();progressFeed.reset();
   clearRevision(); viewer.reset(); calculations.reset(); notifications.enabled(false);
-  $("context-panel").hidden = true;
+  $("context-ring").hidden = true; $("context-panel").close();
   state.accountVersion += 1;
   state.navigation += 1;
   rememberSession(null);
@@ -780,11 +806,15 @@ setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);
 
 async function refreshContext() {
   const id = state.sessionId;
-  if (!id) { $("context-panel").hidden = true; return; }
+  if (!id) { $("context-ring").hidden = true; $("context-panel").close(); return; }
   try {
     const info = await api(`/sessions/${encodeURIComponent(id)}/context`);
     if (id !== state.sessionId) return;
-    $("context-panel").hidden = false;
+    $("context-ring").hidden = false;
+    const percent=Math.round(100*info.estimated_input_tokens/Math.max(1,info.input_budget_tokens));
+    $("context-percent").textContent=percent+"%";
+    $("context-ring").style.setProperty("--used",Math.min(100,percent)+"%");
+    $("context-ring").title="上下文用量 "+percent+"%";
     $("context-status").textContent = `会话记忆 · 已摘要 ${info.covered_messages} / ${info.original_messages} 条消息`;
     $("context-budget").textContent = `估算输入 ${info.estimated_input_tokens.toLocaleString()} / ${info.input_budget_tokens.toLocaleString()} tokens（${info.tokenizer}）；自动触发 ${info.trigger_tokens.toLocaleString()}，保留最近 ${info.recent_turns} 轮。`;
     $("context-summary").textContent = info.summary || "尚未生成历史摘要。短对话可直接保留原文。";

@@ -1,3 +1,4 @@
+import {mountMaps,captureMaps} from './plan-map.mjs';
 import {planFigures} from './result-figures.mjs';
 import {createStepDetail} from "./step-detail.mjs?v=20261102-general-plans";
 import {workflowPlan} from "./workflow-plan.mjs";
@@ -35,7 +36,7 @@ export function renderTaskCard(item, job, recovery, sessionPath, policy={}) {
     ${job ? (!job.finished_ok ? `<details data-fold="recovery"><summary>故障处理</summary>${surface && !surface.co_sites?.length ? '' : `<label>自动重试上限 <input type="number" min="0" max="5" value="${esc(policy.max_attempts ?? 2)}" data-retry-limit="${id}"></label><button data-recovery-job="${esc(job.id)}" data-recovery-mode="auto">启用或更新自动重试</button>`}<button data-recovery-job="${esc(job.id)}" data-recovery-mode="diagnose">请求分析</button><button data-recovery-job="${esc(job.id)}" data-recovery-mode="off">关闭自动处理</button></details>` : '') : `${surface && !surface.co_sites?.length ? '' : `<details data-fold="policy"><summary>重试设置</summary><label><input type="checkbox" data-auto-recovery="${id}">自动修复</label><label>最多 <input type="number" min="0" max="5" value="2" data-retry-limit="${id}"> 次</label></details>`}<button type="button" class="tool-submit" data-confirm-preview="${id}">${item.workflow && item.workflow !== 'single' ? '确认整个流程并提交' : '确认提交'}</button>`}</article>`;
 }
 
-export function createCalculations({ api, getSession, ensureSession, isBusy, toast, onConfirmed, viewer, chatFiles, syncReport, reviseStep }) {
+export function createCalculations({ api, getSession, ensureSession, isBusy, toast, onConfirmed, viewer, chatFiles, syncReport, refreshProgress, reviseStep }) {
   const panel = document.getElementById("calculation-cards");
   const knownSteps = new Map();
   function displayCount(preview,key,count) {
@@ -97,7 +98,17 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
       detail.update(item,job);
       return renderTaskCard(item, job, records.recovery?.[ref?.id], path(session),records.policies?.[ref?.id] || {});
     }).join('');
+    const selectedNode = panel.querySelector('.map-node[aria-pressed="true"]');
+    const selection = selectedNode && [selectedNode.closest('[data-task]').dataset.task,selectedNode.dataset.generalStep || selectedNode.dataset.openStep];
+    const panelTop = panel.parentElement.parentElement.scrollTop;
+    const mapViews = captureMaps(panel);
     panel.innerHTML = graphs + cards || '<p class="empty-result">本对话暂无计算方案</p>';
+    mountMaps(panel,mapViews);
+    if(selection) {
+      const [task,step]=selection.map(value=>CSS.escape(value));
+      panel.querySelector(`[data-task="${task}"] :is([data-general-step="${step}"],[data-open-step="${step}"])`)?.setAttribute('aria-pressed','true');
+    }
+    panel.parentElement.parentElement.scrollTop = panelTop;
     for (const [id,value] of knownSteps) displayCount(...id.split('/'),value.count);
     for (const e of panel.querySelectorAll("[data-retry-limit]")) if (limits.has(e.dataset.retryLimit)) e.value = limits.get(e.dataset.retryLimit);
     for (const d of panel.querySelectorAll('details')) d.open = savedFolds.has(`${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`);
@@ -122,6 +133,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     const response = await api(`${path(id)}/artifacts`);
     if (id !== getSession()) return;
     records = response;
+    void refreshProgress?.(id);
     render();
   }
 
@@ -149,6 +161,10 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   async function onAction(event) {
     const target = event.target.closest("button");
     if (!target || target.dataset.openKind) return;
+    if(target.matches('.map-node')) {
+      panel.querySelector('[aria-pressed="true"].map-node')?.removeAttribute('aria-pressed');
+      target.setAttribute('aria-pressed','true');
+    }
     if(target.dataset.generalStep) {
       const plan=records.plans.find(p=>p.id===target.closest('[data-general-plan]').dataset.generalPlan);
       detail.openGeneral(plan,plan.nodes.find(n=>n.id===target.dataset.generalStep),path(session)); return;
@@ -247,6 +263,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     const id = getSession();
     if (!enabled || !id || pending || polling || document.hidden) return;
     polling = true;
+    void refreshProgress?.(id);
     try {
       const data = await api(`${path(id)}/events`);
       if (id !== getSession() || !records) return;

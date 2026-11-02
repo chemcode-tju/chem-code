@@ -1,5 +1,11 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "消息":"Messages", "进度":"Progress", "暂无步骤回复":"No step updates", "暂无消息。":"No messages.",
+  "调整右栏宽度":"Resize inspector", "最大化面板":"Maximize inspector", "还原面板":"Restore inspector",
+  "最大化或还原面板":"Maximize or restore inspector", "缩小方案":"Zoom out", "放大方案":"Zoom in",
+  "还原缩放":"Reset zoom", "全屏":"Full screen", "上下文":"Context", "查看上下文用量":"View context usage",
+  "当前会话":"Current chat", "关闭消息":"Close messages", "步骤进度与解读":"Step progress and agent updates",
+
   "计算":"Calculations", "结构":"Structures", "工具":"Tools", "此对话暂无计算记录。":"No calculations in this conversation yet.", "结构查看器":"Structure viewer",
   "高级选项":"Advanced options",
   "连接后自动读取可用模型。保持自动选择即可使用，也可从列表切换。":"Available models load automatically after connecting. Keep Automatic or choose from the list.",
