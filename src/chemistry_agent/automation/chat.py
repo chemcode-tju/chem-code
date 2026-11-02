@@ -11,6 +11,7 @@ from pydantic import Field
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import (
     PreviewRequest,
+    Resources,
     StrictModel,
     StructureInput,
     SurfacePlan,
@@ -22,6 +23,10 @@ from chemistry_agent.tools import Tool, ToolContext
 
 class EmptyInput(StrictModel):
     pass
+
+
+class SetupInput(StrictModel):
+    server_id: UUID | None = None
 
 
 class ImportInput(StrictModel):
@@ -55,6 +60,7 @@ class InvestigationInput(StrictModel):
 
 
 class PrepareInput(StrictModel):
+    resources: Resources | None = None
     revises_preview_id: UUID | None = None
     workflow: Literal["single", "relax_static", "bulk_surface"] = "single"
     surface_plan: SurfacePlan | None = None
@@ -171,10 +177,14 @@ class CalculationChat:
         self.save(context.session_id, "model_records", identifier, record)
         return {**result, "model_id": identifier}
 
-    async def setup(self, args: EmptyInput, context: ToolContext) -> dict:
+    async def setup(self, args: SetupInput, context: ToolContext) -> dict:
         result = await self.service.call("catalog")
         for code in result["codes"]:
             code.pop("environment", None)
+        if args.server_id:
+            result["scheduler_options"] = await self.service.call(
+                "scheduler_options", {"server_id": str(args.server_id)}
+            )
         return result
 
     async def artifacts(self, args: ArtifactListInput, context: ToolContext) -> dict:
@@ -266,6 +276,9 @@ class CalculationChat:
             "resolve_calculation",
             {
                 **args.model_dump(mode="json", exclude={"structure_id", "revises_preview_id"}),
+                "resources": args.resources.model_dump(exclude_unset=True)
+                if args.resources
+                else {},
                 "structure": structure["structure"],
             },
         )
@@ -419,8 +432,9 @@ class CalculationChat:
                 Tool(
                     "calculation_setup",
                     "List configured clusters, VASP executables and potential "
-                    "family mappings. Use real IDs before preparing a calculation.",
-                    EmptyInput,
+                    "family mappings, resource defaults and quota fallback. With server_id, query "
+                    "partitions, limits and GPU resources. Use these options when planning.",
+                    SetupInput,
                     self.setup,
                     True,
                 ),
@@ -469,7 +483,7 @@ class CalculationChat:
                     "calculation_prepare",
                     "Prepare a VASP preview from structure_id and a saved protocol. Resolves "
                     "server/code/resources and imports missing POTCARs from user-approved sources. "
-                    "Optional INCAR/kmesh overrides are shown in preview. Never submits. "
+                    "Set queue/resources, INCAR or kmesh in the preview. Never submits. "
                     "For fcc(100) slabs use workflow=bulk_surface and surface_plan; "
                     "this persists the whole plan and automatically advances after approval. "
                     "Set surface_plan.co_sites for parallel CO adsorption energies. "

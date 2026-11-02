@@ -28,7 +28,13 @@ class PotentialSource(StrictModel):
         return value.rstrip("/")
 
 
+class QueueFallback(StrictModel):
+    source: Name
+    target: Name
+
+
 class CalculationProtocol(StrictModel):
+    quota_fallback: QueueFallback | None = None
     id: Name
     description: str = Field(min_length=1, max_length=1000)
     server_id: UUID

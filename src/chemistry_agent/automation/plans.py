@@ -9,7 +9,6 @@ import contextlib
 import io
 import json
 import logging
-import time
 from collections import Counter
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -18,7 +17,12 @@ from ase.io import read
 
 from chemistry_agent.automation.configuration import CalculationConfiguration, CalculationProtocol
 from chemistry_agent.automation.constraints import poscar_text, restore_constraints
-from chemistry_agent.automation.events import utc_now, waiting_for_submit_quota
+from chemistry_agent.automation.events import (
+    QUOTA_HOLD,
+    quota_rejection,
+    utc_now,
+    waiting_for_submit_quota,
+)
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import StructureInput
 from chemistry_agent.automation.plan_authority import auto_queue, auto_request
@@ -474,11 +478,28 @@ class CalculationPlans:
         submission = await self.chat.submit_reviewed(session, state["preview_id"])
         state.update(status="running", job_id=submission["job"]["id"], job=submission["job"])
 
-    async def inspect_vasp(self, session: str, node: dict, state: dict) -> None:
+    async def inspect_vasp(self, session: str, plan: dict, node: dict, state: dict) -> None:
         from chemistry_agent.automation.chat import JobInput
 
         job = await self.chat.service.call("job_details", {"job_id": state["job_id"]})
         state["job"] = job
+        if job.get("scheduler_job_id"):
+            state.pop("quota_wait_since", None)
+            state.pop("quota_move", None)
+        move = state.get("quota_move")
+        if move and job["process_state"] == "killed" and not job.get("scheduler_job_id"):
+            protocol = plan["snapshots"][node["id"]]["protocol"]
+            resources = protocol["resources"] | {"queue": move["target"]}
+            protocol["resources"] = resources
+            node["effective"]["resources"] = node["calculation"]["resources"] = resources
+            history = state.get("quota_history", []) + [
+                dict(move, job_id=state["job_id"], pk=job["pk"], preview_id=state["preview_id"])
+            ]
+            attempts = state.get("attempts", [])
+            state.clear()
+            state.update(status="pending", attempts=attempts, quota_history=history)
+            self.save(session, plan)
+            return
         if job["process_state"] not in {"finished", "excepted", "killed"}:
             return
         if not job.get("finished_ok"):
@@ -503,19 +524,80 @@ class CalculationPlans:
                 outputs["structure_id"] = state["input_structure_id"]
         state.update(status="completed", outputs=outputs, completed_at=utc_now())
 
-    async def resume_quota_waiter(self, session: str, plan: dict, state: dict) -> None:
-        if plan["status"] != "running" or not plan.get("auto_queue"):
+    async def resume_quota_waiter(self, session: str, plan: dict, node: dict, state: dict) -> None:
+        job = state.get("job", {})
+        if plan["status"] != "running" or state.get("status") != "running":
             return
-        if not waiting_for_submit_quota(state.get("job", {})):
+        if (
+            job.get("paused")
+            and job.get("scheduler_job_id")
+            and job.get("process_status") == QUOTA_HOLD
+        ):
+            await self.chat.service.call("hold_quota_job", {"job_id": state["job_id"]})
             return
-        now = time.time()
-        if now < max(plan.get("next_quota_probe", 0), state.get("next_quota_probe", 0)):
+        rejection = quota_rejection(job)
+        if not rejection:
             return
-        # Pace rejected submissions only. New ready branches are dispatched normally.
-        plan["next_quota_probe"] = now + 60
-        state["next_quota_probe"] = now + 1800
-        self.save(session, plan)
-        await self.chat.service.call("resume_quota_job", {"job_id": state["job_id"]})
+        protocol = plan["snapshots"][node["id"]]["protocol"]
+        policy = protocol.get("quota_fallback")
+        if "quota_fallback" not in protocol:
+            # Plans reviewed before this feature may use the owner's registered policy.
+            config = CalculationConfiguration(self.chat.service.settings.aiida_path)
+            registered = config.get("protocols", protocol["id"])
+            if registered["server_id"] == protocol["server_id"]:
+                policy = registered.get("quota_fallback")
+        if not (policy or plan.get("auto_queue")):
+            return
+        if not waiting_for_submit_quota(job):
+            if (
+                not job.get("paused")
+                and job.get("process_status") == "Waiting for transport task: submit"
+                and rejection.get("time")
+                and rejection["time"] != state.get("quota_released_error")
+            ):
+                state.setdefault("quota_wait_since", utc_now())
+                await self.chat.service.call(
+                    "hold_quota_job", {"job_id": state["job_id"], "time": rejection["time"]}
+                )
+            return
+        resources = protocol["resources"]
+        queue = resources["queue"]
+        target = policy["target"] if policy and queue == policy["source"] else queue
+        since = state.setdefault("quota_wait_since", utc_now())
+        move = state.get("quota_move")
+        if not move:
+            monitor = getattr(self.chat, "monitor", None)
+            if not monitor:
+                return
+            release = monitor.events.claim_quota_release(
+                protocol["server_id"],
+                resources.get("account") or "",
+                target,
+                state["job_id"],
+                since,
+                rejection.get("time") or since,
+                source_queue=queue,
+            )
+            if not release:
+                return
+            state["quota_released_error"] = rejection.get("time")
+            state["quota_release"] = release
+            state["quota_wait_since"] = utc_now()
+            if target != queue:
+                state["quota_move"] = {"source": queue, "target": target, "released_by": release}
+            self.save(session, plan)
+        if state.get("quota_move"):
+            target = state["quota_move"]["target"]
+            await self.chat.service.call(
+                "retire_quota_job",
+                {
+                    "job_id": state["job_id"],
+                    "source": queue,
+                    "resources": resources | {"queue": target},
+                },
+            )
+        else:
+            await self.chat.service.call("resume_quota_job", {"job_id": state["job_id"]})
 
     async def tick_plan(self, session: str, identifier: str) -> None:
         async with self.lock(session, identifier):
@@ -525,8 +607,8 @@ class CalculationPlans:
                     state = plan["runtime"][node["id"]]
                     try:
                         if state.get("job_id") and state["status"] == "running":
-                            await self.inspect_vasp(session, node, state)
-                            await self.resume_quota_waiter(session, plan, state)
+                            await self.inspect_vasp(session, plan, node, state)
+                            await self.resume_quota_waiter(session, plan, node, state)
                         if state["status"] in TERMINAL or plan["status"] == "paused":
                             continue
                         dependencies = [

@@ -6,6 +6,8 @@ export function nodeStatus(plan,node) {
   if(plan.status==='draft') return '待确认';
   if(state.status==='pending' && node.depends_on.every(id=>plan.runtime[id].status==='completed')) return '等待执行';
   if(state.status==='running' && job) {
+    if(state.quota_move && !job.scheduler_job_id) return '正在切换至 '+state.quota_move.target;
+    if(state.quota_wait_since && !job.scheduler_job_id) return '等待队列名额';
     if(job.paused) return 'AiiDA 已暂停';
     if(job.scheduler_state==='running') return '运行中';
     if(job.scheduler_job_id) return '已交调度器';

@@ -732,16 +732,32 @@ async def test_fork_completed_chain_for_failed_thermochemistry(graph):
     assert result["revision"] == 2 and result["runtime"]["thermo"]["status"] == "pending"
 
 
-async def test_quota_recovery_plays_original_process_only_and_paces_probes(graph, monkeypatch):
+@pytest.mark.parametrize("fallback", [False, True])
+async def test_quota_waits_for_one_real_queue_completion(graph, monkeypatch, fallback):
+    from types import SimpleNamespace
+
+    from chemistry_agent.automation.events import EventStore, utc_now
+
     chat, ctx, engine, structure = graph
     plan = await chat.plans.draft(draft([vasp("energy", {"structure_id": structure})]), ctx)
+    plan = chat.load(ctx.session_id, "plans", plan["id"])
     plan.update(auto_queue="batch", status="running")
+    node = plan["nodes"][0]
+    protocol = plan["snapshots"]["energy"]["protocol"]
+    target = "low" if fallback else "batch"
+    if fallback:
+        protocol["quota_fallback"] = {"source": "batch", "target": "low"}
+    events = EventStore(chat.root / "events.sqlite3")
+    chat.monitor = SimpleNamespace(events=events)
     job = {
         "paused": True,
+        "pk": 9,
         "process_state": "waiting",
         "process_status": "Pausing after failed transport task: submit_calculation",
         "submission_state": "rejected_by_scheduler",
-        "recent_process_errors": [{"message": "sbatch: error: QOSMaxSubmitJobPerUserLimit"}],
+        "recent_process_errors": [
+            {"message": "sbatch: error: QOSMaxSubmitJobPerUserLimit", "time": utc_now()}
+        ],
     }
     calls = []
 
@@ -750,18 +766,45 @@ async def test_quota_recovery_plays_original_process_only_and_paces_probes(graph
         return {"requested": True}
 
     monkeypatch.setattr(engine, "call", record)
-    state = {"job_id": "existing", "status": "running", "job": job}
+    state = {"job_id": "existing", "preview_id": "old", "status": "running", "job": job}
     plan["runtime"]["energy"] = state
-    for invalid in (
-        {"scheduler_job_id": "already-accepted"},
-        {"process_status": "user pause"},
-        {"recent_process_errors": []},
-    ):
-        state["job"] = job | invalid
-        await chat.plans.resume_quota_waiter(ctx.session_id, plan, state)
+    for _ in range(2):
+        await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
+    assert calls == []
+    done = dict(
+        job,
+        id="finished",
+        finished_ok=True,
+        scheduler_job_id="123",
+        queue=target,
+        server_id=protocol["server_id"],
+        updated_at=utc_now(),
+        process_state="finished",
+    )
+    events.observe("other-session", "preview", dict(done, queue="another", id="unrelated"))
+    await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
+    assert calls == []
+    events.observe("other-session", "preview", done)
+    state["job"] = job | {"scheduler_job_id": "already-accepted"}
+    await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
+    assert calls == []
     state["job"] = job
-    await chat.plans.resume_quota_waiter(ctx.session_id, plan, state)
-    await chat.plans.resume_quota_waiter(ctx.session_id, plan, state)
-    assert calls == [("resume_quota_job", {"job_id": "existing"})]
-    saved = chat.load(ctx.session_id, "plans", plan["id"])
-    assert saved["runtime"]["energy"]["next_quota_probe"] > saved["next_quota_probe"]
+    await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
+    assert calls[0][0] == ("retire_quota_job" if fallback else "resume_quota_job")
+    assert calls[0][1]["job_id"] == "existing"
+    events.observe("other-session", "preview", done)
+    assert events.claim_quota_release(protocol["server_id"], "", target, "another", "", "r") is None
+    if fallback:
+        assert calls[0][1]["resources"] == protocol["resources"] | {"queue": "low"}
+
+        async def killed(action, payload):
+            return job | {"process_state": "killed"}
+
+        monkeypatch.setattr(engine, "call", killed)
+        await chat.plans.inspect_vasp(ctx.session_id, plan, node, state)
+        assert state["status"] == "pending" and "job_id" not in state
+        assert state["quota_history"][0]["job_id"] == "existing"
+        assert node["effective"]["resources"]["queue"] == protocol["resources"]["queue"] == "low"
+    else:
+        await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
+        assert len(calls) == 1

@@ -445,6 +445,11 @@ def job_record(node: orm.ProcessNode) -> dict:
             "cell_angstrom": final.cell.tolist(),
         }
     if is_calculation:
+        result.update(
+            server_id=node.computer.uuid if node.computer else None,
+            queue=node.get_option("queue_name"),
+            account=node.get_option("account"),
+        )
         result.update(submission_diagnostics(node))
     else:
         result["workflow"] = (
@@ -588,6 +593,31 @@ def validate_structure(payload: dict) -> dict:
         "volume_angstrom3": atoms.get_volume(),
         "input_sha256": hashlib.sha256(specification.content.encode()).hexdigest(),
     }
+
+
+def scheduler_options(payload: dict) -> dict:
+    """Read scheduler-advertised resources for a registered cluster on demand."""
+    computer = load_server(payload["server_id"])
+    if computer.scheduler_type == "core.slurm":
+        command = "sinfo --noheader --format='%P|%a|%l|%G|%c|%m|%t'"
+        columns = ("queue", "availability", "time_limit", "gres", "cpus", "memory_mb", "state")
+    else:
+        command = "qstat -Q"
+        columns = ()
+    with computer.get_transport() as transport:
+        code, output, _ = transport.exec_command_wait(command)
+    if code:
+        raise AgentError("scheduler_query_failed", f"无法读取队列配置：{command}", 502)
+    if not columns:
+        return {"scheduler": computer.scheduler_type, "queues_output": output.strip()}
+    rows = []
+    for line in sorted(set(output.splitlines())):
+        fields = line.strip().split("|")
+        if len(fields) == len(columns):
+            row = dict(zip(columns, fields, strict=True))
+            row["queue"] = row["queue"].rstrip("*")
+            rows.append(row)
+    return {"scheduler": computer.scheduler_type, "partitions": rows}
 
 
 def catalog() -> dict:
@@ -755,7 +785,9 @@ def resolve_calculation(payload: dict) -> dict:
         server_id=protocol.server_id,
         code_id=protocol.code_id,
         structure=StructureInput.model_validate(payload["structure"]),
-        resources=protocol.resources,
+        resources=Resources.model_validate(
+            protocol.resources.model_dump() | (payload.get("resources") or {})
+        ),
         incar=incar,
         kmesh=mesh,
         potential_family=source.family,
@@ -809,6 +841,53 @@ def session_job(payload: dict) -> dict:
             return {"id": node.uuid, "pk": node.pk}
         ancestor = ancestor.caller
     raise AgentError("job_not_in_session", "任务不属于当前对话的计算流程。", 403)
+
+
+def hold_quota_job(payload: dict) -> dict:
+    """Interrupt AiiDA's transport backoff after a newly observed quota error."""
+    from aiida.engine.processes.control import pause_processes, play_processes
+
+    from chemistry_agent.automation.events import QUOTA_HOLD, quota_rejection
+
+    node = load_job(payload["job_id"])
+    if not isinstance(node, orm.CalcJobNode):
+        return {"requested": False}
+    job = job_record(node)
+    if node.paused and node.get_job_id() and node.process_status == QUOTA_HOLD:
+        play_processes([node])
+    elif (
+        not node.paused
+        and node.process_status == "Waiting for transport task: submit"
+        and quota_rejection(job)
+        and quota_rejection(job).get("time") == payload["time"]
+    ):
+        pause_processes([node], msg_text=QUOTA_HOLD)
+    else:
+        return {"requested": False}
+    return {"requested": True}
+
+
+def retire_quota_job(payload: dict) -> dict:
+    """Retire an explicitly rejected local CalcJob before moving it to a new partition."""
+    from aiida.engine.processes.control import kill_processes
+
+    from chemistry_agent.automation.events import waiting_for_submit_quota
+
+    node = load_job(payload["job_id"])
+    resources = Resources.model_validate(payload["resources"])
+    if (
+        not isinstance(node, orm.CalcJobNode)
+        or node.computer.scheduler_type != "core.slurm"
+        or node.get_option("queue_name") != payload["source"]
+        or not waiting_for_submit_quota(job_record(node))
+    ):
+        return {"requested": False}
+    options = scheduler_options({"server_id": node.computer.uuid})
+    if not any(row["queue"] == resources.queue for row in options["partitions"]):
+        raise AgentError("queue_unavailable", f"找不到目标分区 {resources.queue}。", 503)
+    validate_gpu_type(node.computer, resources)
+    kill_processes([node], msg_text=f"Quota fallback to {resources.queue}")
+    return {"requested": True}
 
 
 def resume_quota_job(payload: dict) -> dict:

@@ -14,19 +14,26 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def waiting_for_submit_quota(job: dict) -> bool:
-    """Only retry an AiiDA transport pause after an explicit Slurm quota rejection."""
-    errors = job.get("recent_process_errors") or []
+QUOTA_HOLD = "Chem-Agent waiting for a scheduler slot"
+
+
+def quota_rejection(job: dict) -> dict | None:
+    """Use only the latest scheduler response for a job without a scheduler ID."""
+    if job.get("scheduler_job_id") or job.get("submission_state") != "rejected_by_scheduler":
+        return None
     latest = next(
-        (e.get("message", "") for e in errors if "sbatch: error:" in e.get("message", "")), ""
+        (e for e in job.get("recent_process_errors", []) if "sbatch: error:" in e["message"]), {}
     )
+    return latest if "QOSMaxSubmitJobPerUserLimit" in latest.get("message", "") else None
+
+
+def waiting_for_submit_quota(job: dict) -> bool:
+    status = job.get("process_status") or ""
     return bool(
         job.get("paused")
         and job.get("process_state") == "waiting"
-        and not job.get("scheduler_job_id")
-        and "failed transport task: submit_calculation" in (job.get("process_status") or "")
-        and job.get("submission_state") == "rejected_by_scheduler"
-        and "QOSMaxSubmitJobPerUserLimit" in latest
+        and (status == QUOTA_HOLD or "failed transport task: submit_calculation" in status)
+        and quota_rejection(job)
     )
 
 
@@ -94,6 +101,12 @@ class EventStore:
                     event_key TEXT PRIMARY KEY REFERENCES events(event_key),
                     preview_id TEXT NOT NULL,
                     answer TEXT, delivered INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS quota_releases (
+                    job_id TEXT PRIMARY KEY, server TEXT NOT NULL, account TEXT NOT NULL,
+                    queue TEXT NOT NULL, finished_at TEXT NOT NULL, claimed_by TEXT, rejection TEXT,
+                    UNIQUE(claimed_by, rejection));
+                CREATE INDEX IF NOT EXISTS quota_pool
+                    ON quota_releases(server, account, queue, finished_at) WHERE claimed_by IS NULL;
                 CREATE TABLE IF NOT EXISTS policies (
                     job_id TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS retry_budget (
@@ -153,6 +166,25 @@ class EventStore:
         state, title = task_state(job)
         snapshot = {**job, "display_state": state, "display_title": title}
         with self.connect() as db:
+            for item in [job, *job.get("steps", [])]:
+                if (
+                    item.get("server_id")
+                    and item.get("queue")
+                    and item.get("updated_at")
+                    and item.get("scheduler_job_id")
+                    and item.get("process_state") in {"finished", "excepted", "killed"}
+                ):
+                    db.execute(
+                        "INSERT OR IGNORE INTO quota_releases "
+                        "(job_id,server,account,queue,finished_at) VALUES (?,?,?,?,?)",
+                        (
+                            item["id"],
+                            item["server_id"],
+                            item.get("account") or "",
+                            item["queue"],
+                            item["updated_at"],
+                        ),
+                    )
             before = db.execute(
                 "SELECT state FROM snapshots WHERE job_id=?", (job["id"],)
             ).fetchone()
@@ -203,6 +235,38 @@ class EventStore:
                         (job["id"], session, preview_id, utc_now()),
                     )
         return changed
+
+    def claim_quota_release(
+        self,
+        server: str,
+        account: str,
+        queue: str,
+        waiter: str,
+        since: str,
+        rejection: str,
+        *,
+        source_queue: str | None = None,
+    ) -> str | None:
+        """A finished job releases at most one waiter, across plans and process restarts."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute(
+                "SELECT 1 FROM quota_releases WHERE claimed_by=? AND rejection=?",
+                (waiter, rejection),
+            ).fetchone():
+                return None
+            row = db.execute(
+                "SELECT job_id FROM quota_releases WHERE server=? AND account=? AND queue IN (?,?) "
+                "AND finished_at>? AND claimed_by IS NULL ORDER BY finished_at LIMIT 1",
+                (server, account, queue, source_queue or queue, since),
+            ).fetchone()
+            if row:
+                db.execute(
+                    "UPDATE quota_releases SET claimed_by=?, rejection=? WHERE job_id=?",
+                    (waiter, rejection, row["job_id"]),
+                )
+                return row["job_id"]
+        return None
 
     def pending_reports(self) -> list[dict]:
         with self.connect() as db:
