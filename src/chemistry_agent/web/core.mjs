@@ -21,6 +21,39 @@ export function escapeHtml(value) {
 
 export function createMarkdownRenderer(factory) {
   const renderer = factory({ html: false, breaks: true, linkify: false });
+  // CommonMark treats punctuation beside a Chinese character as intraword.
+  // Relax that boundary for double asterisks, while the parser still owns
+  // escaping, code spans, links, and matching nested emphasis.
+  const emphasis = renderer.inline.ruler.__rules__.find(rule => rule.name === "emphasis").fn;
+  renderer.inline.ruler.at("emphasis", (state,silent) => {
+    const scan = state.scanDelims;
+    state.scanDelims = function(start,splitWord) {
+      const result = scan.call(this,start,splitWord);
+      if (result.length===2 && this.src[start]==="*") {
+        const before=this.src[start-1] || " ", after=this.src[start+2] || " ";
+        if (/\p{Script=Han}/u.test(before+after)) {
+          result.can_open ||= !/\s/.test(after);
+          result.can_close ||= !/\s/.test(before);
+        }
+      }
+      return result;
+    };
+    try { return emphasis(state,silent); }
+    finally { state.scanDelims=scan; }
+  });
+  renderer.renderPartial = (source) => {
+    // Balance an unfinished emphasis token for display only. Never alter the
+    // source saved by the streaming transport or delimiters inside code.
+    const parsed=renderer.parse(source,{});
+    const inline=parsed.at(-2);
+    const last=inline?.children?.at(-1);
+    if (inline?.type==="inline" && last?.type==="text" && /(?:^|[^\\*])\*\*[^\s*][^*]*$/.test(last.content)
+        && !source.includes("\\**") && !source.endsWith("\n")) {
+      const candidate=renderer.render(source.trimEnd()+"**");
+      if(candidate.includes("</strong></p>")) return candidate;
+    }
+    return renderer.render(source);
+  };
   const original = renderer.renderer.rules.link_open;
   renderer.renderer.rules.link_open = (tokens, index, options, env, self) => {
     tokens[index].attrSet("target", "_blank");
@@ -51,7 +84,7 @@ export function parseJson(value, fallback = null) {
 
 export function buildTurns(messages, runs = []) {
   const turns = [];
-  const completed = runs.filter((run) => run.status === "completed" && !run.context?.manual_compaction)
+  const completed = runs.filter((run) => run.status === "completed" && !["diagnosis","submission"].includes(run.context?.automation_event) && !run.context?.manual_compaction)
     .sort((a, b) => a.started_at.localeCompare(b.started_at));
   let turn = null;
   let pendingCalls = new Map();

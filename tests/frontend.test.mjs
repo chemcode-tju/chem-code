@@ -156,3 +156,10 @@ test('general graph shows true dependencies, independent layers and reviewed rev
   assert.doesNotMatch(renderGeneralPlan({...plan,status:'running'}),/data-confirm-plan/);
   assert.throws(()=>graphLayers([{id:'a',depends_on:['b']}]),/依赖/);
 });
+
+test('stream previews can complete a strong span without changing code or exponentiation',()=>{
+  assert.match(markdown.render('比较**“吸附能”**结果'), /<strong>“吸附能”<\/strong>/);
+  assert.match(markdown.renderPartial('正在读 **OUTCAR'), /<strong>OUTCAR<\/strong>/);
+  assert.equal(markdown.renderPartial('2 ** 3'),markdown.render('2 ** 3'));
+  assert.equal(markdown.renderPartial('`**partial`'),markdown.render('`**partial`'));
+});

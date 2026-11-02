@@ -1,3 +1,4 @@
+import {captureMaps,mountMaps} from './plan-map.mjs';
 import {resultFigures} from './result-figures.mjs';
 import {escapeHtml as esc} from './core.mjs';
 import {createStructureBridge} from './structure-links.mjs';
@@ -32,9 +33,17 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     $('step-viewer-shell').hidden=false;
     if (!frame.hasAttribute('src')) frame.src='/structures?embed=1';
   }});
+  let overviewTop=0, overviewMaps=new Map();
   function close() {
+    const returning=!screen.hidden;
+    if(document.fullscreenElement===screen) document.exitFullscreen();
     current=null; activeFile=''; info=null; bridge.reset();
     screen.hidden=true; $('plan-overview').hidden=false; $('step-viewer-shell').hidden=true;
+    if(returning) {
+      mountMaps($('plan-overview'),overviewMaps);
+      $('plan-overview').querySelector('[aria-pressed="true"]')?.focus({preventScroll:true});
+      screen.parentElement.scrollTop=overviewTop;
+    }
     $('step-figures').replaceChildren(); $('step-code-section').hidden=true; $('step-output-section').hidden=true;
   }
   function drawFiles() {
@@ -104,7 +113,12 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     const path=key==='single'?'POSCAR':key+'/POSCAR';
     current={id:item.preview_id,key,failed:details.tone==='failed',title:details.title,nsw:details.nsw,preview:item.files?.[path],
       base:`${sessionPath}/plans/${encodeURIComponent(item.preview_id)}/steps/${encodeURIComponent(key)}`};
+    overviewTop=screen.parentElement.scrollTop;
+    overviewMaps=captureMaps($('plan-overview'));
     $('plan-overview').hidden=true; screen.hidden=false;
+    screen.dataset.planId=job?.id || '';
+    screen.dataset.nodeId=details.child?.id || '';
+    screen.dispatchEvent(new Event('stepchange'));
     $('step-title').textContent=details.title; $('step-status').textContent=details.status;
     $('step-parameters').innerHTML=stepRows(details.rows);
     $('step-revise').hidden=Boolean(job);
@@ -145,8 +159,14 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     current={id:plan.id,key:node.id,general:true,revision:plan.revision,title:node.title,sessionPath,
       failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar.NSW,
       base:`${sessionPath}/workflows/${plan.id}/steps/${node.id}`};
+    overviewTop=screen.parentElement.scrollTop;
+    overviewMaps=captureMaps($('plan-overview'));
     $('plan-overview').hidden=true; screen.hidden=false; $('step-title').textContent=node.title;
+    screen.dataset.planId=plan.id;screen.dataset.nodeId=node.id;
+    screen.dispatchEvent(new Event('stepchange'));
     drawGeneral(plan,node);
+    screen.parentElement.scrollTop=0;
+    $('step-back').focus({preventScroll:true});
     for(const id of ['step-structures','step-energies','step-refresh','step-progress']) $(id).hidden=false;
     $('step-energies').hidden=node.kind!=='vasp'; $('step-progress').hidden=node.kind!=='vasp';
     $('step-structures').hidden=node.kind==='analysis';
