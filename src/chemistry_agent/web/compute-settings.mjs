@@ -214,7 +214,7 @@ export function createComputeSettings() {
   $('compute-initialize').onclick=()=>run(async()=>{notify('正在初始化本地计算服务…');await computeRequest('settings/initialize','POST',{});await afterSave('已更新本地计算服务状态。');});
   $('code-form').onsubmit=e=>{e.preventDefault();run(async()=>{
     const form=$('code-form'),script=value(form,'environment_script');
-    if(!hasId(value(form,'name')) || !hasId(value(form,'version'))) throw new Error(t('请使用软件标识，如 VASP 或 Quantum-ESPRESSO。版本可填写 6.3.2。'));
+    if(!/^[A-Za-z0-9][A-Za-z0-9 _.+\-]{0,63}$/.test(value(form,'name')) || !hasId(value(form,'version'))) throw new Error(t('请使用软件标识，如 VASP 或 Quantum ESPRESSO。版本可填写 6.3.2。'));
     const result=await computeRequest('codes','POST',{server_id:selected,name:value(form,'name'),version:value(form,'version'),
       executable:remotePath(value(form,'executable')),environment_script:script?remotePath(script):''});
     form.reset();$('code-editor').open=false;await afterSave('软件版本已保存。',result?.server_id || selected);
