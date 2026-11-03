@@ -155,5 +155,14 @@ def test_uploaded_geometry_is_bound_to_its_chat_and_reusable(settings_factory, m
         assert first.json()["id"] == repeat.json()["id"] != files[0]["id"]
         assert first.json()["positions_dof"] == [[True, False, False]]
         assert client.post(f"/api/automation/chat/{other}/structures", json=body).status_code == 404
+        with sqlite3.connect(settings.database_path) as db:
+            db.execute("DELETE FROM session_files WHERE session_id=?", (session,))
+            db.execute(
+                "INSERT INTO chat_requests(id,session_id,created_at,status,body) "
+                "VALUES ('old-receipt',?,'2026-10-31','completed',?)",
+                (session, json.dumps({"file_ids": [file["id"] for file in files]})),
+            )
+        assert client.post(url, json=body).json()["id"] == first.json()["id"]
+        assert client.post(f"/api/automation/chat/{other}/structures", json=body).status_code == 404
         assert client.post(url, json={"file_id": files[1]["id"]}).status_code == 422
         assert client.get("/api/files/" + files[1]["id"]).content.count(b"frame") == 2

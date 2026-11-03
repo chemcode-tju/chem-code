@@ -168,9 +168,15 @@ class CalculationChat:
                         "validate_structure_file", {"file": str(source), "format": fmt}
                     )
                 else:
+                    try:
+                        original = source.decode("utf-8-sig")
+                    except UnicodeDecodeError as exc:
+                        raise AgentError(
+                            "invalid_structure", "结构输入需要 UTF-8 文本。", 422
+                        ) from exc
                     validated = await self.service.call(
                         "validate_structure_file",
-                        {"text": source.decode("utf-8-sig"), "format": fmt},
+                        {"text": original, "format": fmt},
                     )
                 data = {
                     "id": identifier,

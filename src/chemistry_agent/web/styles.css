@@ -1409,7 +1409,9 @@ body.inspector-open .topbar #tools-toggle { display:none; }
  body.dock-drag[data-dock-snap=full] #dock-grip { border-color:var(--text); }
 }
 
-.notice-rows { max-height:min(25dvh,220px); overflow:auto; overscroll-behavior:contain; }
+.notice-rows { max-height:200px; overflow:auto; overscroll-behavior:contain; }
+@media(max-height:740px) { .notice-rows { max-height:160px; } }
+@media(max-height:550px) { .notice-rows { max-height:120px; } }
 .notice-group h3,.notice-rows,.turn-activity { font-variant-numeric:tabular-nums; }
 
 .step-param-box { padding-inline-end:34px; }

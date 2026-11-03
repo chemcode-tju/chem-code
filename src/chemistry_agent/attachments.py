@@ -150,11 +150,12 @@ async def session_file(store: "Store", session_id: str, file_id: UUID) -> tuple[
     """Only material explicitly attached to this session may become a calculation input."""
     async with store.lock:
         row = await store._one(
-            "SELECT a.name,a.on_disk,a.content FROM session_files f "
-            "JOIN sessions s ON s.id=f.session_id "
-            "JOIN attachments a ON a.id=f.file_id AND a.owner_id IS s.owner_id "
-            "WHERE f.session_id=? AND f.file_id=?",
-            (session_id, str(file_id)),
+            "SELECT a.name,a.on_disk,a.content FROM sessions s "
+            "JOIN attachments a ON a.id=? AND a.owner_id IS s.owner_id WHERE s.id=? AND ("
+            "EXISTS (SELECT 1 FROM session_files WHERE session_id=s.id AND file_id=a.id) OR "
+            "EXISTS (SELECT 1 FROM chat_requests q, json_each(q.body,'$.file_ids') f "
+            "WHERE q.session_id=s.id AND q.status='completed' AND f.value=a.id))",
+            (str(file_id), session_id),
         )
     if row is None:
         raise AgentError("file_not_found", "此对话中没有该附件。", 404)
