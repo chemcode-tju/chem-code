@@ -1,5 +1,6 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "节点资源与状态":"Node resources and states",
   "尚未核实":"Not checked yet", "尚未测试连接":"Connection not tested yet",
   "上次连接测试":"Last connection test","上次连接测试通过":"Last connection test passed",
   "上次连接测试未通过":"Last connection test failed","计算配置已齐全。":"Compute settings are complete.",

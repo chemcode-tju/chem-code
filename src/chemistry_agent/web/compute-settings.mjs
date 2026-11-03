@@ -144,12 +144,25 @@ export function createComputeSettings() {
   }
   function drawQueues() {
     const stored=queues.get(selected), rows=stored?.partitions || [];
-    const names=[...new Set(rows.map(row=>typeof row==='string'?row:row.queue).filter(Boolean))];
-    $('known-queues').replaceChildren(...names.map(name=>new Option(name,name)));
+    const groups=new Map();
+    for(const entry of rows) {
+      const row=typeof entry==='string' ? {queue:entry} : entry;
+      if(!row?.queue) continue;
+      if(!groups.has(row.queue)) groups.set(row.queue,[]);
+      groups.get(row.queue).push(row);
+    }
+    $('known-queues').replaceChildren(...Array.from(groups.keys(),name=>new Option(name,name)));
     if(!stored) {$('queue-list').innerHTML=empty('点击查询读取当前服务器的调度信息。');return;}
-    const results=rows.map(row=>typeof row==='string'?{queue:row}:row).map(row=>record(row.queue,[
-      ['状态',row.availability],['时间上限',row.time_limit],['GPU',row.gres],['CPU',row.cpus],['内存（MB）',row.memory_mb],
-      ['节点状态',row.state]],`<button type="button" data-use-queue="${esc(row.queue)}">${esc(t('用于执行环境'))}</button>`)).join('');
+    const resourceFacts=row=>facts([['GPU',row.gres],['CPU',row.cpus],['内存（MB）',row.memory_mb],['节点状态',row.state]]);
+    const results=Array.from(groups,([name,variants])=>{
+      const action=`<button type="button" data-use-queue="${esc(name)}">${esc(t('用于执行环境'))}</button>`;
+      const states=[...new Set(variants.map(row=>row.availability).filter(Boolean))].join(', ');
+      const times=[...new Set(variants.map(row=>row.time_limit).filter(Boolean))].join(', ');
+      const resources=variants.length===1 ? resourceFacts(variants[0]) :
+        `<details class="queue-resources"><summary>${esc(t('节点资源与状态'))} (${variants.length})</summary>${variants.map(resourceFacts).join('')}</details>`;
+      return `<article class="config-record"><header><strong data-no-i18n>${esc(name)}</strong>${action}</header>
+        ${facts([['状态',states],['时间上限',times]])}${resources}</article>`;
+    }).join('');
     $('queue-list').innerHTML=results || (stored.queues_output ? '<pre class="raw-queues" data-no-i18n>'+esc(stored.queues_output)+'</pre>':empty('调度器未返回队列。'));
   }
   function resetEnvironment(env=null) {

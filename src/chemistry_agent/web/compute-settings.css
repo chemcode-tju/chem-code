@@ -80,3 +80,6 @@
  .settings-sidebar :is(nav button,.settings-group-title,.back span) {min-width:0;white-space:normal;overflow-wrap:anywhere;}
  .settings-sidebar nav button {padding-inline:8px;}
 }
+
+.queue-resources summary { cursor:pointer; color:var(--muted); padding:6px 0; }
+.queue-resources .config-facts + .config-facts {border-top:1px solid var(--border);padding-top:8px;}
