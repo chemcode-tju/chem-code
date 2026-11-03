@@ -43,8 +43,46 @@ export function initWorkspaceControls() {
   }
   maximize.onclick = () => setMaximized(!body.classList.contains('dock-max'));
   for(const dialog of document.querySelectorAll('dialog[data-workspace-dialog]')) {
-    document.querySelector('[data-dialog="'+dialog.id+'"]').onclick=()=>dialog.showModal();
+    const trigger = document.querySelector('[data-dialog="'+dialog.id+'"]');
+    if (dialog.id === 'context-panel') {
+      bindContextPanel(dialog, trigger);
+      continue;
+    }
+    trigger.onclick=()=>dialog.showModal();
     dialog.querySelector('[data-close]').onclick=()=>dialog.close();
   }
   return setMaximized;
+}
+
+/** Keep the context details beside the composer while leaving the chat usable. */
+function bindContextPanel(panel, trigger) {
+  function place() {
+    if (!panel.open) return;
+    const anchor = trigger.getBoundingClientRect();
+    if (!anchor.width) { panel.close(); return; }
+    const composer = trigger.closest(".composer").getBoundingClientRect();
+    const gap = 8, above = anchor.top - gap, below = innerHeight - anchor.bottom - gap;
+    const height = panel.offsetHeight;
+    const y = height <= above || above >= below ? anchor.top - gap - height : anchor.bottom + gap;
+    panel.style.top = Math.max(gap, Math.min(y, innerHeight - gap - height)) + "px";
+    panel.style.left = Math.max(gap, Math.min(composer.right - panel.offsetWidth, innerWidth - gap - panel.offsetWidth)) + "px";
+  }
+  function closeAndFocus() { panel.close(); trigger.focus({preventScroll:true}); }
+  trigger.onclick = () => {
+    if (panel.open) { closeAndFocus(); return; }
+    panel.show(); place(); trigger.setAttribute("aria-expanded", "true");
+  };
+  panel.querySelector("[data-close]").onclick = closeAndFocus;
+  panel.addEventListener("close", () => { if (!panel.open) trigger.setAttribute("aria-expanded", "false"); });
+  document.addEventListener("pointerdown", event => {
+    if (panel.open && !panel.contains(event.target) && !trigger.contains(event.target)) panel.close();
+  }, true);
+  document.addEventListener("keydown", event => {
+    if (panel.open && event.key === "Escape" && !event.defaultPrevented) {
+      event.preventDefault(); closeAndFocus();
+    }
+  }, true);
+  new ResizeObserver(place).observe(panel);
+  window.addEventListener("resize", place);
+  window.addEventListener("scroll", event => { if (panel.open && !(event.target instanceof Node && panel.contains(event.target))) place(); }, true);
 }

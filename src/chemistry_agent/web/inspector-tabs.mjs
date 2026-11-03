@@ -1,12 +1,30 @@
+export function restoreDockSelection(saved, available) {
+  const stored = Array.isArray(saved?.tabs) ? saved.tabs : [saved?.tab];
+  let tabs = [...new Set(stored.filter(name => available.has(name)))];
+  // Version 1 opened a plan even when the user had never chosen a tab.
+  if (saved?.version !== 2 && tabs.length === 1 && tabs[0] === "calculation") tabs = [];
+  return {tabs, tab:tabs.includes(saved?.tab) ? saved.tab : tabs[0] || null};
+}
+
 /** Collapsing the dock preserves its tabs. Closing a tab removes that surface. */
 export function initInspectorTabs(setVisible) {
   const tabs = new Map([...document.querySelectorAll("[data-inspector-tab]")].map(tab => [tab.dataset.inspectorTab, tab]));
   const add = document.getElementById("inspector-add");
   const frame = document.getElementById("structure-viewer-frame");
   const tablist = document.querySelector(".inspector-tabs");
+  const launcher = document.getElementById("inspector-launcher");
+  for (const [name, tab] of tabs) {
+    const choice = document.createElement("button");
+    choice.type = "button";
+    choice.dataset.launchTab = name;
+    choice.append(...Array.from(tab.children, child => child.cloneNode(true)));
+    launcher.append(choice);
+  }
   let opened = [], active = null;
 
   function render() {
+    launcher.hidden = opened.length > 0;
+    tablist.hidden = opened.length === 0;
     for (const name of opened) tablist.append(tabs.get(name).closest(".dock-tab"));
     for (const [name, tab] of tabs) {
       const selected = active === name, chip = tab.closest(".dock-tab");
@@ -29,9 +47,8 @@ export function initInspectorTabs(setVisible) {
   function loadActive() {
     if (active === "structure" && !frame.hasAttribute("src")) frame.src = frame.dataset.src;
   }
-  function ensureTab() {
-    if (!active) { active = "calculation"; opened = [active]; render(); }
-    loadActive();
+  function focusActive() {
+    (tabs.get(active) || launcher.firstElementChild).focus({preventScroll:true});
   }
   function select(name) {
     if (!tabs.has(name)) return;
@@ -54,9 +71,9 @@ export function initInspectorTabs(setVisible) {
     else document.getElementById("tools-toggle").focus({preventScroll:true});
   }
   function restore(saved) {
-    const fallback = tabs.has(saved?.tab) ? saved.tab : "calculation";
-    opened = Array.isArray(saved?.tabs) ? [...new Set(saved.tabs.filter(name => tabs.has(name)))] : [fallback];
-    active = opened.includes(saved?.tab) ? saved.tab : opened[0] || null;
+    const selection = restoreDockSelection(saved, tabs);
+    opened = selection.tabs;
+    active = selection.tab;
     render();
   }
 
@@ -76,10 +93,14 @@ export function initInspectorTabs(setVisible) {
     else if (Object.hasOwn(keys, event.key)) { event.preventDefault(); select(opened[keys[event.key]]); }
   });
   add.addEventListener("change", () => select(add.value));
+  launcher.addEventListener("click", event => {
+    const choice = event.target.closest("[data-launch-tab]");
+    if (choice) select(choice.dataset.launchTab);
+  });
   document.querySelectorAll("[data-open-inspector]").forEach(button => {
     button.addEventListener("click", () => select(button.dataset.openInspector));
   });
   window.addEventListener("languagechange", render);
   restore();
-  return {select, restore, ensureTab, snapshot:() => ({tabs:[...opened], tab:active})};
+  return {select, restore, loadActive, focusActive, snapshot:() => ({version:2, tabs:[...opened], tab:active})};
 }

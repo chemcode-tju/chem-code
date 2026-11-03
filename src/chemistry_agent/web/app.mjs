@@ -31,6 +31,7 @@ let restorePosition=false;
 let toastTimer;
 let chatModels;
 let inspectorSession = null;
+let contextGeneration = 0;
 const notifications = createNotifications({ api });
 const inspectorTabs = initInspectorTabs(open => {
   if (open) setDrawer("sidebar", false);
@@ -167,7 +168,7 @@ function restoreInspector(id, fresh = false) {
 }
 function setInspectorOpen(open, { focus = true, persist = true } = {}) {
   const wasFocused = $("inspector").contains(document.activeElement);
-  if (open) inspectorTabs.ensureTab();
+  if (open) inspectorTabs.loadActive();
   document.body.classList.toggle("inspector-open", open);
   if (!open) setDockMaximized(false);
   $("tools-toggle").disabled = open;
@@ -175,7 +176,7 @@ function setInspectorOpen(open, { focus = true, persist = true } = {}) {
   $("inspector-close").setAttribute("aria-expanded", String(open));
   if (persist) saveInspector(inspectorSession);
   syncDrawerAccessibility();
-  if (focus && open) $("inspector-close").focus({preventScroll:true});
+  if (focus && open) inspectorTabs.focusActive();
   else if (focus && wasFocused) $("tools-toggle").focus({preventScroll:true});
 }
 
@@ -201,6 +202,7 @@ function closeDrawers() {
 
 function updateControls() {
   const locked = state.busy || state.loading || chatModels?.saving || calculations.busy();
+  $("compact-context").hidden = !state.sessionId;
   $("compact-context").disabled = locked || !state.sessionId || !state.health?.model_configured;
   $("chat-model").disabled = Boolean(locked);
   $("chat-model-apply").disabled = Boolean(locked);
@@ -401,7 +403,7 @@ async function selectSession(id, quiet = false) {
   if(state.sessionId && !state.loading) chatPositions.set(state.sessionId,$("chat-scroll").scrollTop);
   restorePosition=true;
   saveDraft();
-  if (id !== state.sessionId) { progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
+  if (id !== state.sessionId) { resetContextMeter("正在读取上下文…"); progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
   uploads.clear();
   calculations.clearSelection();
   const navigation = ++state.navigation;
@@ -470,7 +472,7 @@ function newConversation() {
   state.runs = [];
   state.pending = null; state.outbox = []; state.chatSignature = "";
   viewer.reset(); calculations.reset();
-  $("context-ring").hidden = true; $("context-panel").close();
+  resetContextMeter();
   rememberSession(null);
   restoreInspector(null, true);
   $("conversation-title").textContent = t("新对话");
@@ -780,7 +782,7 @@ function showLogin(message = "") {
   $("workspace-settings").close();
   chatPositions.clear();progressFeed.reset();
   clearRevision(); viewer.reset(); calculations.reset(); notifications.enabled(false);
-  $("context-ring").hidden = true; $("context-panel").close();
+  resetContextMeter();
   state.accountVersion += 1;
   state.navigation += 1;
   rememberSession(null);
@@ -889,21 +891,43 @@ const restoreLinkedSettings = initSettingsDialog({
 initialize();
 setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);
 
+function setMeter(percent = null) {
+  const ring = $("context-ring");
+  ring.style.setProperty("--used", String(Math.min(100, Math.max(0, percent || 0))));
+  ring.toggleAttribute("data-used", percent > 0);
+  const label = t("上下文用量") + (percent === null ? "" : ` · ${percent}%`);
+  ring.title = label;
+  ring.setAttribute("aria-label", label);
+}
+
+function resetContextMeter(message = "暂无对话记录。") {
+  contextGeneration++;
+  setMeter();
+  $("context-panel").close();
+  $("context-status").textContent = t("上下文用量");
+  $("context-budget").textContent = t(message);
+  $("context-summary").textContent = "";
+}
+
 async function refreshContext() {
   const id = state.sessionId;
-  if (!id) { $("context-ring").hidden = true; $("context-panel").close(); return; }
+  if (!id) { resetContextMeter(); return; }
+  const generation = ++contextGeneration;
   try {
     const info = await api(`/sessions/${encodeURIComponent(id)}/context`);
-    if (id !== state.sessionId) return;
-    $("context-ring").hidden = false;
-    const percent=Math.round(100*info.estimated_input_tokens/Math.max(1,info.input_budget_tokens));
-    $("context-percent").textContent=percent+"%";
-    $("context-ring").style.setProperty("--used",Math.min(100,percent)+"%");
-    $("context-ring").title="上下文用量 "+percent+"%";
+    if (id !== state.sessionId || generation !== contextGeneration) return;
+    const percent = Math.round(100 * info.estimated_input_tokens / Math.max(1, info.input_budget_tokens));
+    setMeter(percent);
     $("context-status").textContent = `会话记忆 · 已摘要 ${info.covered_messages} / ${info.original_messages} 条消息`;
     $("context-budget").textContent = `估算输入 ${info.estimated_input_tokens.toLocaleString()} / ${info.input_budget_tokens.toLocaleString()} tokens（${info.tokenizer}）；自动触发 ${info.trigger_tokens.toLocaleString()}，保留最近 ${info.recent_turns} 轮。`;
-    $("context-summary").textContent = info.summary || "尚未生成历史摘要。短对话可直接保留原文。";
-  } catch (error) { toast(error.message); }
+    $("context-summary").textContent = info.summary || t("尚未生成历史摘要。");
+  } catch (error) {
+    if (id !== state.sessionId || generation !== contextGeneration) return;
+    setMeter();
+    $("context-status").textContent = t("上下文用量");
+    $("context-budget").textContent = error.message;
+    $("context-summary").textContent = "";
+  }
 }
 $("compact-context").onclick = async () => {
   if (!state.sessionId || state.busy || state.loading || calculations.busy()) return;

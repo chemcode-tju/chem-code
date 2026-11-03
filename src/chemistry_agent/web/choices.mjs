@@ -70,7 +70,7 @@ function draw() {
     row.setAttribute("aria-selected", String(option.selected));
     row.setAttribute("aria-disabled", String(option.disabled || (group instanceof HTMLOptGroupElement && group.disabled)));
     row.dataset.index = option.index;
-    row.textContent = option.label;
+    row.textContent = option.dataset.menuLabel || option.label;
     contents.push(row);
   }
   menu.replaceChildren(...contents);

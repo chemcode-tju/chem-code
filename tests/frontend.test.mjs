@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { restoreDockSelection } from "../src/chemistry_agent/web/inspector-tabs.mjs";
 import { buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue, splitReference } from "../src/chemistry_agent/web/core.mjs";
 
 const require = createRequire(import.meta.url);
@@ -162,4 +163,15 @@ test('stream previews can complete a strong span without changing code or expone
   assert.match(markdown.renderPartial('正在读 **OUTCAR'), /<strong>OUTCAR<\/strong>/);
   assert.equal(markdown.renderPartial('2 ** 3'),markdown.render('2 ** 3'));
   assert.equal(markdown.renderPartial('`**partial`'),markdown.render('`**partial`'));
+});
+
+test("the empty research panel stays empty until a tool is chosen", () => {
+  const available = new Set(["calculation", "structure", "events", "tools"]);
+  const empty = {tabs:[], tab:null};
+  assert.deepEqual(restoreDockSelection(null, available), empty);
+  const oldDefault = {tabs:["calculation"], tab:"calculation"};
+  assert.deepEqual(restoreDockSelection(oldDefault, available), empty);
+  assert.deepEqual(restoreDockSelection({...oldDefault, version:2}, available), oldDefault);
+  const olderLayout = {tabs:["tools", "unknown", "structure", "tools"], tab:"structure"};
+  assert.deepEqual(restoreDockSelection(olderLayout, available), {tabs:["tools", "structure"], tab:"structure"});
 });

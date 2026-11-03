@@ -1,5 +1,11 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "尚未生成历史摘要。":"No summary yet.",
+  "正在读取上下文…":"Loading context…",
+  "暂无对话记录。":"No chat history yet.",
+  "上下文用量":"Context usage",
+  "模型操作":"Model actions",
+  "研究工具":"Research tools",
   "配置本机计算服务":"Set up local compute",
   "暂无聊天":"No chats", "暂无项目":"No projects", "默认环境":"Default environment", "请先登录 ChatGPT。":"Sign in to ChatGPT first.",
   "添加标签页":"Add tab", "关闭方案标签":"Close plan tab", "关闭结构标签":"Close structure tab",
@@ -209,11 +215,11 @@ const messages = {
   "直接上游":"Inputs from", "直接下游":"Used by", "结果与下载":"Results and files", "暂无可查看的结构文件":"No structure files available",
   "结构建模":"Structure modeling", "数据分析":"Data analysis", "计算步骤":"Calculation step", "VASP 计算":"VASP calculation",
   "能量收敛曲线":"Energy convergence", "排查记录":"Investigations", "执行代码":"Source code", "提出修改":"Request changes",
-  "消息":"Messages", "进度":"Progress", "暂无步骤回复":"No step updates", "暂无消息。":"No messages.",
+  "通知":"Notifications", "进度":"Progress", "暂无步骤回复":"No step updates", "暂无通知。":"No notifications.",
   "调整右栏宽度":"Resize inspector", "最大化面板":"Maximize inspector", "还原面板":"Restore inspector",
   "最大化或还原面板":"Maximize or restore inspector", "缩小方案":"Zoom out", "放大方案":"Zoom in",
   "还原缩放":"Reset zoom", "全屏":"Full screen", "上下文":"Context", "查看上下文用量":"View context usage",
-  "当前会话":"Current chat", "关闭消息":"Close messages", "步骤进度与解读":"Step progress and agent updates",
+  "当前会话":"Current chat", "关闭通知":"Close notifications", "步骤进度与解读":"Step progress and agent updates",
 
   "计算":"Calculations", "结构":"Structures", "工具":"Tools", "此对话暂无计算记录。":"No calculations in this conversation yet.", "结构查看器":"Structure viewer",
   "高级选项":"Advanced options",
@@ -306,7 +312,10 @@ export function t(value) {
   if (language !== "en" || typeof value !== "string") return value;
   const trimmed = value.trim();
   if (messages[trimmed]) return value.replace(trimmed, messages[trimmed]);
-  return value.replace(/ · 已配置$/, " · Connected").replace(/ · 已登录$/, " · Signed in")
+  return value.replace(/^上下文用量 · (\d+)%$/, "Context usage · $1%")
+    .replace(/^通知 · (\d+) 条未读$/, "Notifications · $1 unread")
+    .replace(/^会话记忆 · 已摘要 (\d+) \/ (\d+) 条消息$/, "Chat memory · $1 of $2 messages summarized")
+    .replace(/ · 已配置$/, " · Connected").replace(/ · 已登录$/, " · Signed in")
     .replace(/^(\d[\d,]* tokens · )对话已保存$/, "$1Saved")
     .replace(/^已使用 (\d+) 次研究工具(?: · (\d+) 次需调整输入)?$/, (_, n, failed) => `Used ${n} research tools${failed ? ` · ${failed} need attention` : ""}`);
 }
