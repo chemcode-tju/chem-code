@@ -779,13 +779,23 @@ async function startWorkspace() {
     $("session-list").innerHTML = '<p class="sidebar-empty">暂时无法读取会话，请点击刷新。</p>';
     toast(error.message);
   })]);
-  let id = new URL(location.href).searchParams.get("session");
+  const entry = new URL(location.href);
+  const setup = entry.searchParams.get("setup") === "compute";
+  let id = entry.searchParams.get("session");
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
-  try { id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
+  try { if (!setup) id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
   // Model discovery may share the provider's inference lock. Never block conversation recovery.
   if (state.health?.model_configured) void chatModels.refresh();
   if (id) await selectSession(id, true);
   else { $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
+  if (setup) {
+    const field = $("message-input");
+    if (!field.value.trim() && !state.pending) field.value = t("请检查我的计算配置，告诉我还需要提供哪些服务器、软件、赝势和队列信息。");
+    else toast(t("当前草稿已保留，可以在对话中询问计算配置。"));
+    const url = new URL(location.href);
+    url.searchParams.delete("setup"); history.replaceState(null,"",url);
+    field.focus();
+  }
 }
 
 async function initialize() {
