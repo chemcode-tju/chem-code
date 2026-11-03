@@ -1,0 +1,82 @@
+.settings-sidebar {position:sticky;top:0;align-self:start;height:100dvh;overflow:auto;}
+.settings-group-title {margin:18px 12px 4px;font-size:12px;color:var(--muted);font-weight:550;}
+.settings-sidebar nav {gap:2px;}
+.compute-scope {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:30px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+.compute-scope label {color:var(--muted);font-size:14px;}
+.compute-scope select {max-width:min(240px,100%);padding:6px 9px;}
+.compute-scope button {margin-left:auto;padding:6px 10px;}
+#compute-notice {margin:0 0 16px;color:var(--muted);font-size:14px;overflow-wrap:anywhere;}
+#compute-notice.error {color:var(--danger);}
+.compute-panel h2 {margin-bottom:8px;}
+.compute-panel .intro {margin:0 0 24px;}
+.compute-panel .hint,#ssh-secret .hint {font-size:14px;color:var(--muted);line-height:1.6;}
+.setup-list {list-style:none;counter-reset:step;margin:0;padding:0;}
+.setup-list li {display:grid;grid-template-columns:25px minmax(0,1fr) auto;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--border);}
+.step-number {width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--strong-border);border-radius:50%;font-size:12px;color:var(--muted);}
+.setup-list strong,.config-record strong {font-size:15px;font-weight:570;overflow-wrap:anywhere;}
+.setup-list small {display:block;color:var(--muted);font-size:13px;overflow-wrap:anywhere;}
+.setup-list a,.setup-list li>span:last-child,.needs-config a {font-size:14px;color:var(--accent);}
+#setup-local,.agent-setup {margin-top:24px;}
+.agent-setup {border-top:1px solid var(--border);padding-top:6px;}
+.agent-setup h3 {margin-bottom:4px;}
+.agent-setup .hint {margin:5px 0 10px;}
+.agent-setup a {font-size:15px;text-decoration:underline;text-underline-offset:3px;}
+.readiness {color:var(--muted);font-size:14px;}
+.config-record {padding:14px 0;border-bottom:1px solid var(--border);min-width:0;}
+.config-record header,.compute-actions {display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
+.config-record header {justify-content:space-between;}
+.config-record header button {padding:4px 9px;font-size:13px;}
+.config-facts {display:grid;grid-template-columns:minmax(80px,max-content) minmax(0,1fr);gap:5px 14px;margin:10px 0 0;font-size:14px;line-height:1.45;}
+.config-facts dt {color:var(--muted);}
+.config-facts dd {margin:0;overflow-wrap:anywhere;}
+.config-empty,.needs-config {font-size:14px;color:var(--muted);}
+.compute-actions {margin:14px 0;}
+.config-editor,.compatibility {margin-top:20px;border:1px solid var(--border);border-radius:9px;}
+.compute-panel summary,#secret-removal summary {display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:550;}
+.config-editor>summary,.compatibility>summary {padding:11px 14px;}
+.compute-panel summary::before,#secret-removal summary::before {content:"";width:6px;height:6px;display:block;flex:none;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);}
+.compute-panel details[open]>summary::before,#secret-removal[open]>summary::before {transform:rotate(135deg);}
+.config-editor[open]>summary,.compatibility[open]>summary {border-bottom:1px solid var(--border);}
+.config-editor form,.compatibility>div {padding:0 14px 14px;}
+.config-editor fieldset {margin:0;padding:0;border:0;min-width:0;}
+.config-editor label,#ssh-secret label {display:grid;gap:6px;margin:13px 0 0;font-size:14px;font-weight:520;}
+.config-editor :is(input:not([type=checkbox]),select),#ssh-secret input {width:100%;font-weight:400;font-size:15px;}
+.config-editor .hint {margin:7px 0;}
+.config-editor button.primary {margin-top:14px;}
+.config-editor .compute-actions button {margin:0;}
+.field-pair {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.extra-resources {margin-top:18px;}
+.extra-resources summary,#secret-removal summary {font-size:14px;color:var(--muted);}
+.config-editor .inline-check {display:flex;align-items:center;gap:7px;font-weight:400;}
+.config-editor input[type=checkbox] {accent-color:var(--accent);}
+.trust-result {border-inline-start:2px solid var(--strong-border);padding:5px 12px;margin:12px 0;}
+.trust-result strong {font-size:15px;overflow-wrap:anywhere;}
+.trust-result :is(p,small) {margin:6px 0;font-size:14px;color:var(--muted);}
+.trust-result code {display:block;overflow-wrap:anywhere;user-select:all;font-size:13px;margin:3px 0 10px;}
+.check-list {list-style:none;margin:0;padding:0;}
+.check-list li {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:7px 0;border-top:1px solid var(--border);font-size:14px;}
+.check-list b {font-weight:550;}
+.check-list code {grid-column:1/-1;overflow-wrap:anywhere;color:var(--muted);}
+.raw-queues {max-height:300px;overflow:auto;font-size:13px;}
+#ssh-secret {width:min(420px,calc(100vw - 24px));max-height:90dvh;color:var(--text);background:var(--surface);border:1px solid var(--strong-border);border-radius:12px;padding:20px;box-shadow:var(--shadow);}
+#ssh-secret::backdrop {background:rgb(0 0 0/.25);}
+#ssh-secret h2 {margin:0;font-size:21px;}
+#ssh-secret-server {margin:5px 0;color:var(--muted);overflow-wrap:anywhere;}
+#secret-removal {padding-top:10px;border-top:1px solid var(--border);}
+#secret-clear {color:var(--danger);}
+@media(max-width:600px) {
+ .field-pair {grid-template-columns:minmax(0,1fr);gap:0;}
+ .settings-group-title {margin:13px 6px 3px;}
+ .compute-scope {margin-bottom:18px;}
+ .compute-scope button {margin-left:0;}
+ .setup-list li {gap:6px;}
+ .config-facts {grid-template-columns: minmax(50px,32%) minmax(0,1fr);gap:5px 8px;}
+ .config-editor form {padding-inline:10px;}
+}
+@media(max-width:600px) {
+ :root[lang=en] body {grid-template-columns:min(35vw,138px) minmax(0,1fr);}
+ .settings-sidebar {overflow-x:hidden;}
+ .settings-sidebar nav {grid-template-columns:minmax(0,1fr);}
+ .settings-sidebar :is(nav button,.settings-group-title,.back span) {min-width:0;white-space:normal;overflow-wrap:anywhere;}
+ .settings-sidebar nav button {padding-inline:8px;}
+}

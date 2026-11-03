@@ -1,5 +1,6 @@
 import { t, getLanguage, setLanguage, translateUI } from "./i18n.mjs";
 import { fillModelOptions } from "./models.mjs";
+import { createComputeSettings } from "./compute-settings.mjs";
 const $ = (id) => document.getElementById(id);
 let polling;
 let busy = false;
@@ -171,7 +172,7 @@ $("clear-key").addEventListener("click", () => action(async () => {
   displaySettings(await api("/api/model/settings")); await refreshModels();
   notice("已删除保存的 API Key，并切换为 ChatGPT 登录方式。");
 }));
-action(async () => { displaySettings(await api("/api/model/settings")); await refreshLogin(); await refreshModels(); });
+let modelLoaded = false;
 window.addEventListener("pagehide", () => clearTimeout(polling));
 
 const theme = globalThis.chemistryTheme;
@@ -209,20 +210,29 @@ $("settings-logout").addEventListener("click", () => action(async () => {
   await api("/auth/logout", { method: "POST" }); location.assign("/");
 }));
 
+const computeSettings = createComputeSettings();
 function showSettingsPanel() {
   const aliases = { account: "general", "model-form": "model" };
   const hash = location.hash.slice(1);
-  const selected = aliases[hash] || (["general", "appearance", "model"].includes(hash) ? hash : "general");
+  const selected = aliases[hash] || (tabs.some(tab => tab.dataset.tab === hash) ? hash : "general");
   document.querySelectorAll("[data-panel]").forEach((panel) => { panel.hidden = panel.dataset.panel !== selected; });
   document.querySelectorAll("[data-tab]").forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === selected));
     tab.tabIndex = tab.dataset.tab === selected ? 0 : -1;
   });
   $("notice").hidden = selected !== "model";
+  computeSettings.activate(selected);
+  if (selected === "model" && !modelLoaded) {
+    modelLoaded = true;
+    action(async () => {
+      try { displaySettings(await api("/api/model/settings")); await refreshLogin(); await refreshModels(); }
+      catch (error) { modelLoaded = false; throw error; }
+    });
+  }
 }
 const tabs = [...document.querySelectorAll("[data-tab]")];
 tabs.forEach((tab, index) => {
-  tab.addEventListener("click", () => { history.replaceState(null, "", `#${tab.dataset.tab}`); showSettingsPanel(); });
+  tab.addEventListener("click", () => { location.hash = tab.dataset.tab; showSettingsPanel(); });
   tab.addEventListener("keydown", (event) => {
     const offset = {ArrowDown:1, ArrowRight:1, ArrowUp:-1, ArrowLeft:-1}[event.key];
     if (!offset && !["Home", "End"].includes(event.key)) return;
