@@ -5,6 +5,7 @@ import {createSSHSettings} from './compute-ssh.mjs';
 const panels=new Set(['automation','servers','software','potentials','queues','environments']);
 const codeName=code=>[code.name || code.software || code.label,code.version].filter(Boolean).join(' ');
 const stepDefinitions=[
+  ['模型连接','model',['model']],
   ['本机计算服务','automation',['aiida_core','vasp_plugin','profile','daemon']],
   ['服务器连接','servers',['server']],['计算软件','software',['software']],
   ['赝势目录','potentials',['potential_source']],['执行环境','environments',['execution_target']],
@@ -46,7 +47,7 @@ export function targetPayload(form,serverId,codes,sources) {
 export function createComputeSettings() {
   const envForm=$('environment-form'), queues=new Map();
   let all=null, config=null, selected='', active='', generation=0, loading=false, busy=false, editing=null;
-  let attempted=false;
+  let attempted=false, modelReady=null;
   const server=()=>all?.servers.find(row=>row.id===selected);
   const localReady=()=>Boolean(config?.aiida?.profile_ready);
   const usableCodes=()=>config?.codes.filter(c=>c.server_id===selected && isVasp(c)) || [];
@@ -85,11 +86,16 @@ export function createComputeSettings() {
   function drawOverview() {
     if(!config) {$('compute-steps').replaceChildren();$('setup-default').replaceChildren();$('setup-local').hidden=true;return;}
     const missing=new Set(config.missing), aiida=config.aiida;
+    if(!modelReady) missing.add('model');
     $('compute-steps').innerHTML=stepDefinitions.map(([label,panel,keys],index)=>{
       const needed=keys.filter(key=>missing.has(key));
       let detail='';
       if(panel==='automation') detail=needed.length ? needed.map(k=>t(localLabels[k])).join(' · ') : aiida.profile || 'AiiDA';
-      if(panel==='servers') detail=server()?.label || '';
+      if(panel==='model') detail=modelReady===null ? t('尚未核实') : t(modelReady?'已配置':'模型未配置');
+      if(panel==='servers') {
+        const check=server()?.last_connection_test;
+        detail=[server()?.label, server() && t(!check?'尚未测试连接':check.ok?'上次连接测试通过':'上次连接测试未通过')].filter(Boolean).join(' · ');
+      }
       if(panel==='software') detail=usableCodes().map(codeName).join(' · ');
       if(panel==='potentials') detail=usableSources().map(s=>s.root).join(' · ');
       if(panel==='environments') detail=config.default_id || '';
@@ -101,7 +107,8 @@ export function createComputeSettings() {
     $('compute-initialize').hidden=!aiida.installed;
     const $note=$('setup-local').querySelector('p');
     $note.textContent=t(!aiida.installed || aiida.vasp_plugin===false?'请在服务所在电脑安装所缺的计算组件，然后刷新配置。':'在运行 Chemistry Agent 的电脑上创建或启动 AiiDA 服务。');
-    let message=config.ready?'当前配置已就绪。':'完成待配置项后即可准备计算。';
+    let message=config.ready?'计算配置已齐全。':'完成待配置项后即可准备计算。';
+    if(config.ready && !modelReady) message='计算配置已齐全，请在模型页确认对话连接。';
     if(!config.default_id && ownTargets().length>1) message='有多个执行环境，请指定一个默认环境，或在对话中选择。';
     $('setup-default').innerHTML=`<p class="readiness">${esc(t(message))}${config.default_id?' <code data-no-i18n>'+esc(config.default_id)+'</code>':''}</p>`;
   }
@@ -234,6 +241,11 @@ export function createComputeSettings() {
   return {activate(panel) {
     if(active!==panel) {ssh.closeSecret();notify();}
     active=panel;$('compute-scope').hidden=!panels.has(panel);
+    if(panel==='automation') {
+      fetch('/health',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(h=>{
+        modelReady=h?.model_configured ?? null; if(config) drawOverview();
+      }).catch(()=>{modelReady=null; if(config) drawOverview();});
+    }
     if(panels.has(panel) && !attempted) {
       attempted=true;notify('正在读取计算配置…');
       refresh().then(()=>notify()).catch(e=>notify(e.message,true));

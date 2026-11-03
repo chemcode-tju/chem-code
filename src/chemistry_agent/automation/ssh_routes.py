@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from chemistry_agent.automation.models import ServerCreate, StrictModel
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.service import AutomationService
-from chemistry_agent.automation.ssh_profiles import load_profile
+from chemistry_agent.automation.ssh_profiles import check_path, load_profile
 from chemistry_agent.errors import AgentError
 
 router = APIRouter(prefix="/api/automation", tags=["SSH"])
@@ -61,6 +61,7 @@ async def change_password(identifier: UUID, value: str | None, service: Automati
     if profile["auth_mode"] != "password":
         raise AgentError("password_not_used", "此服务器使用密钥或 SSH 别名。", 422)
     await asyncio.to_thread(set_password, str(identifier), value)
+    check_path(service.settings.aiida_path, str(identifier)).unlink(missing_ok=True)
     return {"stored": value is not None}
 
 

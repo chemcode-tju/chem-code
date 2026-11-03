@@ -62,6 +62,18 @@ def test_real_scheduler_dry_run(profile, scheduler, directive):
     assert orm.QueryBuilder().append(orm.CalcJobNode).count() == 0
 
 
+def test_connection_check_does_not_change_reviewed_execution(profile, monkeypatch):
+    payload = make_payload()
+    before = backend.preview(payload)
+    local = backend.load_server(payload["server_id"])
+    monkeypatch.setattr(backend, "check_connection", lambda _: {"checked_at": "now", "ok": True})
+    backend.test_server({"server_id": local.uuid})
+    assert backend.server_record(local)["last_connection_test"]["ok"]
+    after = backend.preview(payload)
+    assert before["execution_fingerprint"] == after["execution_fingerprint"]
+    assert "last_connection_test" not in after["server"]
+
+
 def test_repeated_submit_and_config_change(profile, monkeypatch):
     result = backend.preview(make_payload())
     monkeypatch.setattr(

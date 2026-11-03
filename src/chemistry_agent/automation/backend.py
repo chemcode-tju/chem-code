@@ -40,7 +40,13 @@ from chemistry_agent.automation.models import (
     StructureInput,
 )
 from chemistry_agent.automation.ssh_connection import pin_server, resolve
-from chemistry_agent.automation.ssh_profiles import load_profile, profile_path, write_private
+from chemistry_agent.automation.ssh_profiles import (
+    check_path,
+    last_check,
+    load_profile,
+    profile_path,
+    write_private,
+)
 from chemistry_agent.automation.vibrations import output_settings, vibrational_incar
 from chemistry_agent.errors import AgentError
 
@@ -74,7 +80,8 @@ def read_structure(specification: StructureInput) -> Atoms:
         raise AgentError("invalid_structure", str(exc), 422) from exc
 
 
-def server_record(computer: orm.Computer) -> dict:
+def server_execution_identity(computer: orm.Computer) -> dict:
+    """Keep existing reviewed previews valid across UI and authentication checks."""
     return {
         "id": computer.uuid,
         "label": computer.label,
@@ -82,6 +89,13 @@ def server_record(computer: orm.Computer) -> dict:
         "scheduler": computer.scheduler_type,
         "workdir": computer.get_workdir(),
         "mpi_command": computer.get_mpirun_command(),
+    }
+
+
+def server_record(computer: orm.Computer) -> dict:
+    return {
+        **server_execution_identity(computer),
+        "last_connection_test": last_check(Path(os.environ["AIIDA_PATH"]), str(computer.uuid)),
         **server_connection_details(computer),
     }
 
@@ -212,6 +226,17 @@ def create_server(payload: dict) -> dict:
 
 def test_server(payload: dict) -> dict:
     computer = load_server(payload["server_id"])
+    path = check_path(Path(os.environ["AIIDA_PATH"]), str(computer.uuid))
+    try:
+        result = check_connection(computer)
+    except Exception:
+        write_private(path, {"ok": False, "checked_at": now()})
+        raise
+    write_private(path, {"ok": result["ok"], "checked_at": result["checked_at"]})
+    return result
+
+
+def check_connection(computer: orm.Computer) -> dict:
     checks = []
     # No mkdir, upload or scheduler submission: this endpoint is read-only.
     with computer.get_transport() as transport:
@@ -374,7 +399,7 @@ def preview(payload: dict) -> dict:
         "resources": body.resources.model_dump(),
         "code_uuid": builder.code.uuid,
         "execution_fingerprint": execution_fingerprint(builder),
-        "server": server_record(builder.code.computer),
+        "server": server_execution_identity(builder.code.computer),
     }
     # Hash public generated inputs; POTCAR is intentionally neither returned nor published.
     record["input_sha256"] = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
@@ -865,7 +890,7 @@ def plan_identity(payload: dict) -> dict:
     if code.computer.uuid != computer.uuid or code.default_calc_job_plugin != "vasp.vasp":
         raise AgentError("code_mismatch", "计算方案的 Code 与服务器不匹配。", 422)
     state = {
-        "server": server_record(computer),
+        "server": server_execution_identity(computer),
         "mpi": computer.get_mpirun_command(),
         "transport": computer.transport_type,
         "prepend": computer.get_prepend_text(),
@@ -989,7 +1014,7 @@ def execution_fingerprint(builder: ProcessBuilder) -> str:
     """Detect edits to code, resources and pseudopotential selection after preview."""
     computer = builder.code.computer
     state = {
-        "server": server_record(computer),
+        "server": server_execution_identity(computer),
         "mpi": computer.get_mpirun_command(),
         "transport": computer.transport_type,
         "computer_prepend": computer.get_prepend_text(),

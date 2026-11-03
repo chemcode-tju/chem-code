@@ -132,7 +132,7 @@ export function createSSHSettings({run,notify,afterSave,activeServer}) {
         if(dialog.open && secretId===id) $('secret-notice').textContent=error.message;else notify(error.message,true);
         return;
       }
-      closeSecret();
+      tests.delete(id);closeSecret();
       await afterSave(remove?'SSH 密码已清除。':'SSH 密码已保存，可测试连接。',id);
     });
   }
@@ -153,6 +153,7 @@ export function createSSHSettings({run,notify,afterSave,activeServer}) {
     $('server-record').innerHTML=record(server.label,[
       ['主机',server.hostname],['登录方式',t(modeNames[mode])],['SSH 别名',mode==='alias'?(server.ssh_host || server.hostname):''],
       ['Agent 终端别名',server.shell_alias],
+      ['上次连接测试',server.last_connection_test ? t(server.last_connection_test.ok?'通过':'未通过')+' · '+new Date(server.last_connection_test.checked_at).toLocaleString() : t('尚未测试连接')],
       ['SSH 用户名',server.username],['SSH 端口',server.port],['本机私钥路径',mode==='key'?(server.identity_file || 'ssh-agent'):''],
       ['调度系统',server.scheduler],['远端工作目录',server.workdir]]);
     $('server-actions').hidden=false;$('password-open').hidden=mode!=='password';showChecks(server.id);
@@ -174,11 +175,25 @@ export function createSSHSettings({run,notify,afterSave,activeServer}) {
   });
   $('server-test').onclick=()=>run(async()=>{
     const id=activeServer().id;tests.delete(id);showChecks(id);notify('正在检查 SSH、调度系统和工作目录…');
-    const result=await computeRequest('servers/'+encodeURIComponent(id)+'/test','POST');
+    let result;
+    try {
+      result=await computeRequest('servers/'+encodeURIComponent(id)+'/test','POST');
+    } catch(error) {
+      if(activeServer()?.id===id) {
+        activeServer().last_connection_test={ok:false,checked_at:new Date().toISOString()};
+        render(activeServer());
+      }
+      throw error;
+    }
     const checks=Array.isArray(result.checks)?result.checks:[];
     if(!checks.length) throw new Error(t('未收到连接检查结果。'));
     tests.set(id,checks);
-    if(activeServer()?.id===id) {showChecks(id);notify(checks.every(c=>c.ok)?'连接检查通过。':'有检查项未通过。');}
+    if(activeServer()?.id===id) {
+      const ok=checks.every(c=>c.ok);
+      activeServer().last_connection_test={ok,checked_at:result.checked_at || new Date().toISOString()};
+      render(activeServer());
+      notify(ok?'连接检查通过。':'有检查项未通过。');
+    }
   });
   $('password-open').onclick=()=>openSecret(activeServer());
   $('ssh-secret-form').onsubmit=e=>{e.preventDefault();secretAction(false);};

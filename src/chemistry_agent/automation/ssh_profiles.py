@@ -28,6 +28,15 @@ def pin_path(root: Path, hostname: str, port: int) -> Path:
     return root / "ssh" / "hosts" / f"{identity}.json"
 
 
+def check_path(root: Path, identifier: str) -> Path:
+    return root / "ssh" / "checks" / f"{UUID(identifier)}.json"
+
+
+def last_check(root: Path, identifier: str) -> dict | None:
+    path = check_path(root, identifier)
+    return json.loads(path.read_text()) if path.exists() else None
+
+
 def profile_path(root: Path, identifier: str) -> Path:
     return root / "ssh" / "connections" / f"{UUID(identifier)}.json"
 

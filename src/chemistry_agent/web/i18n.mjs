@@ -1,5 +1,9 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "尚未核实":"Not checked yet", "尚未测试连接":"Connection not tested yet",
+  "上次连接测试":"Last connection test","上次连接测试通过":"Last connection test passed",
+  "上次连接测试未通过":"Last connection test failed","计算配置已齐全。":"Compute settings are complete.",
+  "计算配置已齐全，请在模型页确认对话连接。":"Compute settings are complete. Check the chat connection in Model settings.",
   "请使用软件标识，如 VASP 或 Quantum-ESPRESSO。版本可填写 6.3.2。":"Use a software ID such as VASP or Quantum-ESPRESSO and a version such as 6.3.2.",
   "列表刷新失败，请点击刷新配置。":"Could not refresh the list. Choose Refresh settings.",
   "时限必须在 0.5 到 10080 分钟之间。":"Time limit must be between 0.5 and 10,080 minutes.",
