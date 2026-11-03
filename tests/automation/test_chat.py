@@ -253,6 +253,7 @@ def test_shared_mode_has_no_calculation_tools(settings_factory):
             "molecular_properties",
             "molecular_similarity",
             "web_search",
+            "ask_user_question",
         }
         assert client.get("/api/automation/status").status_code in {401, 403}
 

@@ -1417,3 +1417,11 @@ body.inspector-open .topbar #tools-toggle { display:none; }
 .step-param-box { padding-inline-end:34px; }
 .markdown table,.map-identity,.step-meta,.task-parameters { font-variant-numeric:tabular-nums; }
 @media(max-width:767px) { .inspector-open #dock-grip { display:block; width:9px; } }
+
+.user-questions {display:grid;gap:1rem;max-width:42rem}
+.user-questions fieldset {min-width:0;margin:0;padding:0;border:0}
+.user-questions legend {margin-bottom:.55rem;font-weight:600}
+.question-option {display:flex;align-items:baseline;gap:.6rem;padding:.45rem 0;cursor:pointer}
+.question-option small {display:block;color:var(--muted);line-height:1.45}
+.user-questions textarea {box-sizing:border-box;width:100%;margin-top:.45rem;padding:.5rem;font:inherit;color:inherit;background:transparent;border:1px solid var(--border);border-radius:5px;resize:vertical}
+.user-questions button {justify-self:start}

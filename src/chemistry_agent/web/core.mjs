@@ -1,4 +1,5 @@
 export const TOOL_LABELS = {
+  ask_user_question: "询问用户",
   web_search: "联网搜索",
   remote_shell: "远程终端",
   molecular_properties: "分子属性计算",

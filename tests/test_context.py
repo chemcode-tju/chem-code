@@ -81,7 +81,7 @@ def without_reasoning(messages):
 
 
 async def test_summary_budget_recent_turns_persistence_and_cache_reuse(settings_factory):
-    settings = budget_settings(settings_factory)
+    settings = budget_settings(settings_factory, context_window_tokens=10240)
     session_id, originals = await seed(settings)
     summaries, answers = [], []
     counter = TokenCounter(settings.tokenizer_path)
@@ -94,10 +94,11 @@ async def test_summary_budget_recent_turns_persistence_and_cache_reuse(settings_
             assert "tools" not in payload
             assert payload["max_tokens"] == 256
             assert "PRIVATE-REASONING" not in json.dumps(payload)
-            assert counter.request_tokens(payload["messages"], []) <= 8192 - 256
+            assert counter.request_tokens(payload["messages"], []) <= settings.context_input_budget
             return httpx.Response(200, json=reply(MEMORY))
         answers.append(payload)
-        assert counter.request_tokens(payload["messages"], payload["tools"]) <= 8192 - 256
+        request_size = counter.request_tokens(payload["messages"], payload["tools"])
+        assert request_size <= settings.context_input_budget
         wire = payload["messages"]
         assert wire[0]["content"] == SYSTEM_PROMPT
         assert "<conversation_memory>" in wire[1]["content"]
@@ -347,7 +348,9 @@ def test_token_counter_handles_local_tokenizer_fallback_and_unicode(tmp_path):
 
 
 async def test_default_four_recent_turns_are_retained_whole(settings_factory):
-    settings = budget_settings(settings_factory, context_recent_turns=4)
+    settings = budget_settings(
+        settings_factory, context_recent_turns=4, context_window_tokens=10240
+    )
     session_id, originals = await seed(settings, turns=8, padding=60)
 
     def provider(request):

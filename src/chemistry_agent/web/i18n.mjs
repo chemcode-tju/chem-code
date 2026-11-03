@@ -301,6 +301,7 @@ const messages = {
   "工具结果":"Tool results", "暂无记录":"No results", "运行工具后，在这里查看结果。":"Run a tool to view results here.", "已计算":"Calculated", "请检查输入":"Check input",
   "分子量":"Molecular weight", "精确质量":"Exact mass", "氢键供体":"H-bond donors", "氢键受体":"H-bond acceptors", "可旋转键":"Rotatable bonds", "环数量":"Rings", "查看参数与完整结果":"Parameters and full result",
   "项目名称":"Project name", "删除文件夹会保留所有对话，并将它们移回聊天列表。":"Deleting this folder keeps its conversations in Chats.", "删除文件夹":"Delete folder", "取消":"Cancel", "保存":"Save", "管理项目":"Manage project", "请输入项目名称。":"Enter a project name.", "已删除文件夹，对话保留在聊天列表。":"Folder deleted. Conversations are kept in Chats.",
+  "询问用户":"Ask user","自己的回答":"Your own answer","发送选择":"Send answer","请选择选项或填写回答。":"Select an option or enter your answer.",
   "正在上传…":"Uploading…", "文本可读取":"Text available", "已上传，未解析":"Uploaded, not parsed", "移除附件":"Remove attachment", "文件上传失败，请重试。":"Upload failed. Please try again.",
   "附件与上下文":"Attachments & context", "复制回答":"Copy response", "回答已复制。":"Response copied.", "复制不可用，请选中文字后手动复制。":"Select the text and copy it manually.", "重试这条消息":"Retry message", "研究助手":"Research assistant",
   "正在打开这段研究对话…":"Opening conversation…", "正在分析问题…":"Thinking…", "请先连接并配置模型。":"Connect a model first.", "请输入有效的 SMILES。":"Enter valid SMILES.", "正在计算…":"Calculating…", "计算完成，结果已显示在研究面板。":"Calculated. Results are in the research panel.",

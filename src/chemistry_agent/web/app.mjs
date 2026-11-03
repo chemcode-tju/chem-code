@@ -1,3 +1,4 @@
+import {userQuestions} from './user-questions.mjs';
 import {activity, answerBox, initAnswerControls, liveCopyButton} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
@@ -314,6 +315,15 @@ function artifactLinks(calls) {
   return [...links.values()].join(" ");
 }
 
+const questionCard = userQuestions({root:$("conversation"), session:()=>state.sessionId,
+  api, sync:()=>syncChat(), toast});
+function turnAnswer(turn,index) {
+  const ask = turn.calls.find(call=>call.name==="ask_user_question" && call.success && call.result?.status==="awaiting_user");
+  if (!ask) return answerBox(markdown.render(turn.answer),index);
+  const active=!state.turns.slice(index+1).some(other=>!other.event) && !state.outbox.length && !state.pending;
+  return questionCard(ask.result,active);
+}
+
 function renderConversation(scroll = true) {
   const viewport=$("chat-scroll");
   const previousTop=viewport.scrollTop;
@@ -330,7 +340,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls})}${answerBox(markdown.render(turn.answer),index)}${artifactLinks(turn.calls)}</div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}</div></div></article>`
 
   ).join("");
   calculations.drawReportFigures();

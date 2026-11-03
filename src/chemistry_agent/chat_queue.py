@@ -30,7 +30,13 @@ class ChatQueue:
         self.account_locks: dict[str | None, asyncio.Lock] = {}
 
     async def enqueue(
-        self, identifier: str, body: ChatRequest, request: Request, retry: bool
+        self,
+        identifier: str,
+        body: ChatRequest,
+        request: Request,
+        retry: bool,
+        *,
+        answering: str | None = None,
     ) -> dict:
         session = str(body.session_id)
         encoded = json.dumps(body.model_dump(mode="json", exclude_unset=True), sort_keys=True)
@@ -59,6 +65,19 @@ class ChatQueue:
                     (identifier,),
                 )
             else:
+                if answering:
+                    current = await self.store._one(
+                        "SELECT 1 FROM messages WHERE session_id=? AND seq > (SELECT max(seq) "
+                        "FROM messages WHERE session_id=? "
+                        "AND json_extract(payload,'$.role')='user') "
+                        "AND json_extract(payload,'$.role')='tool' "
+                        "AND json_extract(json_extract(payload,'$.content'),'$.question_id')=? "
+                        "AND NOT EXISTS (SELECT 1 FROM chat_requests WHERE session_id=? "
+                        "AND status IN ('queued','running'))",
+                        (session, session, answering, session),
+                    )
+                    if not current:
+                        raise AgentError("question_superseded", "会话已继续，请查看最新方案。", 409)
                 await self.store.db.execute(
                     "INSERT INTO chat_requests(id,session_id,body,status,created_at) "
                     "VALUES (?,?,?,'queued',?)",

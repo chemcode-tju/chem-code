@@ -55,6 +55,7 @@ from chemistry_agent.store import Store
 from chemistry_agent.structures import router as structures_router
 from chemistry_agent.tokens import TokenCounter
 from chemistry_agent.tools import ToolRegistry
+from chemistry_agent.user_questions import QUESTION_TOOL, Ask, Reply
 
 logger = logging.getLogger(__name__)
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
@@ -78,6 +79,7 @@ def create_app(
     calculation_chat = CalculationChat(automation)
     calculation_enabled = settings.automation_enabled and not settings.auth_enabled
     extras = calculation_chat.tools() if calculation_enabled else []
+    extras.append(QUESTION_TOOL)
     if settings.web_search_enabled:
         extras.append(web_search_tool(settings.search_endpoint))
     ssh_hosts = settings.allowed_ssh_hosts
@@ -393,6 +395,31 @@ def create_app(
         )
         return await request.app.state.chat_queue.enqueue(
             str(body.request_id), message, request, retry
+        )
+
+    @app.post("/sessions/{session_id}/questions/{question_id}/answer", status_code=202)
+    async def answer_question(session_id: UUID, question_id: UUID, body: Reply, request: Request):
+        if calculation_enabled:
+            local_service(request)
+        store = request.app.state.store
+        async with store.lock:
+            row = await store._one(
+                "SELECT json_extract(call.value,'$.result.questions') AS questions "
+                "FROM sessions s JOIN runs r ON r.session_id=s.id, json_each(r.tool_calls) call "
+                "WHERE s.id=? AND s.owner_id IS ? AND r.status='completed' "
+                "AND json_extract(call.value,'$.name')=? "
+                "AND json_extract(call.value,'$.result.question_id')=?",
+                (str(session_id), request.state.user_id, QUESTION_TOOL.name, str(question_id)),
+            )
+        if row is None:
+            raise AgentError("question_not_found", "当前会话没有这项提问。", 404)
+        answer = body.message(Ask(questions=json.loads(row["questions"])))
+        return await request.app.state.chat_queue.enqueue(
+            str(question_id),
+            ChatRequest(session_id=session_id, message=answer),
+            request,
+            False,
+            answering=str(question_id),
         )
 
     @app.get("/sessions/{session_id}/chat-requests", tags=["sessions"])
