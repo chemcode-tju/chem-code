@@ -196,16 +196,44 @@ async def connect(root: Path, profile: dict) -> asyncssh.SSHClientConnection:
             preferred_auth="password,keyboard-interactive",
         )
     elif server.identity_file:
-        options["client_keys"] = [await asyncio.to_thread(identity_path, server.identity_file)]
-    elif server.auth_mode == "key":
-        options.update(client_keys=[])
+        identity = await asyncio.to_thread(identity_path, server.identity_file)
+        options.update(client_keys=[identity], preferred_auth="publickey")
+        # Encrypted private keys can be signed by an agent, but only by this identity.
+        public = Path(identity + ".pub")
+        if await asyncio.to_thread(public.is_file):
+            options.update(agent_identities=[str(public)], ignore_encrypted=True)
+        else:
+            options["agent_path"] = None
     try:
+        if server.auth_mode == "key" and not server.identity_file:
+            # AsyncSSH treats client_keys=[] as "load default private key files".
+            # Selecting ssh-agent explicitly must authenticate only with agent-held keys.
+            try:
+                agent = await asyncssh.connect_agent()
+            except OSError as exc:
+                raise AgentError(
+                    "ssh_agent_missing", "服务未连接到 ssh-agent，请检查 SSH_AUTH_SOCK。", 422
+                ) from exc
+            async with agent:
+                keys = await agent.get_keys()
+                if not keys:
+                    raise AgentError(
+                        "ssh_agent_empty", "ssh-agent 中没有密钥，请先用 ssh-add 加载。", 422
+                    )
+                options.update(client_keys=keys, agent_path=None, preferred_auth="publickey")
+                return await asyncssh.connect(**options)
         return await asyncssh.connect(**options)
     except asyncssh.HostKeyNotVerifiable as exc:
         raise AgentError("ssh_host_changed", "主机密钥与已信任指纹不符。", 403) from exc
     except asyncssh.PermissionDenied as exc:
         raise AgentError(
             "ssh_login_denied", "SSH 认证被拒绝。请核对账号、钥匙串密码或代理中的密钥。", 403
+        ) from exc
+    except (asyncssh.KeyImportError, asyncssh.KeyEncryptionError) as exc:
+        raise AgentError(
+            "ssh_identity_invalid",
+            "无法使用指定的私钥，请核对文件或用 ssh-add 解锁后选 ssh-agent。",
+            422,
         ) from exc
     except (OSError, asyncssh.Error) as exc:
         raise AgentError(

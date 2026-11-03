@@ -1,7 +1,11 @@
 import asyncio
 import json
+import os
+import shutil
 import subprocess
+import tempfile
 import threading
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -251,3 +255,62 @@ async def test_password_endpoint_is_local_and_not_an_agent_tool(
             },
         )
         assert not direct.json()["success"]
+
+
+@pytest.mark.skipif(
+    shutil.which("ssh-agent") is None or shutil.which("ssh-add") is None,
+    reason="OpenSSH agent not installed",
+)
+async def test_agent_mode_uses_only_loaded_identities(endpoint, tmp_path, monkeypatch):
+    port, hostkey, identity, _ = endpoint
+    body = ServerCreate(
+        label="agent",
+        hostname="127.0.0.1",
+        auth_mode="key",
+        username="research",
+        port=port,
+        workdir="/scratch",
+    )
+    await ssh_connection.pin_server(tmp_path, body, hostkey.get_fingerprint())
+    profile = {
+        "id": str(uuid4()),
+        "server": body.model_dump(),
+        "hostname": body.hostname,
+        "port": port,
+        "username": "research",
+    }
+    with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+        socket = str(Path(directory) / "agent.sock")
+        monkeypatch.setenv("SSH_AUTH_SOCK", socket)
+        with pytest.raises(AgentError) as unavailable:
+            await ssh_connection.connect(tmp_path, profile)
+        assert unavailable.value.code == "ssh_agent_missing"
+        process = await asyncio.create_subprocess_exec(
+            "ssh-agent",
+            "-D",
+            "-a",
+            socket,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        try:
+            for _ in range(80):
+                if await asyncio.to_thread(Path(socket).exists):
+                    break
+                await asyncio.sleep(0.025)
+            with pytest.raises(AgentError) as empty:
+                await ssh_connection.connect(tmp_path, profile)
+            assert empty.value.code == "ssh_agent_empty"
+            loaded = await asyncio.create_subprocess_exec(
+                "ssh-add",
+                str(identity),
+                env=os.environ.copy(),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            assert await loaded.wait() == 0
+            async with await ssh_connection.connect(tmp_path, profile) as client:
+                assert (await client.run("hostname")).stdout.strip() == "transport-ok"
+        finally:
+            process.terminate()
+            await process.wait()
