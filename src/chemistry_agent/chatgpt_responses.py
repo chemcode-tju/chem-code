@@ -74,11 +74,11 @@ class PlanResponses:
             model = catalog[0]["id"]
         token = await self.authorization.access_token(user_id)
         instructions = (
-            "You are Chemistry Agent's model backend. Follow the system messages in the supplied "
+            "You are Chem Code's model backend. Follow the system messages in the supplied "
             "conversation. Return a JSON assistant message matching the schema. "
             "Do not execute tools. "
             "Request only listed functions with unique call IDs and JSON-encoded arguments; "
-            "Chemistry Agent executes them and provides results on the next request. "
+            "Chem Code executes them and provides results on the next request. "
             "Never claim that a calculation succeeded without a supplied result. "
             + (
                 f"Aim for at most {max_tokens} response tokens."

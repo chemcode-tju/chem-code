@@ -55,7 +55,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   const path = (id) => `/api/automation/chat/${encodeURIComponent(id)}`;
 
   function drawAttachments() {
-    attachments.innerHTML = selected.map((item) => `<span class="structure-chip">${structureButton('artifact',item.id,`${item.name}.extxyz`,`${item.name} · ${item.formula}`)} <button type="button" data-remove-structure="${esc(item.id)}" aria-label="移除结构附件">×</button></span>`).join("");
+    attachments.innerHTML = selected.map((item) => `<span class="structure-chip">${structureButton('artifact',item.id,`${item.name}.extxyz`,`${item.name} · ${item.formula}`)} <button type="button" data-remove-structure="${esc(item.id)}" aria-label="移除结构附件"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></span>`).join("");
   }
 
   const structureList = document.getElementById('structure-list');
@@ -68,7 +68,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     const rows = structures.map(item => row(`${item.name} · ${item.formula}`, 'artifact', item.id, `${item.name}.extxyz`, `${base}/files/structure/${encodeURIComponent(item.id)}`, `<button data-attach-structure="${esc(item.id)}">用于对话</button>`));
     for (const job of jobs) rows.unshift(row(`优化结构 · #${job.pk}`, 'job', job.id, `optimized-job-${job.pk}.extxyz`, `${base}/jobs/${encodeURIComponent(job.id)}/structure.extxyz`, `<button data-import-job="${esc(job.id)}">用于对话</button>`));
     for (const file of unique(chatFiles().filter(file => isStructureName(file.name)), file => file.id)) rows.push(row(file.name,'file',file.id,file.name,`/api/files/${encodeURIComponent(file.id)}`));
-    structureList.innerHTML = rows.join('') || '<p class="empty-result">本对话暂无结构</p>';
+    structureList.innerHTML = rows.join('');
     structureList.innerHTML += (records?.models || []).map(item => `<details class="model-record"><summary>建模代码 · ${esc(item.name)}</summary><pre>${esc(item.code)}</pre><a href="${base}/files/model/${esc(item.id)}" download>下载 model.py</a></details>`).join('');
   }
   function drawReportFigures() {

@@ -46,11 +46,6 @@ export function createSSHSettings({run,notify,afterSave,activeServer}) {
     }
     field(form,'username').required=mode!=='alias';
     $('host-label').textContent=t(mode==='alias'?'SSH 别名':'主机名或 IP');
-    $('auth-mode-hint').textContent=t({
-      alias:'使用服务所在 Mac 的 ~/.ssh/config。用户名、端口和身份文件沿用该别名的配置。',
-      key:'公钥应已加入远端账号的 authorized_keys。私钥留在服务所在 Mac 上，只填写文件路径；留空使用 ssh-agent。',
-      password:'先核对主机并保存服务器，再在独立密码表单中保存登录密码。'
-    }[mode]);
     field(form,'hostname').placeholder=mode==='alias'?'cluster':'cluster.example.org';
   }
   function existingPayload() {

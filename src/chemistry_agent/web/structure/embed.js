@@ -6,11 +6,6 @@
       new URLSearchParams(window.location.search).get("embed") !== "1") return;
 
   document.documentElement.classList.add("embedded-viewer");
-  const options = document.getElementById("viewer-options");
-  options.hidden = false;
-  options.append(document.querySelector(".file-actions"), document.querySelector(".toolbar"),
-    document.querySelector(".import-options"), document.getElementById("import-note"));
-
   function reply(type, fields = {}) {
     parentWindow.postMessage({type, ...fields}, origin);
   }

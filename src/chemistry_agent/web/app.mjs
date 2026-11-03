@@ -24,17 +24,19 @@ const state = {
   busy: false, loading: false, hasMore: false, navigation: 0, results: new Map(),
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
-initWorkspaceControls();
+const setDockMaximized = initWorkspaceControls();
 
 const chatPositions=new Map();
 let restorePosition=false;
 let toastTimer;
 let chatModels;
+let inspectorSession = null;
 const notifications = createNotifications({ api });
-const selectInspectorTab = initInspectorTabs(() => {
-  setDrawer("sidebar", false);
-  setInspectorOpen(true, { focus:false });
+const inspectorTabs = initInspectorTabs(open => {
+  if (open) setDrawer("sidebar", false);
+  setInspectorOpen(open, {focus:false});
 });
+const selectInspectorTab = inspectorTabs.select;
 const viewer = createStructureBridge({selectTab:selectInspectorTab, toast});
 async function syncReport(id,event) {
     if (state.busy || state.loading || state.turns.some(t=>t.event===event)) return;
@@ -62,7 +64,8 @@ const calculations = createCalculations({
     if (innerWidth<=767) setInspectorOpen(false);
     state.revision = {id,title,planRevision};
     $("revision-chip").hidden=false;
-    $("revision-chip").textContent="修改："+title+" ×";
+    $("revision-chip").textContent="修改："+title;
+    $("revision-chip").insertAdjacentHTML("beforeend", icon("close"));
     field.focus();
   },
   viewer, chatFiles: () => [...state.turns.flatMap(turn => turn.files?.length ? turn.files : contextFiles(turn.context)), ...uploads.files],
@@ -72,7 +75,7 @@ const calculations = createCalculations({
     if (!state.sessionId) {
       const selectedModel = chatModels.value;
       const session = await api("/sessions", {method:"POST", body:JSON.stringify({title:"结构与计算"})});
-      state.sessionId = session.id; rememberSession(session.id);
+      state.sessionId = session.id; rememberSession(session.id); adoptInspector(session.id);
       $("conversation-title").textContent = session.title;
       await chatModels.saveNewSession(session.id, selectedModel);
       await projectNavigation.assign(session.id);
@@ -139,18 +142,41 @@ function syncDrawerAccessibility() {
   $("inspector").setAttribute("aria-hidden", String(inspectorHidden));
 }
 
+function inspectorKey(id) {
+  return "chemistry.inspector." + (state.auth.user?.id || "local") + "." + (id || "draft");
+}
+function saveInspector(id) {
+  const open = document.body.classList.contains("inspector-open");
+  try { localStorage.setItem(inspectorKey(id), JSON.stringify({...inspectorTabs.snapshot(), open})); } catch { /* Optional. */ }
+}
+function adoptInspector(id) {
+  inspectorSession = id;
+  saveInspector(id);
+  try { localStorage.removeItem(inspectorKey(null)); } catch { /* Optional. */ }
+}
+function restoreInspector(id, fresh = false) {
+  inspectorSession = id;
+  let saved;
+  try {
+    if (fresh) localStorage.removeItem(inspectorKey(id));
+    else saved = JSON.parse(localStorage.getItem(inspectorKey(id)));
+  } catch { /* Use the default dock. */ }
+  setDockMaximized(false);
+  inspectorTabs.restore(saved);
+  setInspectorOpen(saved?.open === true, {focus:false, persist:false});
+}
 function setInspectorOpen(open, { focus = true, persist = true } = {}) {
   const wasFocused = $("inspector").contains(document.activeElement);
+  if (open) inspectorTabs.ensureTab();
   document.body.classList.toggle("inspector-open", open);
+  if (!open) setDockMaximized(false);
+  $("tools-toggle").disabled = open;
   $("tools-toggle").setAttribute("aria-expanded", String(open));
-  $("tools-toggle").setAttribute("aria-label", open ? "关闭研究面板" : "打开研究工具");
-  $("tools-toggle").title = open ? "关闭研究面板" : "打开研究工具";
-  if (persist) {
-    try { localStorage.setItem("chemistry.inspectorOpen", String(open)); } catch { /* Optional. */ }
-  }
+  $("inspector-close").setAttribute("aria-expanded", String(open));
+  if (persist) saveInspector(inspectorSession);
   syncDrawerAccessibility();
-  if (focus && open) $("inspector-close").focus();
-  else if (focus && wasFocused) $("tools-toggle").focus();
+  if (focus && open) $("inspector-close").focus({preventScroll:true});
+  else if (focus && wasFocused) $("tools-toggle").focus({preventScroll:true});
 }
 
 function setDrawer(name, open) {
@@ -170,7 +196,7 @@ function setDrawer(name, open) {
 
 function closeDrawers() {
   setDrawer("sidebar", false);
-  if (innerWidth <= 767) setInspectorOpen(false, { focus:false });
+  if (innerWidth <= 767) setInspectorOpen(false, { focus:false, persist:false });
 }
 
 function updateControls() {
@@ -242,7 +268,7 @@ const uploads = createFileUploads({ state, toast, updateControls, onChange: () =
 
 function renderSessions() {
   const chats = state.sessions.filter((session) => !projectNavigation.includes(session.id));
-  $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无独立聊天</p>';
+  $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无聊天</p>';
   $("load-more").hidden = !state.hasMore;
   projectNavigation.render();
   updateControls();
@@ -314,7 +340,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
   calculations.drawReportFigures();
   for (const item of state.outbox) {
@@ -382,7 +408,8 @@ async function selectSession(id, quiet = false) {
   state.loading = true;
   state.pending = null;
   renderConversation(false);
-  closeDrawers();
+  setDrawer("sidebar", false);
+  if (inspectorSession !== id) restoreInspector(id);
   try {
     // Message history is authoritative. All tool details can be reconstructed from it.
     const [session, runs] = await Promise.all([
@@ -409,6 +436,7 @@ async function selectSession(id, quiet = false) {
     state.turns = [];
     state.runs = [];
     rememberSession(null);
+    restoreInspector(null);
     $("conversation-title").textContent = t("新对话");
   } finally {
     if (navigation === state.navigation) {
@@ -444,6 +472,7 @@ function newConversation() {
   viewer.reset(); calculations.reset();
   $("context-ring").hidden = true; $("context-panel").close();
   rememberSession(null);
+  restoreInspector(null, true);
   $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
   uploads.clear();
@@ -547,6 +576,7 @@ async function sendChat(message, context = "", files = uploads.files, retryReque
       state.sessionId = session.id;
       $("conversation-title").textContent = session.title;
       rememberSession(session.id);
+      adoptInspector(session.id);
       await chatModels.saveNewSession(session.id, selectedModel);
       await projectNavigation.assign(session.id);
     }
@@ -718,13 +748,17 @@ try {
 } catch { /* Use the desktop navigation by default. */ }
 $("sidebar-collapse").addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"), true));
 $("rail-projects").addEventListener("click", () => { setSidebarCollapsed(false, true); $("new-project").focus(); });
-$("menu-toggle").addEventListener("click", () => { setDrawer("inspector", false); setDrawer("sidebar", !document.body.classList.contains("sidebar-open")); });
-$("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false); setDrawer("inspector", !document.body.classList.contains("inspector-open")); });
+$("menu-toggle").addEventListener("click", () => { setInspectorOpen(false, {persist:false, focus:false}); setDrawer("sidebar", !document.body.classList.contains("sidebar-open")); });
+$("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false); setInspectorOpen(true); });
 $("inspector-close").addEventListener("click", () => setDrawer("inspector", false));
 $("screen-overlay").addEventListener("click", closeDrawers);
 document.addEventListener("keydown", (event) => {
   if (document.querySelector("dialog[open]")) return;
-  if (event.key === "Escape") { closeDrawers(); setInspectorOpen(false); }
+  if (event.defaultPrevented) return;
+  if (event.key === "Escape") {
+    if (document.body.classList.contains("sidebar-open")) setDrawer("sidebar", false);
+    else if (document.body.classList.contains("inspector-open")) setInspectorOpen(false);
+  }
   if (event.key !== "Tab") return;
   const openPanel = document.body.classList.contains("sidebar-open") ? $("sidebar") : null;
   if (!openPanel) return;
@@ -750,6 +784,9 @@ function showLogin(message = "") {
   state.accountVersion += 1;
   state.navigation += 1;
   rememberSession(null);
+  inspectorSession = null;
+  inspectorTabs.restore();
+  setInspectorOpen(false, {focus:false, persist:false});
   state.sessionId = null;
   state.sessions = [];
   state.turns = [];
@@ -797,7 +834,7 @@ async function startWorkspace() {
   // Model discovery may share the provider's inference lock. Never block conversation recovery.
   if (state.health?.model_configured) void chatModels.refresh();
   if (id) await selectSession(id, true);
-  else { $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
+  else { restoreInspector(null); $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
   if (setup) {
     const field = $("message-input");
     if (!field.value.trim() && !state.pending) field.value = t("请检查我的计算配置，告诉我还需要提供哪些服务器、软件、赝势和队列信息。");
@@ -840,10 +877,7 @@ $("login-form").addEventListener("submit", async (event) => {
 window.addEventListener("languagechange", () => {
   if (!state.sessionId) $("conversation-title").textContent = t("新对话");
 });
-try {
-  const savedInspector = localStorage.getItem("chemistry.inspectorOpen");
-  setInspectorOpen(savedInspector === "true", { focus:false, persist:false });
-} catch { setInspectorOpen(false, { focus:false, persist:false }); }
+setInspectorOpen(false, {focus:false, persist:false});
 const restoreLinkedSettings = initSettingsDialog({
   onOpen() { if (document.body.classList.contains("sidebar-open")) setDrawer("sidebar", false); },
   async onClose() {

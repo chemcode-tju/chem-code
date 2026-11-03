@@ -38,7 +38,7 @@ class Store:
         try:
             process_lock.acquire(timeout=0)
         except LockTimeout as exc:
-            raise RuntimeError("此数据库已有 Chemistry Agent 服务运行，请使用现有服务。") from exc
+            raise RuntimeError("此数据库已有 Chem Code 服务运行，请使用现有服务。") from exc
         try:
             db = await aiosqlite.connect(path)
         except BaseException:

@@ -1,7 +1,23 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "配置本机计算服务":"Set up local compute",
+  "暂无聊天":"No chats", "暂无项目":"No projects", "默认环境":"Default environment", "请先登录 ChatGPT。":"Sign in to ChatGPT first.",
+  "添加标签页":"Add tab", "关闭方案标签":"Close plan tab", "关闭结构标签":"Close structure tab",
+  "关闭进度标签":"Close progress tab", "关闭工具标签":"Close tools tab",
+  "展开研究面板": "Expand research panel",
+  "收起研究面板": "Collapse research panel",
+  "打开授权页": "Open authorization page",
+  "管理 ChatGPT 用量": "Manage ChatGPT usage",
+  "在对话中配置": "Set up in chat",
+  "已通过 Codex 连接。": "Connected through Codex.",
+  "已登录 ChatGPT。": "Signed in to ChatGPT.",
+  "浏览器未能保存外观设置。": "Appearance could not be saved.",
+  "已保存密钥。": "Key saved.",
+  "未发现模型。": "No models found.",
+  "请先保存连接设置。": "Save the connection settings first.",
+
   "个人工作空间":"Personal workspace", "新对话所属项目":"Project for new chat", "关闭设置":"Close settings",
-  "对话字号":"Chat text size", "字号":"Text size", "经典蓝":"Classic blue",
+  "对话字号":"Chat text size", "字号":"Text size",
   "节点资源与状态":"Node resources and states",
   "尚未核实":"Not checked yet", "尚未测试连接":"Connection not tested yet",
   "上次连接测试":"Last connection test","上次连接测试通过":"Last connection test passed",
@@ -36,7 +52,7 @@ const messages = {
   "已就绪":"Ready",
   "查看":"View",
   "初始化本地计算服务":"Initialize local compute service",
-  "在运行 Chemistry Agent 的电脑上创建或启动 AiiDA 服务。":"Create or start the AiiDA service on the computer running Chemistry Agent.",
+  "在运行 Chem Code 的电脑上创建或启动 AiiDA 服务。":"Create or start the AiiDA service on the computer running Chem Code.",
   "请在服务所在电脑安装所缺的计算组件，然后刷新配置。":"Install the missing compute components on the service computer, then refresh.",
   "正在初始化本地计算服务…":"Initializing the local compute service…",
   "已更新本地计算服务状态。":"Local service status updated.",
@@ -100,7 +116,7 @@ const messages = {
   "Agent 终端别名":"Agent shell alias",
   "还没有计算服务器。":"No compute servers yet.",
   "SSH 密码":"SSH password",
-  "密码保存在运行 Chemistry Agent 的 Mac 钥匙串里。请在这里填写，不要粘贴到对话中。":"The password is saved in Keychain on the Mac running Chemistry Agent. Enter it here and keep it out of chat.",
+  "密码保存在运行 Chem Code 的 Mac 钥匙串里。请在这里填写，不要粘贴到对话中。":"The password is saved in Keychain on the Mac running Chem Code. Enter it here and keep it out of chat.",
   "服务器登录密码":"Server login password",
   "保存密码":"Save password",
   "清除已保存的密码":"Remove saved password",
@@ -202,8 +218,8 @@ const messages = {
   "计算":"Calculations", "结构":"Structures", "工具":"Tools", "此对话暂无计算记录。":"No calculations in this conversation yet.", "结构查看器":"Structure viewer",
   "高级选项":"Advanced options",
   "连接后自动读取可用模型。保持自动选择即可使用，也可从列表切换。":"Available models load automatically after connecting. Keep Automatic or choose from the list.",
-  "授权 Chemistry Agent 使用你的 ChatGPT 套餐，无需 API Key。首次授权的应用名称为 Chemistry Agent，可在 ChatGPT 用量设置中管理。": "Authorize Chemistry Agent to use your ChatGPT plan without an API key. Manage its access in ChatGPT Usage settings.",
-  "请在运行 Chemistry Agent 的电脑上完成浏览器授权。已保存的账号可切换或重新授权；应用不会读取你日常 Codex 的凭据。": "Complete browser authorization on the computer running Chemistry Agent. Switch or reauthorize saved accounts. Your everyday Codex credentials are not read.",
+  "授权 Chem Code 使用你的 ChatGPT 套餐，无需 API Key。首次授权的应用名称为 Chem Code，可在 ChatGPT 用量设置中管理。": "Authorize Chem Code to use your ChatGPT plan without an API key. Manage its access in ChatGPT Usage settings.",
+  "请在运行 Chem Code 的电脑上完成浏览器授权。已保存的账号可切换或重新授权；应用不会读取你日常 Codex 的凭据。": "Complete browser authorization on the computer running Chem Code. Switch or reauthorize saved accounts. Your everyday Codex credentials are not read.",
   "添加 ChatGPT 账号": "Add ChatGPT account",
   "ChatGPT 账号": "ChatGPT account",
   "选择已保存的账号": "Choose a saved account",
@@ -224,18 +240,17 @@ const messages = {
   "正在读取模型列表…": "Loading models\u2026",
   "模型列表已更新；实际可用性以连接测试为准。": "Model catalog updated. Test the connection to verify access.",
   "未返回模型，可手动填写模型 ID。": "No models returned. You can enter a model ID manually.",
-  "当前使用旧 Codex 连接。点击 Continue with ChatGPT 可授权 Chemistry Agent 独立身份。": "Using the legacy Codex connection. Continue with ChatGPT to authorize Chemistry Agent separately.",
-  "Chemistry Agent 已获 ChatGPT 授权，可以选择模型并测试连接。": "Chemistry Agent is authorized. Choose a model and test the connection.",
+  "当前使用旧 Codex 连接。点击 Continue with ChatGPT 可授权 Chem Code 独立身份。": "Using the legacy Codex connection. Continue with ChatGPT to authorize Chem Code separately.",
+  "Chem Code 已获 ChatGPT 授权，可以选择模型并测试连接。": "Chem Code is authorized. Choose a model and test the connection.",
   "登录失败，请重新授权。": "Sign-in failed. Please authorize again.",
   "已退出本地登录，远端撤销未确认；可在 ChatGPT 用量设置中断开应用。": "Signed out locally; remote revocation was not confirmed. Disconnect the app in ChatGPT Usage settings.",
   "请先在设置中登录 ChatGPT。": "Sign in with ChatGPT in settings first.",
 
-  "Chemistry Agent 首页":"Chemistry Agent home", "设置":"Settings", "常规":"General", "外观":"Appearance", "模型":"Models", "语言":"Language",
+  "Chem Code 首页":"Chem Code home", "设置":"Settings", "常规":"General", "外观":"Appearance", "模型":"Models", "语言":"Language",
   "选择界面显示语言。":"Choose the interface language.", "研究空间":"Workspace", "返回研究空间":"Back to workspace",
   "设置分类":"Settings sections", "工作空间账户":"Workspace account", "正在读取…":"Loading…", "本地账户":"Local account",
   "本地单用户模式":"Local single-user mode", "个人工作空间 · 已登录":"Personal workspace · Signed in", "退出登录":"Sign out",
-  "显示模式":"Display mode", "跟随系统":"System", "白色":"Light", "深夜":"Dark", "强调色":"Accent color",
-  "靛蓝":"Indigo", "雾蓝":"Slate blue", "灰紫":"Mauve", "暖棕":"Warm brown", "自定义强调色":"Custom accent color",
+  "显示模式":"Display mode", "跟随系统":"System", "白色":"Light", "深夜":"Dark",
   "已保存到当前浏览器。":"Saved in this browser.", "已应用；浏览器禁止存储，刷新后可能恢复默认。":"Applied for this visit; browser storage is unavailable.",
   "模型连接":"Model connection", "选择账号授权或 API 服务，保存后立即生效。":"Choose an account or API service. Changes take effect after saving.",
   "登录方式":"Provider", "ChatGPT 账号授权登录":"ChatGPT account", "OpenAI 兼容 API / 本地模型":"OpenAI-compatible API / local model",
@@ -324,7 +339,7 @@ export function translateUI() {
     }
     attributeOriginals.set(element, records);
   }
-  document.title = document.querySelector('[data-panel],#workspace-settings[open]') ? `${t('设置')} · Chemistry Agent` : 'Chemistry Agent';
+  document.title = document.querySelector('[data-panel],#workspace-settings[open]') ? `${t('设置')} · Chem Code` : 'Chem Code';
 }
 export function setLanguage(value) {
   language = value === 'en' ? 'en' : 'zh-CN';

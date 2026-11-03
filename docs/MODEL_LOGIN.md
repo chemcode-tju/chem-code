@@ -7,8 +7,8 @@
 
 1. 打开左下角 **设置 → 模型**，选择 **ChatGPT 账号授权登录**。
 2. 点击 **Continue with ChatGPT**，再打开页面给出的官方授权链接。
-   在运行 Chemistry Agent 的同一台电脑上完成登录与授权。
-3. 首次注册向 OpenAI 传入真实应用名 `Chemistry Agent`；官方页面允许用户编辑名称。
+   在运行 Chem Code 的同一台电脑上完成登录与授权。
+3. 首次注册向 OpenAI 传入真实应用名 `Chem Code`；官方页面允许用户编辑名称。
    授权后可以在 [ChatGPT 用量设置](https://chatgpt.com/settings/usage) 单独管理该应用。
 4. 刷新模型列表，选择默认模型，点击 **保存并测试连接**。列表来自当前授权账号的
    `/v1/models`，具体调用是否获准以实际响应为准。留空时使用目录中的第一个可见模型。
@@ -84,7 +84,7 @@ expiry/nonce 校验。新的账号只有完成身份和套餐 scope 校验后才
 也不会改变自动化计算分支原有的本地访问和任务提交确认限制。
 
 此集成适合可信用户的研究空间。Codex 推理通过独立临时目录、只读沙箱和关闭内置执行工具
-运行，输出结构化 `tool_calls`，再交给 Chemistry Agent 原有工具注册表执行。
+运行，输出结构化 `tool_calls`，再交给 Chem Code 原有工具注册表执行。
 现有计算提交仍需在界面确认。不要将 Codex 执行入口开放为不受信任的公共服务。
 
 `CHEMISTRY_CODEX_TIMEOUT_SECONDS` 控制单次 ChatGPT 响应等待（默认 150 秒）；

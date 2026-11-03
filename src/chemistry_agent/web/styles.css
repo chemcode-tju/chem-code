@@ -1304,6 +1304,46 @@ button:not(:disabled):focus-visible,summary:focus-visible { outline:2px solid va
   .user-bubble { max-width:90%; }
 }
 
-#context-ring,.swatch { corner-shape:round; }
+#context-ring { corner-shape:round; }
 
 @media (pointer:coarse) { .composer>textarea { font-size:max(16px,var(--reading-size)); } }
+
+/* The count opens the dock. Its tab strip owns document close, add and collapse. */
+.topbar,.inspector-strip { height:44px; min-height:44px; background:var(--sidebar-fill); }
+.inspector-strip { display:flex; flex:none; align-items:center; gap:6px; padding:4px 8px; background:var(--selected); }
+.dock-tab-row { display:flex; align-items:center; gap:3px; flex:1; min-width:0; }
+.inspector-strip .inspector-tabs { display:flex; align-items:center; gap:3px; flex:0 1 auto; min-width:0; margin:0; padding:0; overflow:auto hidden; border:0; scrollbar-width:none; }
+.inspector-tabs::-webkit-scrollbar { display:none; }
+.dock-tab { flex:none; display:flex; align-items:center; gap:2px; width:clamp(92px,14vw,216px); max-width:48vw; height:30px; border-radius:8px; color:var(--muted); }
+.dock-tab:has([role=tab][aria-selected=true]) { background:var(--panel); color:var(--text); }
+.dock-tab:not(:has([aria-selected=true])):hover { background:var(--hover); }
+.inspector-strip .dock-tab [role=tab] { display:flex; align-items:center; gap:6px; flex:1; min-width:0; height:100%; padding:0 0 0 10px; color:inherit; border:0; border-radius:8px; background:transparent; font:400 13px/20px var(--font-ui); text-align:start; }
+.dock-tab [role=tab] .icon { width:14px; height:14px; }
+.dock-tab [role=tab] span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.inspector-strip .tab-close { display:grid; place-items:center; flex:none; width:20px; height:20px; margin-inline-end:5px; padding:0; border:0; border-radius:5px; background:transparent; color:var(--muted); }
+.tab-close .icon { width:11px; height:11px; }
+.inspector-strip .tab-close:hover,.dock-add:not(:has(:disabled)):hover { background:var(--hover); color:var(--text); }
+.dock-add { display:grid; position:relative; place-items:center; flex:none; width:26px; height:26px; border-radius:7px; color:var(--muted); }
+.dock-add .icon { width:13px; height:13px; }
+.dock-add #inspector-add { position:absolute; inset:0; opacity:0; width:100%; height:100%; padding:0; border:0; }
+.dock-add:has(:focus-visible) { outline:2px solid var(--accent); }
+.dock-add:has(:disabled) { opacity:.4; }
+.inspector-actions { display:flex; flex:none; align-items:center; gap:2px; }
+.inspector-actions .icon-button,.topbar #tools-toggle { width:28px; height:28px; border-radius:7px; color:var(--muted); }
+.inspector-actions .icon { width:14px; height:14px; }
+.dock-count { display:grid; place-items:center; min-width:14px; height:14px; padding:0 2px; border:1px solid currentColor; border-radius:4px; font:500 9px/1 var(--font-ui); font-variant-numeric:tabular-nums; }
+#revision-chip .icon,#notification-list [data-read-event] .icon { width:13px; height:13px; vertical-align:middle; }
+@media(max-width:767px) { .dock-tab { width:112px; } }
+#inspector-panel-structure { display:flex; flex-direction:column; gap:6px; padding:8px; }
+#inspector-panel-structure .structure-viewer-shell { flex:1; min-height:min(260px,56dvh); height:auto; border:0; }
+#structure-list:empty { display:none; }
+.brand-icon { fill:none; stroke:none; }
+.sidebar-header .brand-mark .brand-icon { width:27px; height:27px; }
+.welcome h1 .brand-icon { width:38px; height:38px; }
+.project-actions button,.attachment-chip button,.structure-chip button[data-remove-structure] { display:inline-flex; gap:4px; align-items:center; justify-content:center; }
+.project-actions .icon,.attachment-chip button .icon,.structure-chip button[data-remove-structure] .icon { width:13px; height:13px; }
+
+body.inspector-open .topbar #tools-toggle { display:none; }
+@media (max-width:767px) { body.inspector-open .topbar #tools-toggle { display:inline-flex; visibility:hidden; } }
+
+@media(pointer:coarse) { .inspector-strip .tab-close { width:26px; height:26px; } }

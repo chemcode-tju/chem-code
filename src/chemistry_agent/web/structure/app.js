@@ -19,18 +19,34 @@ function sceneSettings() {
 }
 function displayedFrame() {return StructureScene.transform(frameData,{drift,wrap:$("wrap").checked});}
 function status(text, error = false) { $("status").textContent = error ? text : ""; $("status").hidden = !error; }
-function stop() { ++playbackGeneration; cancelAnimationFrame(timer); timer = null; $("play").textContent = "▶"; $("play").setAttribute("aria-label", "播放轨迹"); }
+function displayPlayback(playing) {
+  const button = $("play"), label = playing ? "暂停轨迹" : "播放轨迹";
+  button.querySelector("use").setAttribute("href", "/assets/ui-icons.svg#i-" + (playing ? "pause" : "play"));
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+function stop() { ++playbackGeneration; cancelAnimationFrame(timer); timer = null; displayPlayback(false); }
 function updateTimeline() {
   if (!doc) return;
   $("timeline").max = doc.count - 1; $("timeline").value = frameIndex; $("timeline").disabled = doc.count < 2;
   $("frame-number").max = doc.count; $("frame-number").value = frameIndex + 1;
-  $("frame-count").textContent = `/ ${doc.count}${streamComplete ? "" : "+"}`;
+  const total = String(doc.count) + (streamComplete ? "" : "+");
+  $("frame-total").textContent = total;
+  $("frame-summary").textContent = `${frameIndex + 1} / ${total}`;
+  const single = streamComplete && doc.count === 1;
+  $("trajectory-tools").classList.toggle("single-frame", single);
+  $("frame-number").readOnly = single;
+  $("first").disabled = $("previous").disabled = frameIndex === 0;
+  $("next").disabled = $("last").disabled = frameIndex === doc.count - 1;
+  $("play").disabled = doc.count < 2;
+  $("frame-number").closest(".frame-label").style.setProperty("--frame-digits", Math.max(2, total.length) + "ch");
+  if (!$("trajectory-tools").open || single) return;
   const width=$("ticks").clientWidth;
   const canvas=document.createElement('canvas'),context=canvas.getContext('2d');
   context.font=getComputedStyle($("ticks")).font;
   const marks=StructureControls.timelineTicks(doc.count,width,text=>context.measureText(text).width);
-  $("ticks").replaceChildren(...marks.map(({value,x})=>{
-    const span=document.createElement('span');span.textContent=value;span.style.left=x+'px';return span;
+  $("ticks").replaceChildren(...marks.map(({value,x,tickX})=>{
+    const span=document.createElement('span');span.textContent=value;span.style.left=x+'px';span.style.setProperty('--tick-offset',(tickX-x)+'px');return span;
   }));
 }
 function render(reset = false, strict = false) {
@@ -48,6 +64,9 @@ function render(reset = false, strict = false) {
   } catch (error) { stop(); status(error.message, true); if(strict)throw error; }
 }
 function updateSelection() {
+  const count = selection.length;
+  $("atom-panel").hidden = $("selected-summary").hidden = count === 0;
+  $("selected-summary").textContent = count ? `已选 ${count}` : "";
   $("atom-title").textContent=selection.length?`已选 ${selection.length}`:'';
   if(!frameData)return;
   const atoms=displayedFrame().atoms;
@@ -58,6 +77,7 @@ function updateSelection() {
   $("apply-display").disabled=$("reset-selected-style").disabled=!selection.length;
 }
 function selectionChanged() {
+  if (selection.length && $("atom-panel").hidden) $("trajectory-tools").open = true;
   stop();
   updateSelection();
   const ticket=++paintTicket;
@@ -71,7 +91,10 @@ function chooseBox(indices, toggle) {
   if(!indices.length)return;
   selection=toggle?StructureSelection.toggleIndices(selection,indices):indices;selectionChanged();
 }
-function resetDisplayState() { displayState=new StructureSelection.DisplayState();selection=[]; }
+function resetDisplayState() {
+  displayState = new StructureSelection.DisplayState(); selection = [];
+  $("atom-panel").hidden = $("selected-summary").hidden = true;
+}
 function populateElements() {
   if(!frameData)return;
   $("element-list").replaceChildren(...[...new Set(frameData.atoms.map(a=>a.elem))].sort().map(elem=>{
@@ -119,6 +142,7 @@ async function go(index) {
 function discardDocument() {
   doc?.dispose(); doc=null; activeRecord=null; navigationTarget=null; navigationTask=null;
   document.body.classList.remove("has-structure");
+  $("drift-settings").disabled = true;
 }
 async function showDocument(store,generation) {
   if(generation!==readGeneration){store.dispose();return;}
@@ -126,6 +150,7 @@ async function showDocument(store,generation) {
   if(generation!==readGeneration)return;
   activeRecord=record;
   document.body.classList.add("has-structure");
+  $("drift-settings").disabled = false;
   frameIndex=0;streamComplete=store.complete;render(true,true);status('');loading=false;
   // Render the first frame before starting any background index batch.
   afterPaint(()=>store.scan(()=>{if(doc===store){streamComplete=store.complete;updateTimeline();}})
@@ -139,7 +164,7 @@ $("play").onclick = () => {
   if (timer) return stop();
   if (!doc || doc.count < 2) return;
   if(frameIndex===doc.count-1 && streamComplete)go(0);
-  $("play").textContent = "Ⅱ"; $("play").setAttribute("aria-label", "暂停轨迹");
+  displayPlayback(true);
   const run=++playbackGeneration;
   let previous=performance.now(), accumulator=0;
   const tick=async now=>{
@@ -169,7 +194,7 @@ $("playback-apply").onclick=event=>{
   playback={fps:Number($("animation-fps").value),speed:Number($("playback-speed").value),step:Number($("playback-step").value),loop:$("playback-loop").checked};
 };
 $("reset").onclick = () => views?.fit();
-document.querySelectorAll("[data-orientation]").forEach(button=>button.onclick=()=>{views?.setOrientation(button.dataset.orientation);$("orientation").open=false;});
+$("orientation").onchange = event => views?.setOrientation(event.target.value);
 $("layout").onchange = event => views?.setLayout(event.target.value);
 $("expand").onclick = () => views?.toggleExpand();
 for (const mode of ["rotate", "pan", "zoom", "select", "box"]) $(mode).onclick = () => views?.setMode(mode);
@@ -178,7 +203,8 @@ $("last").onclick = () => { stop(); if (doc) go(doc.count - 1); };
 for (const id of ["style", "palette", "radius-scale", "cell", "labels", "hbonds", "wrap"]) $(id).onchange = () => { stop(); status(""); scheduleRender(); };
 function openPanel(panel) { if(!panel.open)panel.show(); }
 for(const id of ['display-dialog','drift-dialog'])StructureControls.draggable($(id));
-new ResizeObserver(()=>updateTimeline()).observe($("ticks"));
+new ResizeObserver(updateTimeline).observe($("ticks"));
+$("trajectory-tools").addEventListener("toggle", updateTimeline);
 $("drift-settings").onclick=()=>{
   $("drift-reference").max=Math.max(0,(doc?.count||1)-1);
   openPanel($("drift-dialog"));
@@ -226,8 +252,9 @@ async function openStructure(files, format = $("import-format").value) {
     }
   }
   $("atom-title").textContent = $("measurement").textContent = $("atom-list").textContent = "";
-  $("frame-count").textContent = "/ —"; $("timeline").disabled = true;
+  $("frame-total").textContent = "—"; $("frame-summary").textContent = ""; $("timeline").disabled = true;
   $("source-panel").hidden = true; $("source-toggle").hidden = /\.traj$/i.test(file.name);
+  $("filename").removeAttribute("data-empty-title");
   $("filename").textContent = file.name; status("");
   $("import-note").textContent = "正在读取…";
   try {

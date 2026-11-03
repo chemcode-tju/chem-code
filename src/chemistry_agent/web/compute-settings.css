@@ -5,14 +5,13 @@
 #compute-notice {margin:0 0 16px;color:var(--muted);font-size:14px;overflow-wrap:anywhere;}
 #compute-notice.error {color:var(--danger);}
 .compute-panel h2 {margin-bottom:8px;}
-.compute-panel .intro {margin:0 0 24px;}
 .compute-panel .hint,#ssh-secret .hint {font-size:14px;color:var(--muted);line-height:1.6;}
 .setup-list {list-style:none;counter-reset:step;margin:0;padding:0;}
 .setup-list li {display:grid;grid-template-columns:25px minmax(0,1fr) auto;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--border);}
 .step-number {width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--strong-border);border-radius:50%;font-size:12px;color:var(--muted);}
-.setup-list strong,.config-record strong {font-size:15px;font-weight:570;overflow-wrap:anywhere;}
+.setup-list strong,.config-record strong {font-size:15px;font-weight:400;overflow-wrap:anywhere;}
 .setup-list small {display:block;color:var(--muted);font-size:13px;overflow-wrap:anywhere;}
-.setup-list a,.setup-list li>span:last-child,.needs-config a {font-size:14px;color:var(--accent);}
+.setup-list a,.setup-list li>span:last-child,.needs-config {font-size:14px;color:var(--accent);}
 #setup-local,.agent-setup {margin-top:24px;}
 .agent-setup {border-top:1px solid var(--border);padding-top:6px;}
 .agent-setup h3 {margin-bottom:4px;}
@@ -26,17 +25,17 @@
 .config-facts {display:grid;grid-template-columns:minmax(80px,max-content) minmax(0,1fr);gap:5px 14px;margin:10px 0 0;font-size:14px;line-height:1.45;}
 .config-facts dt {color:var(--muted);}
 .config-facts dd {margin:0;overflow-wrap:anywhere;}
-.config-empty,.needs-config {font-size:14px;color:var(--muted);}
+.config-empty {font-size:14px;color:var(--muted);}
 .compute-actions {margin:14px 0;}
 .config-editor,.compatibility {margin-top:20px;border:1px solid var(--border);border-radius:12px;}
-.compute-panel summary,#secret-removal summary {display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:550;}
+.compute-panel summary,#secret-removal summary {display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:400;}
 .config-editor>summary,.compatibility>summary {padding:11px 14px;}
 .compute-panel summary::before,#secret-removal summary::before {content:"";width:6px;height:6px;display:block;flex:none;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);}
 .compute-panel details[open]>summary::before,#secret-removal[open]>summary::before {transform:rotate(135deg);}
 .config-editor[open]>summary,.compatibility[open]>summary {border-bottom:1px solid var(--border);}
 .config-editor form,.compatibility>div {padding:0 14px 14px;}
 .config-editor fieldset {margin:0;padding:0;border:0;min-width:0;}
-.config-editor label,#ssh-secret label {display:grid;gap:6px;margin:13px 0 0;font-size:14px;font-weight:520;}
+.config-editor label,#ssh-secret label {display:grid;gap:6px;margin:13px 0 0;font-size:14px;font-weight:400;}
 .config-editor :is(input:not([type=checkbox]),select),#ssh-secret input {width:100%;font-weight:400;font-size:15px;}
 .config-editor .hint {margin:7px 0;}
 .config-editor button.primary {margin-top:14px;}
@@ -52,7 +51,7 @@
 .trust-result code {display:block;overflow-wrap:anywhere;user-select:all;font-size:13px;margin:3px 0 10px;}
 .check-list {list-style:none;margin:0;padding:0;}
 .check-list li {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:7px 0;border-top:1px solid var(--border);font-size:14px;}
-.check-list b {font-weight:550;}
+.check-list b {font-weight:400;}
 .check-list code {grid-column:1/-1;overflow-wrap:anywhere;color:var(--muted);}
 .raw-queues {max-height:300px;overflow:auto;font-size:13px;}
 #ssh-secret {width:min(420px,calc(100vw - 24px));max-height:90dvh;color:var(--text);background:var(--surface);border:1px solid var(--strong-border);border-radius:20px;padding:20px;box-shadow:var(--floating-shadow);}
@@ -72,3 +71,5 @@
 }
 .queue-resources summary { cursor:pointer; color:var(--muted); padding:6px 0; }
 .queue-resources .config-facts + .config-facts {border-top:1px solid var(--border);padding-top:8px;}
+
+.needs-config { display:inline-block; margin-top:12px; }

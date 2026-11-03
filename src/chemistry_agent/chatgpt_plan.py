@@ -1,4 +1,4 @@
-"""Independent Sign in with ChatGPT registration for the local Chemistry Agent host."""
+"""Independent Sign in with ChatGPT registration for the local Chem Code host."""
 
 import asyncio
 import base64
@@ -24,7 +24,7 @@ from chemistry_agent.model_settings import ModelSettingsStore
 ISSUER = "https://auth.openai.com"
 RESOURCE = "https://api.openai.com/v1"
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
-APP_NAME = "Chemistry Agent"
+APP_NAME = "Chem Code"
 SCOPES = f"openid profile email offline_access resource.invoke {PLAN_SCOPE}"
 
 
@@ -312,7 +312,7 @@ class ChatGPTPlan:
                     callback.set_result({key: values[0] for key, values in query.items()})
                     status = "200 OK"
                     message = (
-                        "Return to Chemistry Agent to check the authorization result. "
+                        "Return to Chem Code to check the authorization result. "
                         "You may close this tab."
                     )
                 body = message.encode()
@@ -412,7 +412,7 @@ class ChatGPTPlan:
             )
             require(
                 record.get("access_token") and PLAN_SCOPE in record.get("scopes", []),
-                "请先使用 ChatGPT 授权 Chemistry Agent。",
+                "请先使用 ChatGPT 授权 Chem Code。",
             )
             if record.get("expires_at", 0) > time.time() + 120:
                 return record["access_token"]

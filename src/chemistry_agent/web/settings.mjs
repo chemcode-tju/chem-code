@@ -7,6 +7,7 @@ let busy = false;
 let savedSettings = null;
 let models = [];
 let lastAuth = null;
+let chatgptAuthenticated = false;
 let accounts = [];
 
 // Only the same-origin workspace may host the settings controls and their messages.
@@ -65,7 +66,6 @@ function togglePanels() {
   $("base-url").disabled = chatgpt;
   $("api-key").disabled = chatgpt;
   $("model").placeholder = chatgpt ? "留空自动选择可用模型" : "填写服务商提供的模型 ID";
-  $("model-hint").textContent = "可从列表选择，也可手动填写模型 ID。聊天输入框旁可为每段对话单独选择模型。";
   $("thinking-label").hidden = $("provider").value !== "deepseek";
   showModels();
 }
@@ -76,22 +76,27 @@ function displaySettings(data) {
   $("model").value = data.model;
   $("thinking").checked = data.thinking;
   $("api-key").value = "";
-  $("key-status").textContent = data.has_api_key ? "已保存密钥。留空可保留；更换服务地址或类型时须重新填写。" : "尚未保存 API Key。";
+  $("key-status").textContent = data.has_api_key ? "已保存密钥。" : "尚未保存 API Key。";
   $("model-advanced").open = data.provider !== "chatgpt" && !data.model;
   togglePanels();
 }
-async function refreshModels() {
+async function refreshModels(manual = false) {
+  if ($("provider").value === "chatgpt" && !chatgptAuthenticated) {
+    models = []; showModels();
+    $("catalog-status").textContent = manual ? "请先登录 ChatGPT。" : "";
+    return;
+  }
   if (!savedSettings || $("provider").value !== savedSettings.provider ||
       (savedSettings.provider !== "chatgpt" && $("base-url").value.trim().replace(/\/$/, "") !== savedSettings.base_url)) {
     models = []; showModels();
-    $("catalog-status").textContent = "请先保存连接设置，再刷新模型列表。"; return;
+    $("catalog-status").textContent = "请先保存连接设置。"; return;
   }
   $("catalog-status").textContent = "正在读取模型列表…";
   try {
     const result = await api("/api/model/models");
     models = result.models;
     showModels();
-    $("catalog-status").textContent = models.length ? "模型列表已更新；实际可用性以连接测试为准。" : "未返回模型，可手动填写模型 ID。";
+    $("catalog-status").textContent = models.length ? "" : "未发现模型。";
   } catch (error) {
     models = []; showModels();
     $("catalog-status").textContent = error.message;
@@ -119,10 +124,11 @@ async function action(operation) {
 }
 async function refreshLogin() {
   const data = await api("/api/model/chatgpt/status");
+  chatgptAuthenticated = Boolean(data.authenticated);
   const labels = { starting: "正在启动授权…", waiting: "请在官方页面完成授权。", complete: "授权完成。", failed: "登录失败，请重新授权。", expired: "授权已超时，请重新登录。", cancelled: "已取消登录。", idle: "尚未登录 ChatGPT。" };
   const pending = ["starting", "waiting"].includes(data.login.state);
   $("chatgpt-status").textContent = pending ? labels[data.login.state] : data.authenticated
-    ? data.authentication_mode === "codex" ? "当前使用旧 Codex 连接。点击 Continue with ChatGPT 可授权 Chemistry Agent 独立身份。" : "Chemistry Agent 已获 ChatGPT 授权，可以选择模型并测试连接。"
+    ? data.authentication_mode === "codex" ? "已通过 Codex 连接。" : "已登录 ChatGPT。"
     : labels[data.login.state] || "尚未登录。";
   if (data.login.state === "failed" && data.login.error) notice(data.login.error, true);
   $("chatgpt-logout").hidden = !data.authenticated;
@@ -151,17 +157,17 @@ $("provider").addEventListener("change", () => {
   if ($("provider").value === "deepseek") $("base-url").value = "https://api.deepseek.com";
   else if ($("provider").value === "openai-compatible") $("base-url").value = "";
   $("model-advanced").open = $("provider").value !== "chatgpt" && !$("model").value;
-  $("catalog-status").textContent = "请先保存连接设置，再刷新模型列表。";
+  $("catalog-status").textContent = "请先保存连接设置。";
   $("key-status").textContent = "更换服务时，请填写对应 API Key。";
   togglePanels();
 });
-$("base-url").addEventListener("input", () => { models = []; showModels(); $("catalog-status").textContent = "请先保存连接设置，再刷新模型列表。"; });
+$("base-url").addEventListener("input", () => { models = []; showModels(); $("catalog-status").textContent = "请先保存连接设置。"; });
 $("model-choice").addEventListener("change", () => {
   if ($("model-choice").value === "__manual__") { $("model-advanced").open = true; $("model").focus(); return; }
   $("model").value = $("model-choice").value;
 });
 $("model").addEventListener("input", showModels);
-$("refresh-models").addEventListener("click", () => action(refreshModels));
+$("refresh-models").addEventListener("click", () => action(() => refreshModels(true)));
 $("model-form").addEventListener("submit", (event) => {
   event.preventDefault();
   action(async () => { await save(); notice("已保存。返回研究空间即可使用新的模型设置。"); await refreshModels(); });
@@ -207,24 +213,16 @@ function displayAppearance() {
   const value = theme.read();
   selectedMode = value.mode;
   document.querySelectorAll("[data-mode]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === value.mode)));
-  $("accent-color").value = value.accent;
   $("chat-font-size").value = String(value.fontSize);
-  document.querySelectorAll("[data-accent]").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.accent === value.accent));
-  });
 }
 let selectedMode = theme.read().mode;
 function saveAppearance() {
-  const saved = theme.save({ mode: selectedMode, accent: $("accent-color").value, fontSize: Number($("chat-font-size").value) });
-  $("appearance-notice").textContent = saved ? "已保存到当前浏览器。" : "已应用；浏览器禁止存储，刷新后可能恢复默认。";
+  const saved = theme.save({ mode: selectedMode, fontSize: Number($("chat-font-size").value) });
+  $("appearance-notice").textContent = saved ? "" : "浏览器未能保存外观设置。";
   if (saved) displayAppearance();
 }
 document.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => { selectedMode = button.dataset.mode; saveAppearance(); }));
-$("accent-color").addEventListener("input", saveAppearance);
 $("chat-font-size").addEventListener("change", saveAppearance);
-for (const button of document.querySelectorAll("[data-accent]")) {
-  button.addEventListener("click", () => { $("accent-color").value = button.dataset.accent; saveAppearance(); });
-}
 displayAppearance();
 window.addEventListener("storage", (event) => { if (event.key === "chemistry.appearance") displayAppearance(); });
 api("/auth/status").then((data) => {

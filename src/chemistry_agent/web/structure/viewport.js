@@ -170,7 +170,7 @@ class StructureViews {
   activate(index) {
     this.active = index;
     this.panes.forEach((pane, i) => pane.element.classList.toggle("active", i === index));
-    document.getElementById("orientation-label").textContent = this.title(this.panes[index].preset);
+    document.getElementById("orientation").value = this.panes[index].preset;
   }
   setLayout(layout) {
     this.layout = layout;
@@ -181,6 +181,8 @@ class StructureViews {
     this.activate(this.active);
     if (this.scene) this.renderScene(this.scene,this.latest[2],false);
     document.getElementById("layout").value = layout;
+    const single = layout === "single";
+    document.getElementById("expand").querySelector("use").setAttribute("href", "/assets/ui-icons.svg#i-" + (single ? "multi-view" : "expand"));
     requestAnimationFrame(() => this.panes.forEach(pane => {
       if (!pane.element.hidden) {
         pane.viewer.resize();

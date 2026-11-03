@@ -1,4 +1,4 @@
-# Chemistry Agent 远端部署
+# Chem Code 远端部署
 
 这份部署包将前端、FastAPI、RDKit、上下文压缩和独立账号一起部署到 Linux 服务器。现在提供的是部署材料；需要你准备服务器和域名后再上线。
 

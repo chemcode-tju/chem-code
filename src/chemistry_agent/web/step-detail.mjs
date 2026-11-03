@@ -40,7 +40,9 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   function syncFull() {
     const label=t(dialog.open || document.fullscreenElement===screen ? '退出全屏':'全屏详情');
     $('step-full').title=label;$('step-full').setAttribute('aria-label',label);
-    $('step-full').setAttribute('aria-pressed',String(dialog.open || document.fullscreenElement===screen));
+    const full = dialog.open || document.fullscreenElement===screen;
+    $('step-full').setAttribute('aria-pressed',String(full));
+    $('step-full').querySelector('use').setAttribute('href','/assets/ui-icons.svg#i-'+(full?'shrink':'expand'));
   }
   function expandDetail(on) {
     if(on===dialog.open) return;

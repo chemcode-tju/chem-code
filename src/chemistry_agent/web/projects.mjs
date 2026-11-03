@@ -29,7 +29,7 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
     const label = $("draft-project-name");
     label.toggleAttribute("data-no-i18n", Boolean(selected));
     label.textContent = picker.selectedOptions[0]?.textContent || t("个人工作空间");
-    $("project-list").innerHTML = projects.map((project) => `<details class="project-folder" data-project="${project.id}"${expanded.has(project.id) ? " open" : ""}><summary>${folderIcon}<span title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span><small>${project.sessions.length}</small>${chevron}</summary><div class="project-children">${project.sessions.map(sessionButton).join("") || '<p class="sidebar-empty">暂无对话</p>'}<div class="project-actions"><button data-new-in="${project.id}"${state.busy || state.loading ? " disabled" : ""}>＋ 新对话</button><button data-edit-project="${project.id}">管理项目</button></div></div></details>`).join("") || '<p class="sidebar-empty">按项目整理相关对话</p>';
+    $("project-list").innerHTML = projects.map((project) => `<details class="project-folder" data-project="${project.id}"${expanded.has(project.id) ? " open" : ""}><summary>${folderIcon}<span title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span><small>${project.sessions.length}</small>${chevron}</summary><div class="project-children">${project.sessions.map(sessionButton).join("") || '<p class="sidebar-empty">暂无对话</p>'}<div class="project-actions"><button data-new-in="${project.id}"${state.busy || state.loading ? " disabled" : ""}><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-plus"/></svg> 新对话</button><button data-edit-project="${project.id}">管理项目</button></div></div></details>`).join("") || '<p class="sidebar-empty">暂无项目</p>';
 
   }
   function reset() {

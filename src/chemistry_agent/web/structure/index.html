@@ -1,34 +1,55 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>结构与轨迹 · Chemistry Agent</title><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml"><script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/theme.css"><link rel="stylesheet" href="/assets/structure/style.css"><link rel="stylesheet" href="/assets/structure/shell-theme.css"></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>结构与轨迹 · Chem Code</title><link rel="icon" href="/assets/favicon.svg?v=chem-code" type="image/svg+xml"><script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/theme.css"><link rel="stylesheet" href="/assets/structure/style.css"><link rel="stylesheet" href="/assets/structure/shell-theme.css"><link rel="stylesheet" href="/assets/choices.css">
+  <script type="module" src="/assets/choices.mjs"></script>
+</head>
 <body>
 <main>
-  <header><h1 id="filename">Structure Viewer</h1><div class="file-actions"><a href="/" class="back-link">← 化学助手</a><button id="open-file">本地文件</button><input id="file-picker" type="file" multiple hidden><button id="snapshot">快照</button><button id="display-settings">显示设置</button><button id="source-toggle">源码</button></div></header>
-  <details id="viewer-options" hidden><summary>查看选项</summary></details>
-  <details class="import-options"><summary>文件格式与导入选项</summary>
-    <label>格式 <select id="import-format"><option value="auto">自动识别</option><option value="extxyz">XYZ / extxyz</option><option value="vasp">POSCAR / CONTCAR</option><option value="vasp-xdatcar">XDATCAR</option><option value="lammps-dump-text">LAMMPS dump（文本）</option><option value="lammps-data">LAMMPS data</option><option value="gromacs">GROMACS GRO</option><option value="proteindatabank">PDB</option><option value="cif">CIF</option></select></label>
-    <p>LAMMPS：同时选择轨迹及配套 data/拓扑、输入文件或日志，自动识别元素、单位与原子类型。其他格式每次选择一个文件。</p>
-    <p>GRO、LAMMPS dump、XYZ、VASP、ASE .traj 在本地逐帧读取；data/PDB/CIF 由当前服务转换。GRO 元素依据原子名推断；暂不支持 XTC / TRR / TPR。</p>
-  </details>
-  <p id="import-note" role="status">选择结构文件开始查看；LAMMPS 支持多选或一起拖入配套文件。</p>
-  <div class="toolbar">
+  <header><h1 id="filename" data-empty-title>结构与轨迹</h1><div class="file-actions"><a href="/" class="back-link" aria-label="返回研究空间">Chem Code</a><button id="open-file"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg>本地文件</button><input id="file-picker" type="file" multiple hidden></div></header>
+  <details id="viewer-options"><summary>查看选项</summary>
+    <div class="viewer-option-body">
+      <div class="file-actions"><button id="display-settings"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-appearance"/></svg>显示设置</button><button id="drift-settings" disabled><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-drift"/></svg>质心漂移校正</button><button id="snapshot"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-snapshot"/></svg>快照</button><button id="source-toggle"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-software"/></svg>源码</button></div>
+      <div class="toolbar">
     <label class="language-control" data-no-i18n>Language <select id="language" aria-label="Language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
     <select id="style" aria-label="显示方式"><option value="sphere">原子球</option><option value="ballstick">球棍</option><option value="stick">线棒</option></select>
     <select id="palette" aria-label="原子配色"><option value="jmol">Jmol</option><option value="rasmol">RasMol / CPK</option><option value="vesta">VESTA</option></select>
     <select id="radius-scale" aria-label="原子半径比例" title="原子半径比例"><option value="0.75">75%</option><option value="1" selected>100%</option><option value="1.25">125%</option></select>
     <label><input id="cell" type="checkbox" checked>晶胞</label><label><input id="labels" type="checkbox">序号</label><label><input id="hbonds" type="checkbox">氢键</label><label><input id="wrap" type="checkbox">Wrap</label>
   </div>
+      <label>格式 <select id="import-format"><option value="auto">自动识别</option><option value="extxyz">XYZ / extxyz</option><option value="vasp">POSCAR / CONTCAR</option><option value="vasp-xdatcar">XDATCAR</option><option value="lammps-dump-text">LAMMPS dump（文本）</option><option value="lammps-data">LAMMPS data</option><option value="gromacs">GROMACS GRO</option><option value="proteindatabank">PDB</option><option value="cif">CIF</option></select></label>
+      <p id="import-note" role="status"></p>
+    </div>
+  </details>
   <div id="status" role="alert" hidden></div>
   <div id="viewports" class="viewports" data-layout="single" data-mode="rotate"><button id="open-empty" type="button"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg>打开结构文件</button></div>
-  <section id="atom-panel"><strong id="atom-title"></strong><output id="measurement"></output><span id="atom-list"></span><button id="clear-selection" disabled>清除选择</button></section>
+
   <section id="source-panel" hidden><div class="section-head"><strong id="source-title">当前帧源码</strong></div><textarea id="source" readonly spellcheck="false" aria-label="当前结构源码"></textarea></section>
   <footer>
-    <div class="timeline-row"><div class="frame-label"><input id="frame-number" type="number" min="1" value="1" aria-label="帧号"><span id="frame-count">/ —</span></div><div class="ruler"><div id="ticks" aria-hidden="true"></div><input id="timeline" type="range" min="0" max="0" value="0" aria-label="轨迹帧滑块" disabled></div></div>
-    <div class="control-row">
-      <div class="playback"><button id="first" aria-label="第一帧" title="第一帧">|◀</button><button id="previous" aria-label="上一帧" title="上一帧">◀</button><button id="play" aria-label="播放轨迹" title="播放 / 暂停">▶</button><button id="next" aria-label="下一帧" title="下一帧">▶</button><button id="last" aria-label="最后一帧" title="最后一帧">▶|</button><button id="playback-settings" aria-label="播放设置" title="播放设置">⚙</button></div>
-      <div class="view-controls"><details id="orientation" class="view-menu"><summary id="orientation-label">Front · XZ</summary><div class="view-menu-items"><button data-orientation="xz">Front · XZ</button><button data-orientation="xy">Top · XY</button><button data-orientation="yz">Left · YZ</button><button data-orientation="perspective">Perspective</button></div></details><select id="layout" aria-label="视图布局"><option value="single">单视图</option><option value="dual">双视图</option><option value="quad">四视图</option></select></div>
-      <div class="navigation" role="group" aria-label="视图操作"><button id="rotate" data-mode-button="rotate" aria-label="旋转" title="旋转" aria-pressed="true">⟳</button><button id="pan" data-mode-button="pan" aria-label="平移" title="平移" aria-pressed="false">✥</button><button id="zoom" data-mode-button="zoom" aria-label="缩放" title="缩放" aria-pressed="false">⌕</button><button id="select" data-mode-button="select" aria-label="选择原子" aria-pressed="false" title="点选原子；Shift + 点击可随时选择或取消"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3v16l4-4 3 6 3-1.5-3-6h6Z"/></svg></button><button id="box" data-mode-button="box" aria-label="框选原子" aria-pressed="false" title="框选原子；Shift + 拖动可随时框选反选"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 3"/><circle cx="9" cy="10" r="1.5"/><circle cx="15" cy="14" r="1.5"/></svg></button><button id="reset" aria-label="适应视图" title="适应视图">⊡</button><button id="expand" aria-label="展开当前视图" title="展开 / 恢复多视图">⛶</button></div>
-    </div>
-    <div class="follow-row"><button id="drift-settings">质心漂移校正…</button></div>
+    <details id="trajectory-tools">
+      <summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-timeline"/></svg><span>轨迹与视图</span><span id="selected-summary" hidden></span><span id="frame-summary" data-no-i18n></span><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+      <div class="trajectory-body">
+        <div class="timeline-row">
+          <div class="frame-label"><input id="frame-number" type="number" min="1" value="1" aria-label="帧号"><span id="frame-count"><span aria-hidden="true">/</span><span id="frame-total">—</span></span></div>
+          <div class="ruler"><div id="ticks" aria-hidden="true"></div><input id="timeline" type="range" min="0" max="0" value="0" aria-label="轨迹帧滑块" disabled></div>
+        </div>
+        <div class="control-row">
+          <div class="playback" role="group" aria-label="轨迹播放"><button type="button" id="first" aria-label="第一帧" title="第一帧"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-first"/></svg></button>
+          <button type="button" id="previous" aria-label="上一帧" title="上一帧"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-previous"/></svg></button>
+          <button type="button" id="play" aria-label="播放轨迹" title="播放轨迹"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-play"/></svg></button>
+          <button type="button" id="next" aria-label="下一帧" title="下一帧"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-next"/></svg></button>
+          <button type="button" id="last" aria-label="最后一帧" title="最后一帧"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-last"/></svg></button>
+          <button type="button" id="playback-settings" aria-label="播放设置" title="播放设置"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-speed"/></svg></button></div>
+          <div class="view-controls"><select id="orientation" aria-label="视图方向"><option value="xz">Front · XZ</option><option value="xy">Top · XY</option><option value="yz">Left · YZ</option><option value="perspective">Perspective</option></select><select id="layout" aria-label="视图布局"><option value="single">单视图</option><option value="dual">双视图</option><option value="quad">四视图</option></select></div>
+          <div class="navigation" role="group" aria-label="视图操作"><button type="button" id="rotate" data-mode-button="rotate" aria-pressed="true" aria-label="旋转" title="旋转"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-rotate"/></svg></button>
+          <button type="button" id="pan" data-mode-button="pan" aria-pressed="false" aria-label="平移" title="平移"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-pan"/></svg></button>
+          <button type="button" id="zoom" data-mode-button="zoom" aria-pressed="false" aria-label="缩放" title="缩放"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-zoom"/></svg></button>
+          <button type="button" id="select" data-mode-button="select" aria-pressed="false" aria-label="选择原子" title="选择原子"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-cursor"/></svg></button>
+          <button type="button" id="box" data-mode-button="box" aria-pressed="false" aria-label="框选原子" title="框选原子"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-box"/></svg></button>
+          <button type="button" id="reset" aria-label="适应视图" title="适应视图"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-fit"/></svg></button>
+          <button type="button" id="expand" aria-label="展开 / 恢复多视图" title="展开 / 恢复多视图"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-expand"/></svg></button></div>
+        </div>
+        <section id="atom-panel" hidden><strong id="atom-title"></strong><output id="measurement"></output><span id="atom-list"></span><button id="clear-selection" disabled>清除选择</button></section>
+      </div>
+    </details>
   </footer>
 </main>
 <dialog id="drift-dialog" class="floating-panel"><h2>质心漂移校正</h2><fieldset>
@@ -37,7 +58,7 @@
 <label>计算范围<select id="drift-source"><option value="all">全部原子</option><option value="indices">指定原子</option></select></label>
 <label>原子序号（从 1 开始）<input id="drift-atoms" placeholder="1, 3, 5-12"></label>
 <button id="drift-use-selection">填入当前选择</button><output id="drift-state">未启用</output>
-<p>依据原始坐标校正，再应用 Wrap。点“应用”保存原子组，后续选择不会改变它。原始轨迹应使用连续、未折回的坐标。</p></fieldset>
+</fieldset>
 <output id="drift-error" role="alert"></output><div class="dialog-actions"><button id="drift-close">关闭</button><button id="drift-apply">应用</button></div></dialog>
 
 <dialog id="display-dialog" class="floating-panel">

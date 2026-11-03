@@ -12,13 +12,17 @@ def test_frontend_assets_and_api_are_served_together(settings_factory):
         response = client.get("/")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
-        assert "Chemistry Agent" in response.text
+        assert "Chem Code" in response.text
         assert 'id="chat-form"' in response.text
         assert "test-only-key" not in response.text
         for asset in (
             "styles.css",
             "app.mjs",
             "core.mjs",
+            "choices.css",
+            "choices.mjs",
+            "inspector-tabs.mjs",
+            "ui-icons.svg",
             "favicon.svg",
             "vendor/markdown-it.min.js",
         ):

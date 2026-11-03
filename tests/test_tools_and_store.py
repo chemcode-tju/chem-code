@@ -73,7 +73,7 @@ async def test_second_process_cannot_reset_an_active_run(settings_factory):
     try:
         session = await first.create_session("active")
         run_id, _ = await first.begin_run(session["id"])
-        with pytest.raises(RuntimeError, match="Chemistry Agent"):
+        with pytest.raises(RuntimeError, match="Chem Code"):
             await Store.open(path)
         assert (await first.get_run(run_id))["status"] == "running"
     finally:

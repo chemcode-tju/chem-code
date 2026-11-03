@@ -14,20 +14,26 @@ const StructureControls=(()=>{
   }
   function timelineTicks(count,width,measure){
     if(count<1||width<=0)return [];
-    const lastWidth=measure(String(count)),firstWidth=measure('1'),gap=12;
-    if(count===1||width<firstWidth+lastWidth+gap)return [{value:count,x:width/2}];
-    const left=firstWidth/2,right=width-lastWidth/2,span=right-left;
+    const firstWidth=measure('1'),lastWidth=measure(String(count)),gap=12;
+    // Stems align with the 12px thumb. Edge labels slide inward independently.
+    const start=Math.min(6,width/2),end=width-start;
+    const first={value:1,x:Math.max(start,firstWidth/2),tickX:start};
+    const last={value:count,x:Math.max(width/2,Math.min(end,width-lastWidth/2)),tickX:end};
+    if(count===1)return [first];
+    const limit=last.x-lastWidth/2-gap;
+    let edge=first.x+firstWidth/2;
+    if(edge>limit)return [last];
+    const span=end-start;
     const rough=Math.max(1,(count-1)*(lastWidth+gap)/Math.max(1,span));
     const base=10**Math.floor(Math.log10(rough));
     const step=[1,2,5,10].find(v=>v*base>=rough)*base;
-    const marks=[{value:1,x:left}];
-    let edge=firstWidth;
+    const marks=[first];
     for(let n=step;n<count;n+=step){
       if(n<=1)continue;
-      const x=left+(n-1)/(count-1)*span,w=measure(String(n));
-      if(x-w/2>=edge+gap&&x+w/2+gap<=right-lastWidth/2){marks.push({value:n,x});edge=x+w/2;}
+      const x=start+(n-1)/(count-1)*span,w=measure(String(n));
+      if(x-w/2>=edge+gap && x+w/2<=limit){marks.push({value:n,x,tickX:x});edge=x+w/2;}
     }
-    marks.push({value:count,x:right});return marks;
+    marks.push(last);return marks;
   }
   function draggable(panel){
     const handle=panel.querySelector('h2');let start=null;

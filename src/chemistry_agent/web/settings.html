@@ -3,13 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>设置 · Chemistry Agent</title>
+  <title>设置 · Chem Code</title>
   <script src="/assets/theme.js"></script>
   <script type="module" src="/assets/i18n.mjs"></script>
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/settings.css">
   <link rel="stylesheet" href="/assets/compute-settings.css">
   <script type="module" src="/assets/settings.mjs"></script>
+<link rel="stylesheet" href="/assets/choices.css">
+  <script type="module" src="/assets/choices.mjs"></script>
 </head>
 <body>
   <div class="settings-sheet">
@@ -24,9 +26,9 @@
     <button id="tab-environments" role="tab" aria-controls="environments" aria-selected="false" tabindex="-1" data-tab="environments"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-environments"/></svg>执行环境</button>
   </nav></aside>
   <main>
-    <section class="settings-panel" id="general" data-panel="general" role="tabpanel" aria-labelledby="tab-general"><h2>常规</h2><div class="setting-row"><div><label for="language">语言</label><p class="hint">选择界面显示语言。</p></div><select id="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></div><div class="account-section"><h3>工作空间账户</h3><div class="account-row"><span class="account-avatar" id="settings-avatar">C</span><div><strong id="settings-username">正在读取…</strong><p id="settings-account-note" class="hint"></p></div><button class="secondary" id="settings-logout" type="button" hidden>退出登录</button></div></div></section>
-    <section class="settings-panel" id="appearance" data-panel="appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden><h2>外观</h2><h3 id="mode-label">显示模式</h3><div class="theme-options" role="group" aria-labelledby="mode-label"><button type="button" data-mode="system" aria-pressed="false"><span class="theme-mini theme-system" aria-hidden="true"><i></i><b></b></span><span>跟随系统</span></button><button type="button" data-mode="light" aria-pressed="false"><span class="theme-mini theme-light" aria-hidden="true"><i></i><b></b></span><span>白色</span></button><button type="button" data-mode="dark" aria-pressed="false"><span class="theme-mini theme-dark" aria-hidden="true"><i></i><b></b></span><span>深夜</span></button></div><div class="setting-row accent-row"><label for="accent-color">强调色</label><div class="accent-controls"><button type="button" class="swatch" data-accent="#4176e6" style="--swatch:#4176e6" aria-label="经典蓝"></button><button type="button" class="swatch" data-accent="#477b91" style="--swatch:#477b91" aria-label="雾蓝"></button><button type="button" class="swatch" data-accent="#8a6098" style="--swatch:#8a6098" aria-label="灰紫"></button><button type="button" class="swatch" data-accent="#a36b43" style="--swatch:#a36b43" aria-label="暖棕"></button><input id="accent-color" type="color" value="#4176e6" title="自定义强调色"></div></div><div class="setting-row"><label for="chat-font-size">对话字号</label><select id="chat-font-size"><option value="14">14 px</option><option value="16">16 px</option><option value="18">18 px</option><option value="20">20 px</option></select></div><p id="appearance-notice" class="hint" role="status"></p></section>
-    <form id="model-form" class="settings-panel" data-panel="model" role="tabpanel" aria-labelledby="tab-model" hidden><h2>模型</h2><p class="hint">选择账号授权或 API 服务，保存后立即生效。</p>
+    <section class="settings-panel" id="general" data-panel="general" role="tabpanel" aria-labelledby="tab-general"><h2>常规</h2><div class="setting-row"><div><label for="language">语言</label></div><select id="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></div><div class="account-section"><h3>工作空间账户</h3><div class="account-row"><span class="account-avatar" id="settings-avatar">C</span><div><strong id="settings-username">正在读取…</strong><p id="settings-account-note" class="hint"></p></div><button class="secondary" id="settings-logout" type="button" hidden>退出登录</button></div></div></section>
+    <section class="settings-panel" id="appearance" data-panel="appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden><h2>外观</h2><h3 id="mode-label">显示模式</h3><div class="theme-options" role="group" aria-labelledby="mode-label"><button type="button" data-mode="system" aria-pressed="false"><span class="theme-mini theme-system" aria-hidden="true"><i></i><b></b></span><span>跟随系统</span></button><button type="button" data-mode="light" aria-pressed="false"><span class="theme-mini theme-light" aria-hidden="true"><i></i><b></b></span><span>白色</span></button><button type="button" data-mode="dark" aria-pressed="false"><span class="theme-mini theme-dark" aria-hidden="true"><i></i><b></b></span><span>深夜</span></button></div><div class="setting-row"><label for="chat-font-size">对话字号</label><select id="chat-font-size"><option value="14">14 px</option><option value="16">16 px</option><option value="18">18 px</option><option value="20">20 px</option></select></div><p id="appearance-notice" class="hint" role="status"></p></section>
+    <form id="model-form" class="settings-panel" data-panel="model" role="tabpanel" aria-labelledby="tab-model" hidden><h2>模型</h2>
       <label for="provider">登录方式</label>
       <select id="provider">
         <option value="chatgpt">ChatGPT 账号授权登录</option>
@@ -35,28 +37,27 @@
       </select>
       <section id="chatgpt-panel">
         <h2>使用 ChatGPT 订阅</h2>
-        <p>授权 Chemistry Agent 使用你的 ChatGPT 套餐，无需 API Key。首次授权的应用名称为 Chemistry Agent，可在 ChatGPT 用量设置中管理。</p>
         <p id="chatgpt-status" role="status">正在检查登录状态…</p>
         <div class="actions">
-          <button id="browser-login" type="button">Continue with ChatGPT</button>
+          <button id="browser-login" type="button">使用 ChatGPT 登录</button>
           <button id="add-account" class="secondary" type="button">添加 ChatGPT 账号</button>
           <button id="chatgpt-logout" class="secondary" type="button" hidden>退出 ChatGPT</button>
         </div>
         <label for="chatgpt-account">ChatGPT 账号</label><select id="chatgpt-account" data-no-i18n><option value="">尚未授权</option></select>
         <div id="authorization" hidden>
-          <p><a id="authorization-link" target="_blank" rel="noopener noreferrer">打开官方授权页面 ↗</a></p>
+          <p><a id="authorization-link" target="_blank" rel="noopener noreferrer">打开授权页</a></p>
           <p id="device-code-row" hidden>设备码：<strong id="device-code"></strong></p>
           <button id="cancel-login" type="button" class="secondary">取消登录</button>
         </div>
-        <p class="hint">请在运行 Chemistry Agent 的电脑上完成浏览器授权。已保存的账号可切换或重新授权；应用不会读取你日常 Codex 的凭据。</p>
-        <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">管理 ChatGPT 应用用量 ↗</a></p>
-        <details><summary>兼容旧 Codex 登录</summary><p class="hint">此方式仍显示 Codex 名称，供已有连接和设备码登录使用。</p><button id="device-login" class="secondary" type="button">使用设备码登录</button></details>
+
+        <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">管理 ChatGPT 用量</a></p>
+        <details><summary>兼容旧 Codex 登录</summary><button id="device-login" class="secondary" type="button">使用设备码登录</button></details>
       </section>
       <section id="api-panel" hidden>
         <h2>使用自己的 API</h2>
         <label for="base-url">服务地址（Base URL）</label>
         <input id="base-url" type="url" placeholder="https://api.example.com/v1" maxlength="2048" autocomplete="off">
-        <p class="hint">填写接口根地址，不要添加 /chat/completions。兼容模式支持提供 Chat Completions 工具调用的服务，本地 HTTP 模型可留空密钥。</p>
+
         <label for="api-key">API Key</label>
         <input id="api-key" type="password" maxlength="8192" autocomplete="new-password" placeholder="输入 API Key" spellcheck="false">
         <p id="key-status" class="hint"></p>
@@ -64,13 +65,13 @@
         <label id="thinking-label" class="checkbox"><input id="thinking" type="checkbox">启用 DeepSeek 思考模式</label>
       </section>
       <label for="model-choice">默认模型</label><div class="model-choice-row"><select id="model-choice" data-no-i18n><option value="">自动选择</option></select><button id="refresh-models" class="secondary" type="button">刷新模型</button></div><p id="catalog-status" class="hint" role="status"></p>
-      <p class="hint">连接后自动读取可用模型。保持自动选择即可使用，也可从列表切换。</p>
+
       <details id="model-advanced"><summary>高级选项</summary>
       <label for="model">模型 ID <span id="model-optional">（可选）</span></label>
       <input id="model" type="text" maxlength="160" autocomplete="off" placeholder="留空自动选择可用模型">
-      <p id="model-hint" class="hint">可从列表选择，也可手动填写模型 ID。聊天输入框旁可为每段对话单独选择模型。</p>
+
       </details>
-      <p class="hint">连接测试会向所选服务发送一条简短消息，可能消耗额度。API Key 仅保存在服务端当前用户的私有配置文件中，不写入浏览器存储。</p>
+
       <div class="actions footer">
         <button id="test-model" type="button" class="secondary">保存并测试连接</button>
         <button type="submit">保存设置</button>
@@ -82,14 +83,14 @@
     </div>
     <p id="compute-notice" role="status" aria-live="polite" hidden></p>
     <section class="settings-panel compute-panel" id="automation" data-panel="automation" role="tabpanel" aria-labelledby="tab-automation" hidden>
-      <h2>计算配置概览</h2><p class="hint intro">首次使用时，按下列步骤连接集群并建立执行环境。</p>
+      <h2>计算配置概览</h2>
       <ol id="compute-steps" class="setup-list"></ol>
-      <div id="setup-local" hidden><button type="button" id="compute-initialize">初始化本地计算服务</button><p class="hint">在运行 Chemistry Agent 的电脑上创建或启动 AiiDA 服务。</p></div>
+      <div id="setup-local" hidden><button type="button" id="compute-initialize">初始化本地计算服务</button></div>
       <div id="setup-default"></div>
-      <aside class="agent-setup"><h3>让 Agent 帮你配置</h3><p class="hint">告诉 Agent 服务器别名、程序版本和远端路径，它可以帮你登记配置。SSH 密码请在服务器设置里单独填写。</p><a href="/?setup=compute" target="_top">在对话中配置 →</a></aside>
+      <aside class="agent-setup"><a href="/?setup=compute" target="_top">在对话中配置</a></aside>
     </section>
     <section class="settings-panel compute-panel" id="servers" data-panel="servers" role="tabpanel" aria-labelledby="tab-servers" hidden>
-      <h2>服务器连接</h2><p class="hint intro">通过 SSH 连接运行计算的服务器。</p>
+      <h2>服务器连接</h2>
       <div id="server-record"></div>
       <div id="server-actions" class="compute-actions" hidden>
         <button type="button" id="server-test">测试连接</button><button type="button" id="existing-probe">检查主机指纹</button>
@@ -102,7 +103,7 @@
           <label>SSH 登录方式<select name="auth_mode"><option value="alias">OpenSSH 别名</option><option value="key">私钥或 SSH Agent</option><option value="password">用户名和密码</option></select></label>
           <div class="field-pair"><label><span id="host-label">SSH 别名</span><input name="hostname" required maxlength="253" placeholder="cluster" autocomplete="off" spellcheck="false"></label>
           <label data-direct>SSH 端口<input name="port" type="number" min="1" max="65535" step="1" placeholder="22"></label></div>
-          <p id="auth-mode-hint" class="hint"></p>
+
           <label data-direct>SSH 用户名<input name="username" maxlength="128" autocomplete="off" spellcheck="false"></label>
           <label data-key>本机私钥路径（可选）<input name="identity_file" maxlength="500" placeholder="~/.ssh/id_ed25519" spellcheck="false" autocomplete="off"></label>
           <label>远端工作目录<input name="workdir" required maxlength="240" placeholder="/home/user/calculations" spellcheck="false"></label>
@@ -114,29 +115,29 @@
       </details>
     </section>
     <section class="settings-panel compute-panel" id="software" data-panel="software" role="tabpanel" aria-labelledby="tab-software" hidden>
-      <h2>计算软件</h2><p class="hint intro">每个版本分别登记，使用服务器上实际可执行文件的绝对路径。</p>
+      <h2>计算软件</h2>
       <div id="software-list"></div>
       <details class="config-editor" id="code-editor"><summary>登记软件版本</summary><form id="code-form"><fieldset>
         <div class="field-pair"><label>软件名称<input name="name" required maxlength="64" placeholder="VASP"></label>
         <label>软件版本<input name="version" required maxlength="64" placeholder="6.3.2"></label></div>
         <label>远端可执行文件<input name="executable" required maxlength="500" placeholder="/opt/vasp/6.3.2/bin/vasp_std" spellcheck="false"></label>
         <label>远端环境脚本（可选）<input name="environment_script" maxlength="500" placeholder="/opt/vasp/6.3.2/env.sh" spellcheck="false"></label>
-        <p class="hint">需要加载模块或库时，填写服务器上的环境脚本路径。</p><button class="primary" type="submit">保存软件</button>
+        <button class="primary" type="submit">保存软件</button>
       </fieldset></form></details>
     </section>
     <section class="settings-panel compute-panel" id="potentials" data-panel="potentials" role="tabpanel" aria-labelledby="tab-potentials" hidden>
-      <h2>赝势目录</h2><p class="hint intro">关联服务器上存放各元素 POTCAR 的根目录，准备计算时按需读取。</p><div id="potential-list"></div>
+      <h2>赝势目录</h2><div id="potential-list"></div>
       <details id="potential-editor" class="config-editor"><summary>关联远端目录</summary><form id="potential-form"><fieldset>
         <label>赝势库绝对路径<input required name="root" maxlength="500" placeholder="/opt/potentials/potpaw_PBE" spellcheck="false"></label>
         <button class="primary" type="submit">保存赝势目录</button>
       </fieldset></form></details>
     </section>
     <section class="settings-panel compute-panel" id="queues" data-panel="queues" role="tabpanel" aria-labelledby="tab-queues" hidden>
-      <h2>调度队列</h2><p class="hint intro">从当前服务器查询可用队列，选择后可用于执行环境。</p>
+      <h2>调度队列</h2>
       <button id="query-queues" type="button">查询远端队列</button><div id="queue-list" aria-live="polite"></div>
     </section>
     <section class="settings-panel compute-panel" id="environments" data-panel="environments" role="tabpanel" aria-labelledby="tab-environments" hidden>
-      <h2>执行环境</h2><p class="hint intro">将软件版本、赝势和队列资源组合成一个环境，供 Agent 准备计算。</p>
+      <h2>执行环境</h2>
       <div id="environment-list"></div>
       <details id="environment-editor" class="config-editor"><summary id="environment-editor-label">添加执行环境</summary>
         <form id="environment-form"><fieldset>
@@ -148,7 +149,7 @@
           <details class="extra-resources"><summary>账户、GPU 和备用队列</summary>
             <label>调度账户（可选）<input name="account" maxlength="64" spellcheck="false"></label>
             <div class="field-pair"><label>每节点 GPU 数<input name="gpus_per_node" type="number" min="0" max="16" step="1" value="0" required></label><label>GPU 类型（可选）<input name="gpu_type" maxlength="64" spellcheck="false" disabled></label></div>
-            <label>备用队列（可选）<input name="fallback" maxlength="64" list="known-queues" spellcheck="false"></label><p class="hint">主队列因提交配额拒绝时，允许尝试这个队列。</p>
+            <label>备用队列（可选）<input name="fallback" maxlength="64" list="known-queues" spellcheck="false"></label>
           </details>
           <label class="inline-check"><input name="default" type="checkbox">设为默认执行环境</label>
           <div class="compute-actions"><button class="primary" type="submit">保存执行环境</button><button type="button" id="environment-clear">清空表单</button></div>
@@ -158,11 +159,11 @@
     </section>
     <dialog id="ssh-secret" aria-labelledby="ssh-secret-title"><form id="ssh-secret-form">
       <h2 id="ssh-secret-title">SSH 密码</h2><p id="ssh-secret-server" data-no-i18n></p>
-      <p class="hint">密码保存在运行 Chemistry Agent 的 Mac 钥匙串里。请在这里填写，不要粘贴到对话中。</p>
+
       <label>服务器登录密码<input id="ssh-password" type="password" maxlength="1024" required autocomplete="new-password" spellcheck="false"></label>
       <p id="secret-notice" class="hint" role="status"></p>
       <div class="compute-actions"><button type="submit" class="primary">保存密码</button><button type="button" id="secret-cancel">关闭</button></div>
-      <details id="secret-removal"><summary>清除已保存的密码</summary><p class="hint">清除后需重新保存密码才能用这个账号连接。</p><button type="button" id="secret-clear">确认清除密码</button></details>
+      <details id="secret-removal"><summary>清除已保存的密码</summary><button type="button" id="secret-clear">确认清除密码</button></details>
     </form></dialog>
     <p id="notice" role="status" aria-live="polite"></p>
   </main>

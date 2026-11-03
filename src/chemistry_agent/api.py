@@ -142,7 +142,7 @@ def create_app(
             await store.close()
 
     app = FastAPI(
-        title="Chemistry Agent",
+        title="Chem Code",
         version=__version__,
         lifespan=lifespan,
         description="化学研究助手：ChatGPT 账号登录或自选模型 API + LangGraph + RDKit。",

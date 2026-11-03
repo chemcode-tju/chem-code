@@ -5,7 +5,12 @@
   'use strict';
   const catalog = typeof module !== 'undefined' && module.exports
     ? require('./locales.json') : {
-  "← 化学助手": "← Chemistry Agent",
+  "结构与轨迹": "Structures & trajectories",
+  "轨迹与视图": "Trajectory & view",
+  "轨迹播放": "Playback",
+  "视图方向": "Orientation",
+  "返回研究空间": "Back to workspace",
+  "登录已过期，请返回 Chem Code 重新登录。": "Session expired. Sign in to Chem Code again.",
   "文件格式与导入选项": "File format and import options",
   "查看选项": "View options",
   "自动识别": "Detect automatically",
@@ -306,7 +311,7 @@
   root.StructureI18n=api;
   try{api.language=(localStorage.getItem('chemistry.language')||localStorage.getItem('structure-viewer.language'))==='en'?'en':'zh-CN';}catch{}
   const textStates=new WeakMap(),attributeStates=new WeakMap();
-  const excluded='script,style,textarea,#filename,#atom-list,[data-no-i18n]';
+  const excluded='script,style,textarea,#filename:not([data-empty-title]),#atom-list,[data-no-i18n]';
   function textNode(node){
     if(node.parentElement?.closest(excluded))return;
     const current=node.nodeValue;

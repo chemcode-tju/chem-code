@@ -1,5 +1,10 @@
 {
-  "← 化学助手": "← Chemistry Agent",
+  "结构与轨迹": "Structures & trajectories",
+  "轨迹与视图": "Trajectory & view",
+  "轨迹播放": "Playback",
+  "视图方向": "Orientation",
+  "返回研究空间": "Back to workspace",
+  "登录已过期，请返回 Chem Code 重新登录。": "Session expired. Sign in to Chem Code again.",
   "文件格式与导入选项": "File format and import options",
   "查看选项": "View options",
   "自动识别": "Detect automatically",

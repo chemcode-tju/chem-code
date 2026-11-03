@@ -129,7 +129,7 @@ def initialize(profile: str) -> dict:
         or path.resolve() != root.resolve() / path.relative_to(root)
         or path.parent.resolve() == (Path.home() / ".aiida").resolve()
     ):
-        raise AgentError("unsafe_aiida_path", "请为 Chem-Agent 指定独立的 AiiDA 配置目录。", 422)
+        raise AgentError("unsafe_aiida_path", "请为 Chem Code 指定独立的 AiiDA 配置目录。", 422)
     if find_spec("aiida") is None or not vasp_available():
         raise AgentError("aiida_missing", "请先安装项目的 automation 可选依赖。", 503)
     root.mkdir(parents=True, exist_ok=True)

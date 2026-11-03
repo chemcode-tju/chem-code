@@ -56,7 +56,7 @@
     const response=await fetch(`/structures/convert?${query}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
     if(!response.ok) {
       const result=await response.json().catch(()=>({}));
-      throw Error(response.status===401?'登录已过期，请返回化学助手重新登录。':result.error?.message||`读取失败（HTTP ${response.status}）`);
+      throw Error(response.status===401?'登录已过期，请返回 Chem Code 重新登录。':result.error?.message||`读取失败（HTTP ${response.status}）`);
     }
     let blob=await response.blob();
     let note='当前服务转换 · 坐标单位 Å · 未发送给模型';

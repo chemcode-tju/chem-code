@@ -80,7 +80,7 @@ def test_authorize_uses_own_name_and_reuses_registered_client():
             )
         ).query
     )
-    assert first["agent_name_hint"] == ["Chemistry Agent"]
+    assert first["agent_name_hint"] == ["Chem Code"]
     assert first["client_id"] == ["dynamic_agent_client"]
     assert first["code_challenge_method"] == ["S256"]
     returning = authorization_url(

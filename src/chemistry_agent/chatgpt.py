@@ -301,7 +301,7 @@ class ChatGPTClient:
                         {
                             "clientInfo": {
                                 "name": "chemistry_agent",
-                                "title": "Chemistry Agent",
+                                "title": "Chem Code",
                                 "version": "0.1.0",
                             }
                         },
@@ -346,7 +346,7 @@ class ChatGPTClient:
         max_tokens: int | None = None,
         thinking: bool | None = None,
     ) -> Completion:
-        """Request a tool-call plan; only Chemistry Agent executes registered tools."""
+        """Request a tool-call plan; only Chem Code executes registered tools."""
         async with self.lock(user_id):
             if self.plan.selected(user_id):
                 return await self.responses.complete(
@@ -411,7 +411,7 @@ class ChatGPTClient:
                     arguments.extend(["--model", configuration.model])
                 arguments.append("-")
                 prompt = (
-                    "Act as the model backend for Chemistry Agent. Return ONLY the required JSON. "
+                    "Act as the model backend for Chem Code. Return ONLY the required JSON. "
                     "Follow the system messages in the supplied conversation. Do not execute tools "
                     "yourself. Request only listed functions using tool_calls with unique "
                     "IDs and JSON-encoded arguments; the application executes and returns results. "

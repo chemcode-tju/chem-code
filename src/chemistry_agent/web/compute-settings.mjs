@@ -105,12 +105,8 @@ export function createComputeSettings(selectTab) {
     }).join('');
     $('setup-local').hidden=aiida.profile_ready && aiida.daemon_running;
     $('compute-initialize').hidden=!aiida.installed;
-    const $note=$('setup-local').querySelector('p');
-    $note.textContent=t(!aiida.installed || aiida.vasp_plugin===false?'请在服务所在电脑安装所缺的计算组件，然后刷新配置。':'在运行 Chemistry Agent 的电脑上创建或启动 AiiDA 服务。');
-    let message=config.ready?'计算配置已齐全。':'完成待配置项后即可准备计算。';
-    if(config.ready && !modelReady) message='计算配置已齐全，请在模型页确认对话连接。';
-    if(!config.default_id && ownTargets().length>1) message='有多个执行环境，请指定一个默认环境，或在对话中选择。';
-    $('setup-default').innerHTML=`<p class="readiness">${esc(t(message))}${config.default_id?' <code data-no-i18n>'+esc(config.default_id)+'</code>':''}</p>`;
+    $('setup-default').innerHTML=config.default_id
+      ? `<p class="readiness">${esc(t('默认环境'))} <code data-no-i18n>${esc(config.default_id)}</code></p>` : '';
   }
   function drawInventory() {
     const codes=config?.codes.filter(c=>c.server_id===selected && !isProbe(c)) || [];
@@ -132,14 +128,14 @@ export function createComputeSettings(selectTab) {
     const protocols=config?.protocols.filter(p=>p.server_id===selected) || [];
     $('legacy-environments').hidden=!protocols.length;
     $('legacy-list').innerHTML=protocols.map(p=>record(p.id,[['说明',p.description],['队列名称',p.resources?.queue]])).join('');
-    const prerequisite=(!config || !localReady())?['automation','先完成本机计算服务配置。']:!server()?['servers','先添加服务器连接。']:null;
+    const prerequisite=(!config || !localReady())?['automation','配置本机计算服务']:!server()?['servers','添加服务器']:null;
     for(const id of ['servers','software','potentials','queues','environments']) {
-      const extra=prerequisite || (id==='environments' && !usableCodes().length?['software','先登记一个可执行的 VASP 软件版本。']:
-        id==='environments' && !usableSources().length?['potentials','先关联当前服务器的赝势目录。']:null);
-      let note=$(id).querySelector('.needs-config');
-      if(!note) {note=document.createElement('p');note.className='needs-config';$(id).querySelector('.intro').after(note);}
-      note.hidden=!extra || extra[0]===id;
-      if(!note.hidden) note.innerHTML=`<a href="#${extra[0]}">${esc(t(extra[1]))} →</a>`;
+      const extra=prerequisite || (id==='environments' && !usableCodes().length?['software','登记软件版本']:
+        id==='environments' && !usableSources().length?['potentials','关联远端目录']:null);
+      let link=$(id).querySelector('.needs-config');
+      if(!link) {link=document.createElement('a');link.className='needs-config';$(id).append(link);}
+      link.hidden=!extra || extra[0]===id;
+      if(!link.hidden) {link.href='#'+extra[0];link.textContent=t(extra[1]);}
     }
   }
   function drawQueues() {
@@ -152,7 +148,7 @@ export function createComputeSettings(selectTab) {
       groups.get(row.queue).push(row);
     }
     $('known-queues').replaceChildren(...Array.from(groups.keys(),name=>new Option(name,name)));
-    if(!stored) {$('queue-list').innerHTML=empty('点击查询读取当前服务器的调度信息。');return;}
+    if(!stored) {$('queue-list').replaceChildren();return;}
     const resourceFacts=row=>facts([['GPU',row.gres],['CPU',row.cpus],['内存（MB）',row.memory_mb],['节点状态',row.state]]);
     const results=Array.from(groups,([name,variants])=>{
       const action=`<button type="button" data-use-queue="${esc(name)}">${esc(t('用于执行环境'))}</button>`;

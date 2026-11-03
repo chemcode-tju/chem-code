@@ -4,7 +4,8 @@
 body{display:block;overflow:auto;height:auto;padding:clamp(16px,4vw,40px);background:var(--sidebar-fill);color:var(--text)}
 main{margin:auto;max-width:640px}main>p{font-size:13px;color:var(--muted)}.calculation-preview{padding:16px;border-radius:16px;background:var(--panel)}.plan-nodes>small{margin:3px 0}select{font:inherit}
 header{display:flex;gap:8px;align-items:center;justify-content:space-between}.plan-step button{display:none}
-</style><main><header><strong>CO / Cu(100)</strong><select aria-label="示例阶段" id="stage"><option value="draft">方案预览</option><option value="surface">表面优化</option><option value="parallel" selected>位点并行</option><option value="failed">分支失败</option></select></header>
+</style><link rel="stylesheet" href="/assets/choices.css">
+  <script type="module" src="/assets/choices.mjs"></script><main><header><strong>CO / Cu(100)</strong><select aria-label="示例阶段" id="stage"><option value="draft">方案预览</option><option value="surface">表面优化</option><option value="parallel" selected>位点并行</option><option value="failed">分支失败</option></select></header>
 <p>交互示例 · 非实际作业。点击步骤查看参数。</p><section class="calculation-preview" id="plan"></section></main>
 <script type="module">
 import {workflowPlan} from '/assets/workflow-plan.mjs';

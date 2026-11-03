@@ -5,16 +5,7 @@ import {bindMapGestures} from './map-gestures.mjs';
 import {createNavigator} from './map-navigator.mjs';
 import {getLanguage, t} from './i18n.mjs';
 
-const icons = {
-  reset:'M8 4 3 9l5 5 M4 9h10a6 6 0 0 1 0 12',
-  map:'M4 5h6v5H4z M15 3h5v4h-5z M15 15h5v4h-5z M10 7h2.5V5H15 M12.5 7v10H15',
-  find:'M15.5 15.5 21 21 M18 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
-  expand:'M8 3H3v5 M16 3h5v5 M21 16v5h-5 M3 16v5h5',
-  shrink:'M3 8h5V3 M21 8h-5V3 M16 21v-5h5 M8 21v-5H3',
-  fit:'M8 4H4v4 M16 4h4v4 M20 16v4h-4 M4 16v4h4 M8 9h8v6H8z',
-  more:'M4 12h1 M11.5 12h1 M19 12h1', keys:'M3 6h18v12H3z M6 10h1m3 0h1m3 0h1m3 0h.2 M8 14h8'
-};
-const icon = id => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[id]}"/></svg>`;
+const icon = id => `<svg aria-hidden="true"><use href="/assets/ui-icons.svg#i-${id}"/></svg>`;
 const tool = (attr,label,content) => `<button type="button" ${attr} aria-label="${label}" title="${label}">${content}</button>`;
 const shortcut = (keys,label) => `<span><kbd>${keys}</kbd> <span>${label}</span></span>`;
 const serial = value => esc(JSON.stringify(value));
@@ -36,7 +27,7 @@ export function planMap(layers, key, attribute, title = '') {
       ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
     </div></div>
     <div class="map-subtools"><select data-groups aria-label="按分支查看"></select>
-      <div class="map-zoom">${tool('data-zoom="-1"','缩小方案','−')}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案','+')}${tool('data-command="fit"','适应画布',icon('fit'))}</div></div>
+      <div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}</div></div>
     <div class="map-pop map-search" data-pop="find" hidden><input type="search" placeholder="查找名称或步骤 ID" aria-label="查找名称或步骤 ID" autocomplete="off"><div data-results></div></div>
     <div class="map-pop" data-pop="options" hidden>
       <label data-aux-option><input type="checkbox" data-all> 显示建模与分析步骤</label>

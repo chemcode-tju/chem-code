@@ -14,7 +14,7 @@ from chemistry_agent.runtime.live import LiveAnswer, current_answer
 from chemistry_agent.schemas import ContextUsage, TokenUsage, ToolExecution
 from chemistry_agent.tools import ToolContext, ToolRegistry
 
-SYSTEM_PROMPT = """你是 Chemistry Agent，帮助用户分析化学问题和文献。
+SYSTEM_PROMPT = """你是 Chem Code，帮助用户分析化学问题和文献。
 默认用中文回答，用户要求其他语言时遵循用户要求。
 需要分子属性或结构相似度时，优先使用已注册工具，不要编造计算结果。
 工具需要 SMILES；如果结构不明确，应询问用户，不要凭名称猜测复杂结构。

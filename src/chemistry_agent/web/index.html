@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="你的化学研究工作空间：与文献对话，计算分子属性，探索结构相似性。">
-  <title>Chemistry Agent · 化学研究工作空间</title>
-  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <title>Chem Code · 化学研究工作空间</title>
+  <link rel="icon" href="/assets/favicon.svg?v=chem-code" type="image/svg+xml">
   <script src="/assets/theme.js"></script>
   <script type="module" src="/assets/i18n.mjs"></script>
   <link rel="stylesheet" href="/assets/theme.css">
@@ -14,6 +14,8 @@
   <link rel="stylesheet" href="/assets/plan-workspace.css">
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
   <script type="module" src="/assets/app.mjs?v=harness-ui"></script>
+<link rel="stylesheet" href="/assets/choices.css">
+  <script type="module" src="/assets/choices.mjs"></script>
 </head>
 <body class="auth-checking">
 
@@ -22,13 +24,13 @@
 
   <button class="screen-overlay" id="screen-overlay" aria-label="关闭侧栏" hidden></button>
   <aside class="sidebar" id="sidebar" aria-label="会话导航">
-    <div class="sidebar-header"><a class="brand" href="/" aria-label="Chemistry Agent 首页">
-      <span class="brand-mark"><svg class="icon"><use href="/assets/ui-icons.svg#i-molecule"/></svg></span>
-      <strong>Chemistry Agent</strong>
+    <div class="sidebar-header"><a class="brand" href="/" aria-label="Chem Code 首页">
+      <span class="brand-mark"><svg class="icon brand-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="/assets/favicon.svg#chem-code"/></svg></span>
+      <strong>Chem Code</strong>
     </a><button class="icon-button" id="sidebar-collapse" title="折叠侧栏" aria-label="折叠侧栏" aria-expanded="true"><svg class="icon"><use href="/assets/ui-icons.svg#i-left-panel"/></svg></button></div>
     <button class="new-chat" id="new-chat" title="新建对话" aria-label="新建对话"><svg class="icon"><use href="/assets/ui-icons.svg#i-edit"/></svg><span class="nav-label">新建对话</span></button>
-    <button type="button" class="nav-current" data-open-inspector="structure" title="结构与轨迹" aria-label="结构与轨迹"><svg class="icon"><use href="/assets/ui-icons.svg#i-molecule"/></svg><span>结构与轨迹</span></button>
-    <a class="nav-current" id="automation-link" href="/settings#automation" title="计算设置" aria-label="计算设置" hidden><svg class="icon"><use href="/assets/ui-icons.svg#i-flask"/></svg><span>计算设置</span></a>
+    <button type="button" class="nav-current" data-open-inspector="structure" title="结构与轨迹" aria-label="结构与轨迹"><svg class="icon"><use href="/assets/ui-icons.svg#i-structures"/></svg><span>结构与轨迹</span></button>
+    <a class="nav-current" id="automation-link" href="/settings#automation" title="计算设置" aria-label="计算设置" hidden><svg class="icon"><use href="/assets/ui-icons.svg#i-compute"/></svg><span>计算设置</span></a>
     <div class="add-menu sidebar-add"><button class="nav-current" id="sidebar-add" aria-label="添加文件" title="添加文件" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-plus"/></svg><span class="nav-label">添加文件</span></button><div class="upload-menu" id="sidebar-upload-menu" hidden><button type="button" data-upload>上传文件</button></div></div>
     <button class="nav-current rail-projects" id="rail-projects" title="项目与聊天" aria-label="项目与聊天"><svg class="icon"><use href="/assets/ui-icons.svg#i-folder"/></svg></button>
     <div class="sidebar-scroll">
@@ -45,7 +47,7 @@
   <main class="main-panel new-session">
     <header class="topbar">
       <div class="breadcrumb"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="打开会话导航" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-menu"/></svg></button><strong id="conversation-title" role="heading" aria-level="1">新对话</strong></div>
-      <div class="topbar-actions"><button class="icon-button tools-toggle" id="tools-toggle" aria-controls="inspector" aria-label="打开研究工具" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-panel"/></svg></button></div>
+      <div class="topbar-actions"><button class="icon-button tools-toggle" id="tools-toggle" aria-controls="inspector" title="展开研究面板" aria-label="展开研究面板" aria-expanded="false"><span class="dock-count" id="dock-count" aria-hidden="true">1</span></button></div>
     </header>
 
     <div class="chat-scroll" id="chat-scroll">
@@ -56,7 +58,7 @@
 
     <div class="composer-area">
       <section class="welcome" id="welcome" aria-label="新对话">
-        <h1><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-molecule"/></svg><span>Chemistry Agent</span></h1>
+        <h1><svg class="icon brand-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="/assets/favicon.svg#chem-code"/></svg><span>Chem Code</span></h1>
         <label class="workspace-picker"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg><span id="draft-project-name" aria-hidden="true">个人工作空间</span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg><select id="draft-project" aria-label="新对话所属项目"><option value="">个人工作空间</option></select></label>
       </section>
       <form class="composer" id="chat-form">
@@ -74,13 +76,39 @@
 
   <aside class="inspector" id="inspector" aria-label="研究工具与计算结果">
     <div id="dock-grip" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整右栏宽度" aria-valuemin="300" aria-valuenow="360"></div>
-    <div class="inspector-heading"><div><svg class="icon"><use href="/assets/ui-icons.svg#i-panel"/></svg><strong>研究面板</strong></div><button class="icon-button" id="dock-max" aria-label="最大化或还原面板" title="最大化面板" aria-pressed="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-maximize"/></svg></button><button class="icon-button inspector-close" id="inspector-close" title="关闭研究面板" aria-label="关闭研究面板"><svg class="icon"><use href="/assets/ui-icons.svg#i-close"/></svg></button></div>
-    <div class="inspector-tabs" role="tablist" aria-label="研究面板">
-      <button type="button" role="tab" id="inspector-tab-calculation" data-inspector-tab="calculation" aria-controls="inspector-panel-calculation" aria-selected="true" tabindex="0">方案</button>
-      <button type="button" role="tab" id="inspector-tab-structure" data-inspector-tab="structure" aria-controls="inspector-panel-structure" aria-selected="false" tabindex="-1">结构</button>
-      <button type="button" role="tab" id="inspector-tab-events" data-inspector-tab="events" aria-controls="inspector-panel-events" aria-selected="false" tabindex="-1">进度</button>
-      <button type="button" role="tab" id="inspector-tab-tools" data-inspector-tab="tools" aria-controls="inspector-panel-tools" aria-selected="false" tabindex="-1">工具</button>
-    </div>
+
+    <header class="inspector-strip">
+      <div class="dock-tab-row">
+        <div class="inspector-tabs" role="tablist" aria-label="研究面板">
+          <div class="dock-tab" data-dock-tab="calculation" role="presentation">
+            <button type="button" role="tab" id="inspector-tab-calculation" data-inspector-tab="calculation" aria-controls="inspector-panel-calculation" aria-selected="true" tabindex="0"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-map"/></svg><span>方案</span></button>
+            <button type="button" class="tab-close" data-close-tab="calculation" aria-label="关闭方案标签" title="关闭方案标签"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
+          </div>
+          <div class="dock-tab" data-dock-tab="structure" role="presentation" hidden>
+            <button type="button" role="tab" id="inspector-tab-structure" data-inspector-tab="structure" aria-controls="inspector-panel-structure" aria-selected="false" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-structures"/></svg><span>结构</span></button>
+            <button type="button" class="tab-close" data-close-tab="structure" aria-label="关闭结构标签" title="关闭结构标签"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
+          </div>
+          <div class="dock-tab" data-dock-tab="events" role="presentation" hidden>
+            <button type="button" role="tab" id="inspector-tab-events" data-inspector-tab="events" aria-controls="inspector-panel-events" aria-selected="false" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-timeline"/></svg><span>进度</span></button>
+            <button type="button" class="tab-close" data-close-tab="events" aria-label="关闭进度标签" title="关闭进度标签"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
+          </div>
+          <div class="dock-tab" data-dock-tab="tools" role="presentation" hidden>
+            <button type="button" role="tab" id="inspector-tab-tools" data-inspector-tab="tools" aria-controls="inspector-panel-tools" aria-selected="false" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-flask"/></svg><span>工具</span></button>
+            <button type="button" class="tab-close" data-close-tab="tools" aria-label="关闭工具标签" title="关闭工具标签"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
+          </div>
+        </div>
+        <label class="dock-add" title="添加标签页"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-plus"/></svg><select id="inspector-add" aria-label="添加标签页"><option value="" hidden>添加标签页</option>
+          <option value="calculation">方案</option>
+          <option value="structure">结构</option>
+          <option value="events">进度</option>
+          <option value="tools">工具</option>
+        </select></label>
+      </div>
+      <div class="inspector-actions">
+        <button class="icon-button" id="dock-max" aria-label="最大化面板" title="最大化面板" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-expand"/></svg></button>
+        <button class="icon-button inspector-close" id="inspector-close" title="收起研究面板" aria-controls="inspector" aria-expanded="false" aria-label="收起研究面板"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-panel"/></svg></button>
+      </div>
+    </header>
     <section class="inspector-scroll" id="inspector-panel-calculation" role="tabpanel" aria-labelledby="inspector-tab-calculation" tabindex="0">
       <div id="plan-overview"><div id="calculation-cards" class="calculation-workspace" hidden></div>
       <p class="inspector-empty">此对话暂无计算方案。</p></div>
@@ -88,7 +116,7 @@
         <nav class="step-tools" aria-label="步骤导航">
           <button type="button" id="step-back"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>返回画布</button>
           <span id="step-plan-name"></span>
-          <button type="button" id="step-full" title="全屏详情" aria-label="全屏详情"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5m0 8v5h-5M3 16v5h5"/></svg></button>
+          <button type="button" id="step-full" title="全屏详情" aria-label="全屏详情"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-expand"/></svg></button>
         </nav>
         <header class="step-heading">
           <div class="step-kicker"><span id="step-kind"></span><span id="step-index"></span></div>
@@ -102,7 +130,7 @@
         <div class="step-sections">
           <details id="step-config"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-settings"/></svg>步骤参数</summary>
             <dl id="step-parameters"></dl><button type="button" id="step-revise">提出修改</button></details>
-          <details id="step-structures"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-molecule"/></svg>结构文件</summary>
+          <details id="step-structures"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-structures"/></svg>结构文件</summary>
             <div class="step-file-options" id="step-files"></div><p id="step-file-source"></p>
             <div class="structure-viewer-shell" id="step-viewer-shell" hidden><iframe id="step-viewer-frame" title="步骤结构查看器"></iframe></div>
           </details>
@@ -132,16 +160,16 @@
       <details class="result-section" id="result-section"><summary>工具结果 <span id="result-badge">暂无记录</span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary><div id="result-panel" class="result-panel"><p class="empty-result">运行工具后，在这里查看结果。</p></div></details>
     </section>
   </aside>
-  <dialog id="notification-panel" data-workspace-dialog><header><h2 id="notification-title">消息</h2><button data-close aria-label="关闭消息">×</button></header><p id="monitor-status"></p><div id="notification-list"></div><div id="progress-inbox"></div></dialog>
-  <dialog id="context-panel" data-workspace-dialog><header><h2 id="context-status">上下文</h2><button data-close aria-label="关闭上下文">×</button></header>
+  <dialog id="notification-panel" data-workspace-dialog><header><h2 id="notification-title">消息</h2><button data-close aria-label="关闭消息"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header><p id="monitor-status"></p><div id="notification-list"></div><div id="progress-inbox"></div></dialog>
+  <dialog id="context-panel" data-workspace-dialog><header><h2 id="context-status">上下文</h2><button data-close aria-label="关闭上下文"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header>
       <p id="context-budget"></p><pre id="context-summary"></pre><button type="button" id="compact-context">立即压缩历史</button></dialog>
   <dialog id="project-dialog" aria-labelledby="project-dialog-title"><form id="project-form"><h2 id="project-dialog-title">新建项目</h2><label for="project-name">项目名称</label><input id="project-name" maxlength="80" required autocomplete="off" placeholder="例如：CO₂ 还原机理"><p class="hint" id="project-hint">将相关对话收纳在同一个项目中。</p><div class="dialog-actions"><button id="delete-project" type="button" hidden>删除文件夹</button><button id="cancel-project" type="button">取消</button><button class="primary" type="submit">保存</button></div><p id="project-error" role="alert"></p></form></dialog>
   <div class="toast" id="toast" role="status" hidden></div>
   <noscript>此页面需要启用 JavaScript 才能使用聊天和分子工具。</noscript>
   <section class="auth-screen" id="login-screen" aria-labelledby="login-title" hidden>
     <div class="auth-card">
-      <span class="auth-mark"><svg class="icon"><use href="/assets/ui-icons.svg#i-molecule"/></svg></span>
-      <span class="login-brand">Chemistry Agent</span>
+      <span class="auth-mark"><svg class="icon brand-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="/assets/favicon.svg#chem-code"/></svg></span>
+      <span class="login-brand">Chem Code</span>
       <h1 id="login-title">登录工作空间</h1>
       <form id="login-form">
         <label for="login-username">用户名</label>
@@ -151,7 +179,6 @@
         <p class="auth-error" id="login-error" role="alert" hidden></p>
         <button class="auth-submit" id="login-submit" type="submit">登录工作空间 <svg class="icon"><use href="/assets/ui-icons.svg#i-arrow-right"/></svg></button>
       </form>
-      <p class="auth-footnote">账号由管理员开通。需要帮助时，请联系工作空间管理员。</p>
     </div>
   </section>
   <dialog id="workspace-settings" aria-label="设置"></dialog>

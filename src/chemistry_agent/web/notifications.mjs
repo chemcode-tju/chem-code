@@ -20,7 +20,7 @@ export function createNotifications({ api }) {
       list.innerHTML = data.events.map(event => `<article class="task-notification ${event.read_at?'read':''}">
         <a href="/?session=${encodeURIComponent(event.session_id)}" title="${esc(event.title)}">${esc(event.title)}</a>
         <small>${esc(new Date(event.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small>
-        ${event.read_at?'':`<button type="button" data-read-event="${esc(event.id)}" aria-label="标为已读" title="标为已读">✓</button>`}</article>`).join('') || '<p>暂无消息。</p>';
+        ${event.read_at?'':`<button type="button" data-read-event="${esc(event.id)}" aria-label="标为已读" title="标为已读"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg></button>`}</article>`).join('') || '<p>暂无消息。</p>';
     } catch (error) {
       document.getElementById('monitor-status').textContent = `通知同步暂不可用：${error.message}`;
     } finally { pending = false; }

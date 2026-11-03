@@ -32,7 +32,7 @@ async def read_codex_turn(
     await request(
         1,
         "initialize",
-        {"clientInfo": {"name": "chemistry_agent", "title": "Chemistry Agent", "version": "0.1.0"}},
+        {"clientInfo": {"name": "chemistry_agent", "title": "Chem Code", "version": "0.1.0"}},
     )
     await send({"method": "initialized"})
     thread = await request(
