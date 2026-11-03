@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import io
 import json
@@ -5,7 +6,6 @@ import os
 import re
 import shlex
 import sqlite3
-import subprocess
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +39,8 @@ from chemistry_agent.automation.models import (
     ServerCreate,
     StructureInput,
 )
+from chemistry_agent.automation.ssh_connection import pin_server, resolve
+from chemistry_agent.automation.ssh_profiles import load_profile, profile_path, write_private
 from chemistry_agent.automation.vibrations import output_settings, vibrational_incar
 from chemistry_agent.errors import AgentError
 
@@ -80,7 +82,36 @@ def server_record(computer: orm.Computer) -> dict:
         "scheduler": computer.scheduler_type,
         "workdir": computer.get_workdir(),
         "mpi_command": computer.get_mpirun_command(),
+        **server_connection_details(computer),
     }
+
+
+def server_connection_details(computer: orm.Computer) -> dict:
+    if computer.transport_type == "chemistry.ssh":
+        profile = load_profile(Path(os.environ["AIIDA_PATH"]), str(computer.uuid))
+        return {
+            key: profile[key]
+            for key in ("auth_mode", "username", "port", "identity_file", "ssh_host", "shell_alias")
+        }
+    # Read the actual OpenSSH alias behind an older AiiDA computer without migrating it.
+    auth = computer.get_configuration() if computer.transport_type.startswith("core.ssh") else {}
+    ssh_host = auth.get("host") or computer.hostname
+    details = {
+        "auth_mode": "alias",
+        "ssh_host": ssh_host,
+        "username": auth.get("username"),
+        "port": auth.get("port"),
+        "identity_file": None,
+    }
+    if computer.transport_type == "core.ssh_async":
+        try:
+            resolved = resolve(ServerCreate(label="legacy", hostname=ssh_host, workdir="/scratch"))
+            details.update(username=resolved.username, port=resolved.port)
+            if ssh_host in os.environ.get("CHEMISTRY_SSH_HOSTS", "").split(","):
+                details["shell_alias"] = ssh_host
+        except (AgentError, ValueError):
+            pass
+    return details
 
 
 def load_server(server_id: str) -> orm.Computer:
@@ -122,39 +153,60 @@ def status() -> dict:
 def create_server(payload: dict) -> dict:
     body = ServerCreate.model_validate(payload)
     label = f"chem-{body.label}"
-    if orm.QueryBuilder().append(orm.Computer, filters={"label": label}).count():
-        raise AgentError("server_exists", "名称已存在，请选择已有服务器或使用新名称。", 409)
-    resolved = subprocess.run(
-        ["ssh", "-G", body.hostname], capture_output=True, text=True, timeout=10, check=True
-    )
-    options: dict[str, list[str]] = {}
-    for line in resolved.stdout.splitlines():
-        key, _, value = line.partition(" ")
-        options.setdefault(key, []).append(value)
+    root = Path(os.environ["AIIDA_PATH"])
+    existing = orm.QueryBuilder().append(orm.Computer, filters={"label": label}).first()
+    if existing:
+        computer = existing[0]
+        if computer.description == MARKER and computer.transport_type == "chemistry.ssh":
+            saved = load_profile(root, str(computer.uuid))
+            if saved["server"] == body.model_dump(mode="json"):
+                return server_record(computer)
+        raise AgentError("server_exists", "该名称已存在。更换连接身份时请使用新名称。", 409)
+    target, _ = asyncio.run(pin_server(root, body))
     computer = orm.Computer(
         label=label,
-        hostname=options["hostname"][0],
+        hostname=target.hostname,
         description=MARKER,
-        transport_type="core.ssh_async",
+        transport_type="chemistry.ssh",
         scheduler_type=f"core.{body.scheduler}",
         workdir=body.workdir,
     )
     computer.set_minimum_job_poll_interval(15)
     computer.set_mpirun_command(["mpirun", "-np", "{tot_num_mpiprocs}"])
-    computer.store()
-    computer.configure(
-        host=body.hostname,
-        backend="asyncssh",
-        max_io_allowed=4,
-        safe_interval=5.0,
-        use_login_shell=True,
-    )
-    orm.InstalledCode(
-        label=f"structure-probe-{computer.uuid[:8]}",
-        computer=computer,
-        filepath_executable="/bin/sh",
-        default_calc_job_plugin="chemistry.structure_probe",
-    ).store()
+    identifier = str(computer.uuid)
+    profile = {
+        "id": identifier,
+        "server": body.model_dump(mode="json"),
+        "auth_mode": body.auth_mode,
+        "hostname": target.hostname,
+        "port": target.port,
+        "username": target.username,
+        "identity_file": body.identity_file,
+        "ssh_host": body.hostname,
+        "shell_alias": label,
+    }
+    path = profile_path(root, identifier)
+    # SQL rollback covers the computer, its auth record and probe code together.
+    try:
+        with computer.backend.transaction():
+            computer.store()
+            computer.configure(
+                host=target.hostname,
+                profile_ref=str(path),
+                safe_interval=5.0,
+                max_io_allowed=4,
+                use_login_shell=True,
+            )
+            orm.InstalledCode(
+                label=f"structure-probe-{computer.uuid[:8]}",
+                computer=computer,
+                filepath_executable="/bin/sh",
+                default_calc_job_plugin="chemistry.structure_probe",
+            ).store()
+            write_private(path, profile)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
     return server_record(computer)
 
 
@@ -176,7 +228,12 @@ def test_server(payload: dict) -> dict:
             path = str(Path(path).parent)
         code, _, _ = transport.exec_command_wait(f"test -w {shlex.quote(path)}")
         checks.append({"check": "workdir_parent", "ok": code == 0, "detail": path})
-    return {"server_id": computer.uuid, "checks": checks, "checked_at": now()}
+    return {
+        "server_id": computer.uuid,
+        "ok": all(check["ok"] for check in checks),
+        "checks": checks,
+        "checked_at": now(),
+    }
 
 
 def validate_gpu_type(computer: orm.Computer, resources: Resources) -> None:

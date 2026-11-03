@@ -1,9 +1,8 @@
-from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 
 from chemistry_agent.automation.configuration import (
     CalculationConfiguration,
@@ -20,7 +19,6 @@ from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.errors import AgentError
 
 router = APIRouter(tags=["automation"])
-PAGE_PATH = Path(__file__).resolve().parents[1] / "web/automation/index.html"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
@@ -64,8 +62,8 @@ async def save_protocol(
 
 
 @router.get("/automation", include_in_schema=False)
-async def automation_page() -> FileResponse:
-    return FileResponse(PAGE_PATH)
+async def automation_page() -> RedirectResponse:
+    return RedirectResponse("/settings#automation", status_code=307)
 
 
 @router.get("/api/automation/status")

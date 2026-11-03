@@ -23,6 +23,9 @@ dependencies = [
   "uvicorn>=0.30,<1",
 ]
 
+[project.entry-points."aiida.transports"]
+"chemistry.ssh" = "chemistry_agent.automation.ssh_transport:ProfileTransport"
+
 [project.entry-points."aiida.calculations"]
 "chemistry.structure_probe" = "chemistry_agent.automation.probe:StructureProbeCalculation"
 
@@ -35,7 +38,7 @@ dependencies = [
 "chemistry.relax_static" = "chemistry_agent.automation.workflows:RelaxStaticWorkChain"
 
 [project.optional-dependencies]
-automation = ["matplotlib>=3.8,<4", "aiida-core>=2.9,<3", "aiida-vasp>=5,<6", "ase>=3.26,<4"]
+automation = ["keyring>=25,<26; sys_platform == 'darwin'", "matplotlib>=3.8,<4", "aiida-core>=2.9,<3", "aiida-vasp>=5,<6", "ase>=3.26,<4"]
 dev = ["pytest>=8.3,<10", "pytest-asyncio>=1,<2", "ruff>=0.11,<1"]
 
 [project.scripts]

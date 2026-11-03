@@ -1,3 +1,6 @@
+import ipaddress
+import re
+from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -12,7 +15,39 @@ class StrictModel(BaseModel):
 
 class ServerCreate(StrictModel):
     label: Name
-    hostname: Name
+    hostname: str = Field(min_length=1, max_length=253)
+    auth_mode: Literal["alias", "key", "password"] = "alias"
+    username: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,127}$")
+    port: int | None = Field(default=None, ge=1, le=65535)
+    identity_file: str | None = Field(default=None, max_length=500)
+
+    @field_validator("hostname")
+    @classmethod
+    def validate_host(cls, host: str) -> str:
+        try:
+            return str(ipaddress.ip_address(host))
+        except ValueError:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,252}", host):
+                raise ValueError("请填主机名、IP 或 SSH 别名；用户名和端口请分别填写。") from None
+        return host
+
+    @model_validator(mode="after")
+    def validate_auth(self):
+        if self.auth_mode == "alias":
+            if self.username or self.port or self.identity_file:
+                raise ValueError("别名模式使用本机 OpenSSH 配置中的用户名、端口和身份。")
+        elif not self.username:
+            raise ValueError("直接连接须填写 SSH 用户名。")
+        if self.identity_file:
+            if self.auth_mode != "key" or self.identity_file.endswith(".pub"):
+                raise ValueError("密钥模式需要本地私钥路径。公钥安装在服务器，不能用于签名。")
+            path = Path(self.identity_file).expanduser()
+            if not path.is_absolute() or not path.resolve().is_relative_to(
+                (Path.home() / ".ssh").resolve()
+            ):
+                raise ValueError("仅支持本机 ~/.ssh 内的私钥路径。")
+        return self
+
     scheduler: Literal["slurm", "pbspro", "torque"] = "slurm"
     workdir: str = Field(min_length=2, max_length=240)
 
@@ -21,6 +56,8 @@ class ServerCreate(StrictModel):
     def validate_workdir(cls, value: str) -> str:
         if not value.startswith("/") or any(char in value for char in "\n\r\x00{}"):
             raise ValueError("工作目录须为绝对路径，不能含换行或模板占位符。")
+        if value.rstrip("/") == "" or ".." in Path(value).parts or "archive" in Path(value).parts:
+            raise ValueError("工作目录应为专用目录，不能是根目录、上级目录或 archive。")
         return value.rstrip("/")
 
 

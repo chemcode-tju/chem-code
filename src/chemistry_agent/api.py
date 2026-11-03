@@ -24,6 +24,9 @@ from chemistry_agent.automation.monitor import TaskMonitor
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
+from chemistry_agent.automation.ssh_profiles import shell_profiles
+from chemistry_agent.automation.ssh_routes import router as ssh_router
+from chemistry_agent.automation.ssh_tools import connection_tools
 from chemistry_agent.chat_queue import ChatQueue
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
@@ -75,8 +78,16 @@ def create_app(
     if settings.web_search_enabled:
         extras.append(web_search_tool(settings.search_endpoint))
     ssh_hosts = settings.allowed_ssh_hosts
-    if ssh_hosts:
-        extras.append(remote_shell_tool(ssh_hosts))
+    ssh_root = settings.aiida_path if calculation_enabled else None
+    if calculation_enabled:
+        extras.extend(connection_tools(automation))
+    if ssh_hosts or calculation_enabled:
+        extras.append(remote_shell_tool(ssh_hosts, ssh_root))
+
+    def available_hosts() -> tuple[str, ...]:
+        registered = shell_profiles(ssh_root) if ssh_root else {}
+        return tuple(dict.fromkeys([*ssh_hosts, *registered]))
+
     registry = ToolRegistry(extras)
 
     @asynccontextmanager
@@ -145,6 +156,7 @@ def create_app(
     app.state.automation = automation
     app.state.calculation_chat = calculation_chat
     app.include_router(automation_router)
+    app.include_router(ssh_router)
     app.include_router(calculation_chat_router)
     app.add_middleware(AuthenticationMiddleware, settings=settings)
 
@@ -237,7 +249,7 @@ def create_app(
             "context_input_budget_tokens": settings.context_input_budget,
             "context_recent_turns": settings.context_recent_turns,
             "automation_enabled": calculation_enabled,
-            "ssh_hosts": ssh_hosts if local_shell_access else (),
+            "ssh_hosts": available_hosts() if local_shell_access else (),
         }
 
     @app.get("/tools", tags=["tools"])
@@ -435,7 +447,7 @@ def create_app(
             )
             for identifier in body.structure_ids
         ]
-        selected_host = authorized_host(body.message, ssh_hosts)
+        selected_host = authorized_host(body.message, available_hosts())
         run_id, history = await store.begin_run(
             session_id,
             request.state.user_id,

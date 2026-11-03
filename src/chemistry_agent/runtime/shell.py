@@ -3,9 +3,11 @@
 import asyncio
 import re
 from contextvars import ContextVar
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from chemistry_agent.automation.ssh_profiles import load_profile, shell_profiles
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
 
@@ -39,9 +41,40 @@ async def capped_read(reader: asyncio.StreamReader) -> tuple[str, bool]:
     return buffer.decode("utf-8", errors="replace"), truncated
 
 
-def remote_shell_tool(hosts: tuple[str, ...]) -> Tool:
+async def profiled_command(root: Path, identifier: str, host: str, command: str) -> dict:
+    from chemistry_agent.automation.ssh_connection import connect
+
+    profile = load_profile(root, identifier)
+    async with await connect(root, profile) as connection:
+        async with connection.create_process("sh -s", encoding=None) as process:
+            process.stdin.write((command + "\n").encode())
+            process.stdin.write_eof()
+            stdout, stderr = await asyncio.gather(
+                capped_read(process.stdout), capped_read(process.stderr)
+            )
+            await process.wait_closed()
+            return {
+                "host": host,
+                "exit_code": process.returncode,
+                "stdout": stdout[0],
+                "stderr": stderr[0],
+                "truncated": stdout[1] or stderr[1],
+                "ok": process.returncode == 0,
+            }
+
+
+def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
     async def execute(args: ShellInput, context: ToolContext) -> dict:
         host = shell_grant.get()
+        profiles = shell_profiles(root) if root and host else {}
+        if host in profiles:
+            try:
+                async with asyncio.timeout(30):
+                    return await profiled_command(root, profiles[host], host, args.command)
+            except TimeoutError as exc:
+                raise AgentError(
+                    "ssh_timeout", "SSH 已超时，远端操作状态未知；请先检查结果。", 504
+                ) from exc
         if not host or host not in hosts:
             raise AgentError(
                 "ssh_authorization_required", "请在本轮消息首行输入 /shell 服务器别名。", 403
