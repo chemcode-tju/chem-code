@@ -1,5 +1,6 @@
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
+import { initSettingsDialog } from "./settings-dialog.mjs";
 import {initWorkspaceControls} from './workspace-controls.mjs';
 import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
@@ -13,7 +14,7 @@ import { createProjectNavigation } from "./projects.mjs";
 import { TOOL_LABELS, buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
 
 const $ = (id) => document.getElementById(id);
-const icon = (name, className = "") => `<svg class="icon ${className}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const icon = (name, className = "") => `<svg class="icon ${className}" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${name}"/></svg>`;
 const markdown = globalThis.markdownit ? createMarkdownRenderer(globalThis.markdownit) : {
   render: (text) => `<p>${escapeHtml(text).replace(/\n/g, "<br>")}</p>`,
 };
@@ -24,6 +25,7 @@ const state = {
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
 initWorkspaceControls();
+
 const chatPositions=new Map();
 let restorePosition=false;
 let toastTimer;
@@ -57,7 +59,7 @@ const calculations = createCalculations({
   syncReport, refreshProgress:id=>progressFeed.refresh(id),
   reviseStep(id,title,planRevision) {
     const field = $("message-input");
-    if (innerWidth<=760) setInspectorOpen(false);
+    if (innerWidth<=767) setInspectorOpen(false);
     state.revision = {id,title,planRevision};
     $("revision-chip").hidden=false;
     $("revision-chip").textContent="修改："+title+" ×";
@@ -117,6 +119,7 @@ function rememberSession(id) {
     if (id) localStorage.setItem(storageKey, id);
     else localStorage.removeItem(storageKey);
   } catch { /* Storage can be unavailable in a private browser. */ }
+  if (history.state?.workspaceSettings) return;
   const url = new URL(location.href);
   if (id) url.searchParams.set("session", id);
   else url.searchParams.delete("session");
@@ -125,9 +128,9 @@ function rememberSession(id) {
 
 function syncDrawerAccessibility() {
   const loginRequired = !$("login-screen").hidden;
-  const sidebarHidden = loginRequired || (innerWidth <= 760 && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
+  const sidebarHidden = loginRequired || (innerWidth <= 767 && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
   const inspectorHidden = loginRequired || !document.body.classList.contains("inspector-open");
-  const mainHidden = loginRequired || (innerWidth <= 760 && !inspectorHidden);
+  const mainHidden = loginRequired || (innerWidth <= 767 && !inspectorHidden);
   document.querySelector(".main-panel").inert = mainHidden;
   document.querySelector(".main-panel").setAttribute("aria-hidden", String(mainHidden));
   $("sidebar").inert = sidebarHidden;
@@ -167,7 +170,7 @@ function setDrawer(name, open) {
 
 function closeDrawers() {
   setDrawer("sidebar", false);
-  if (innerWidth <= 760) setInspectorOpen(false, { focus:false });
+  if (innerWidth <= 767) setInspectorOpen(false, { focus:false });
 }
 
 function updateControls() {
@@ -183,6 +186,7 @@ function updateControls() {
   $("send-button").setAttribute("aria-label", state.busy ? "正在生成回答" : "发送消息");
   $("new-chat").disabled = locked;
   $("new-project").disabled = locked;
+  $("draft-project").disabled = locked || Boolean(state.sessionId);
   document.querySelectorAll("[data-new-in]").forEach((button) => { button.disabled = locked; });
   document.querySelectorAll(".session-button,.suggestion-card").forEach((button) => { button.disabled = locked; });
   $("chat-form").setAttribute("aria-busy", String(state.busy));
@@ -301,6 +305,7 @@ function renderConversation(scroll = true) {
   state.results.clear();
   const hasConversation = state.turns.length > 0 || state.pending !== null || state.outbox.length > 0;
   $("welcome").hidden = hasConversation || state.loading;
+  viewport.closest(".main-panel").classList.toggle("new-session", !$("welcome").hidden);
   $("conversation").hidden = !hasConversation && !state.loading;
   if (state.loading) {
     streamed.close();
@@ -309,7 +314,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chemistry Agent · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
   ).join("");
   calculations.drawReportFigures();
   for (const item of state.outbox) {
@@ -327,7 +332,7 @@ function renderConversation(scroll = true) {
     const pending = state.pending;
     const article = document.createElement("article");
     article.className = "turn";
-    article.innerHTML = `${renderUser(pending.message, pending.context, pending.files, pending.structures)}<div class="assistant-message"><span class="assistant-avatar">${icon("molecule")}</span><div class="assistant-body"><div class="assistant-label">Chemistry Agent <span>研究助手</span></div>${pending.error ? `<div class="message-error">${escapeHtml(pending.error)}<br><button class="retry-button" id="retry-message">${icon("refresh")}重试这条消息</button></div>` : '<div class="thinking-indicator"><span></span><span></span><span></span>正在分析问题…</div>'}</div></div>`;
+    article.innerHTML = `${renderUser(pending.message, pending.context, pending.files, pending.structures)}<div class="assistant-message"><div class="assistant-body">${pending.error ? `<div class="message-error">${escapeHtml(pending.error)}<br><button class="retry-button" id="retry-message">${icon("refresh")}重试这条消息</button></div>` : '<div class="thinking-indicator"><span></span><span></span><span></span>正在分析问题…</div>'}</div></div>`;
     $("conversation").append(article);
   }
   for (const code of $("conversation").querySelectorAll(".markdown pre > code, .user-bubble > span[data-no-i18n]")) {
@@ -698,16 +703,19 @@ $("conversation").addEventListener("click", async (event) => {
 });
 $("properties-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_properties", event.currentTarget); });
 $("similarity-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_similarity", event.currentTarget); });
-function setSidebarCollapsed(collapsed, reveal = false) {
+function setSidebarCollapsed(collapsed, reveal = false, persist = true) {
   document.body.classList.toggle("sidebar-collapsed", collapsed);
   $("sidebar-collapse").setAttribute("aria-expanded", String(!collapsed));
   $("sidebar-collapse").setAttribute("aria-label", collapsed ? "展开侧栏" : "折叠侧栏");
   $("sidebar-collapse").title = collapsed ? "展开侧栏" : "折叠侧栏";
-  try { localStorage.setItem("chemistry.sidebarCollapsed", String(collapsed)); } catch { /* Optional. */ }
-  if (reveal && innerWidth <= 760) setDrawer("sidebar", !collapsed);
+  try { if (persist) localStorage.setItem("chemistry.sidebarCollapsed", String(collapsed)); } catch { /* Optional. */ }
+  if (reveal && innerWidth <= 767) setDrawer("sidebar", !collapsed);
   syncDrawerAccessibility();
 }
-try { setSidebarCollapsed(localStorage.getItem("chemistry.sidebarCollapsed") === "true"); } catch { /* Default expanded. */ }
+try {
+  const saved = localStorage.getItem("chemistry.sidebarCollapsed");
+  setSidebarCollapsed(saved === null ? innerWidth >= 768 && innerWidth < 1024 : saved === "true", false, false);
+} catch { /* Use the desktop navigation by default. */ }
 $("sidebar-collapse").addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"), true));
 $("rail-projects").addEventListener("click", () => { setSidebarCollapsed(false, true); $("new-project").focus(); });
 $("menu-toggle").addEventListener("click", () => { setDrawer("inspector", false); setDrawer("sidebar", !document.body.classList.contains("sidebar-open")); });
@@ -730,11 +738,12 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("resize", () => {
-  if (innerWidth > 760) closeDrawers();
+  if (innerWidth > 767) closeDrawers();
   syncDrawerAccessibility();
 });
 
 function showLogin(message = "") {
+  $("workspace-settings").close();
   chatPositions.clear();progressFeed.reset();
   clearRevision(); viewer.reset(); calculations.reset(); notifications.enabled(false);
   $("context-ring").hidden = true; $("context-panel").close();
@@ -775,6 +784,7 @@ async function startWorkspace() {
   $("login-screen").hidden = true;
   document.body.classList.remove("auth-checking");
   syncDrawerAccessibility();
+  restoreLinkedSettings();
   await Promise.all([refreshHealth(), refreshSessions().catch((error) => {
     $("session-list").innerHTML = '<p class="sidebar-empty">暂时无法读取会话，请点击刷新。</p>';
     toast(error.message);
@@ -832,8 +842,16 @@ window.addEventListener("languagechange", () => {
 });
 try {
   const savedInspector = localStorage.getItem("chemistry.inspectorOpen");
-  setInspectorOpen(savedInspector === null ? innerWidth > 1120 : savedInspector === "true", { focus:false, persist:false });
-} catch { setInspectorOpen(innerWidth > 1120, { focus:false, persist:false }); }
+  setInspectorOpen(savedInspector === "true", { focus:false, persist:false });
+} catch { setInspectorOpen(false, { focus:false, persist:false }); }
+const restoreLinkedSettings = initSettingsDialog({
+  onOpen() { if (document.body.classList.contains("sidebar-open")) setDrawer("sidebar", false); },
+  async onClose() {
+    if (!$("login-screen").hidden) return;
+    await refreshHealth();
+    if (state.health?.model_configured) void chatModels.refresh();
+  },
+});
 initialize();
 setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);
 

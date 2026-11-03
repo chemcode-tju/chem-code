@@ -119,8 +119,16 @@ async def test_public_endpoints_remain_available_and_private_endpoints_require_l
     with TestClient(create_app(settings, transport=httpx.MockTransport(provider))) as client:
         for path in ("/", "/assets/styles.css", "/assets/app.mjs", "/health", "/auth/status"):
             assert client.get(path).status_code == 200
+        assert client.get("/settings").text == client.get("/").text
         assert client.get("/auth/status").json() == {"enabled": True, "user": None}
-        for path in ("/sessions", "/tools", "/docs", "/openapi.json"):
+        for path in (
+            "/settings?embed=1",
+            "/api/model/settings",
+            "/sessions",
+            "/tools",
+            "/docs",
+            "/openapi.json",
+        ):
             response = client.get(path)
             assert response.status_code == 401
             assert response.json()["error"]["code"] == "authentication_required"

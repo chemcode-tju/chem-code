@@ -5,6 +5,16 @@
   'use strict';
   const catalog = typeof module !== 'undefined' && module.exports
     ? require('./locales.json') : {
+  "← 化学助手": "← Chemistry Agent",
+  "文件格式与导入选项": "File format and import options",
+  "查看选项": "View options",
+  "自动识别": "Detect automatically",
+  "选择结构文件开始查看；LAMMPS 支持多选或一起拖入配套文件。": "Open a structure file. For LAMMPS, select or drop the trajectory and its companion files together.",
+  "LAMMPS：同时选择轨迹及配套 data/拓扑、输入文件或日志，自动识别元素、单位与原子类型。其他格式每次选择一个文件。": "For LAMMPS, select the trajectory together with its data file, topology, input or log to identify elements, units and atom types. For other formats, choose one file at a time.",
+  "GRO、LAMMPS dump、XYZ、VASP、ASE .traj 在本地逐帧读取；data/PDB/CIF 由当前服务转换。GRO 元素依据原子名推断；暂不支持 XTC / TRR / TPR。": "GRO, LAMMPS dump, XYZ, VASP and ASE .traj stream locally. The server converts data, PDB and CIF files. GRO elements are inferred from atom names. XTC, TRR and TPR are unsupported.",
+  "本地浏览器读取 · 坐标单位 Å · 未上传文件": "Read locally · Coordinates in Å · File stays in this browser",
+  "正在读取…": "Reading…",
+  "读取失败，请检查文件或导入选项后重新选择。": "Could not read the file. Check the import options and try again.",
   "按路径打开": "Open path",
   "本地文件": "Local file",
   "快照": "Snapshot",

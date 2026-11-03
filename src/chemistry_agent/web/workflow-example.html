@@ -1,8 +1,8 @@
 <!DOCTYPE html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CO 吸附能 · 流程示例</title><link rel="stylesheet" href="/assets/theme.css"><link rel="stylesheet" href="/assets/styles.css">
+<title>CO 吸附能 · 流程示例</title><script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/theme.css"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/plan-workspace.css">
 <style>
-body{display:block;overflow:auto;height:auto;padding:24px;background:var(--subtle);color:var(--text)}
-main{margin:auto;max-width:480px}.calculation-preview{padding:20px}.plan-nodes>small{margin:3px 0}select{font:inherit}
+body{display:block;overflow:auto;height:auto;padding:clamp(16px,4vw,40px);background:var(--sidebar-fill);color:var(--text)}
+main{margin:auto;max-width:640px}main>p{font-size:13px;color:var(--muted)}.calculation-preview{padding:16px;border-radius:16px;background:var(--panel)}.plan-nodes>small{margin:3px 0}select{font:inherit}
 header{display:flex;gap:8px;align-items:center;justify-content:space-between}.plan-step button{display:none}
 </style><main><header><strong>CO / Cu(100)</strong><select aria-label="示例阶段" id="stage"><option value="draft">方案预览</option><option value="surface">表面优化</option><option value="parallel" selected>位点并行</option><option value="failed">分支失败</option></select></header>
 <p>交互示例 · 非实际作业。点击步骤查看参数。</p><section class="calculation-preview" id="plan"></section></main>

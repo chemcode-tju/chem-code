@@ -10,8 +10,8 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
   const expanded = new Set();
   let accountId = null;
   let revealedSession = null;
-  const folderIcon = '<svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>';
-  const chevron = '<svg class="icon disclosure" aria-hidden="true"><use href="#i-chevron"/></svg>';
+  const folderIcon = '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg>';
+  const chevron = '<svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>';
   const currentProject = () => projects.find((p) => p.sessions.some((s) => s.id === state.sessionId))?.id || "";
   function render() {
     if (state.sessionId) selected = currentProject();
@@ -19,6 +19,16 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
       if (selected) expanded.add(selected);
       revealedSession = state.sessionId;
     }
+    const picker = $("draft-project");
+    picker.replaceChildren(new Option(t("个人工作空间"), ""), ...projects.map(project => {
+      const option = new Option(project.name, project.id);
+      option.dataset.noI18n = "";
+      return option;
+    }));
+    picker.value = selected;
+    const label = $("draft-project-name");
+    label.toggleAttribute("data-no-i18n", Boolean(selected));
+    label.textContent = picker.selectedOptions[0]?.textContent || t("个人工作空间");
     $("project-list").innerHTML = projects.map((project) => `<details class="project-folder" data-project="${project.id}"${expanded.has(project.id) ? " open" : ""}><summary>${folderIcon}<span title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span><small>${project.sessions.length}</small>${chevron}</summary><div class="project-children">${project.sessions.map(sessionButton).join("") || '<p class="sidebar-empty">暂无对话</p>'}<div class="project-actions"><button data-new-in="${project.id}"${state.busy || state.loading ? " disabled" : ""}>＋ 新对话</button><button data-edit-project="${project.id}">管理项目</button></div></div></details>`).join("") || '<p class="sidebar-empty">按项目整理相关对话</p>';
 
   }
@@ -56,6 +66,13 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
       if (version === state.accountVersion) $("project-error").textContent = error.message;
     } finally { buttons.forEach((b) => { b.disabled = false; }); }
   }
+  $("draft-project").addEventListener("change", (event) => {
+    selected = event.target.value;
+    if (selected) expanded.add(selected);
+    const project = projects.find(item => item.id === selected);
+    $("conversation-title").textContent = project ? `${project.name} / ${t("新对话")}` : t("新对话");
+    render();
+  });
   $("new-project").addEventListener("click", () => openEditor());
   $("cancel-project").addEventListener("click", () => $("project-dialog").close());
   $("project-form").addEventListener("submit", (event) => {

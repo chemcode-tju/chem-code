@@ -74,10 +74,11 @@ async def save_session_model(session_id: UUID, body: SessionModelUpdate, request
 
 
 @router.get("/settings", include_in_schema=False)
-async def settings_page() -> FileResponse:
+async def settings_page(embed: bool = False) -> FileResponse:
     from pathlib import Path
 
-    return FileResponse(Path(__file__).parent / "web" / "settings.html")
+    page = "settings.html" if embed else "index.html"
+    return FileResponse(Path(__file__).parent / "web" / page)
 
 
 @router.get("/api/model/settings")

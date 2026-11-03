@@ -44,7 +44,7 @@ export function targetPayload(form,serverId,codes,sources) {
     quota_fallback:fallback ? {source:queue,target:fallback} : null};
 }
 
-export function createComputeSettings() {
+export function createComputeSettings(selectTab) {
   const envForm=$('environment-form'), queues=new Map();
   let all=null, config=null, selected='', active='', generation=0, loading=false, busy=false, editing=null;
   let attempted=false, modelReady=null;
@@ -234,7 +234,7 @@ export function createComputeSettings() {
   $('queue-list').onclick=e=>{
     const button=e.target.closest('[data-use-queue]');if(!button) return;
     resetEnvironment();drawInventory();field(envForm,'queue').value=button.dataset.useQueue;
-    $('environment-editor').open=true;location.hash='environments';
+    $('environment-editor').open=true;selectTab('environments');
   };
   $('environment-list').onclick=e=>{
     const id=e.target.closest('[data-edit-target]')?.dataset.editTarget;

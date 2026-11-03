@@ -41,6 +41,10 @@ def test_workspace_preserves_attachments_structures_models_and_routes(settings_f
         for path in ("/", "/settings", "/structures", "/automation", "/api/projects"):
             assert client.get(path).status_code == 200
         html = client.get("/").text
+        assert client.get("/settings").text == html
+        settings_sheet = client.get("/settings?embed=1").text
+        assert 'id="tab-model"' in settings_sheet
+        assert 'id="workspace-settings"' not in settings_sheet
         assert client.get("/assets/calculations.mjs").headers["cache-control"] == "no-cache"
         for identifier in (
             "project-list",

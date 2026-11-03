@@ -1,7 +1,4 @@
-.settings-sidebar {position:sticky;top:0;align-self:start;height:100dvh;overflow:auto;}
-.settings-group-title {margin:18px 12px 4px;font-size:12px;color:var(--muted);font-weight:550;}
-.settings-sidebar nav {gap:2px;}
-.compute-scope {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:30px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+.compute-scope {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 16px;padding:8px 10px;background:var(--subtle);border-radius:12px;border-bottom:1px solid var(--border);}
 .compute-scope label {color:var(--muted);font-size:14px;}
 .compute-scope select {max-width:min(240px,100%);padding:6px 9px;}
 .compute-scope button {margin-left:auto;padding:6px 10px;}
@@ -31,7 +28,7 @@
 .config-facts dd {margin:0;overflow-wrap:anywhere;}
 .config-empty,.needs-config {font-size:14px;color:var(--muted);}
 .compute-actions {margin:14px 0;}
-.config-editor,.compatibility {margin-top:20px;border:1px solid var(--border);border-radius:9px;}
+.config-editor,.compatibility {margin-top:20px;border:1px solid var(--border);border-radius:12px;}
 .compute-panel summary,#secret-removal summary {display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:550;}
 .config-editor>summary,.compatibility>summary {padding:11px 14px;}
 .compute-panel summary::before,#secret-removal summary::before {content:"";width:6px;height:6px;display:block;flex:none;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);}
@@ -58,28 +55,20 @@
 .check-list b {font-weight:550;}
 .check-list code {grid-column:1/-1;overflow-wrap:anywhere;color:var(--muted);}
 .raw-queues {max-height:300px;overflow:auto;font-size:13px;}
-#ssh-secret {width:min(420px,calc(100vw - 24px));max-height:90dvh;color:var(--text);background:var(--surface);border:1px solid var(--strong-border);border-radius:12px;padding:20px;box-shadow:var(--shadow);}
-#ssh-secret::backdrop {background:rgb(0 0 0/.25);}
+#ssh-secret {width:min(420px,calc(100vw - 24px));max-height:90dvh;color:var(--text);background:var(--surface);border:1px solid var(--strong-border);border-radius:20px;padding:20px;box-shadow:var(--floating-shadow);}
+#ssh-secret::backdrop {background:var(--mask);}
 #ssh-secret h2 {margin:0;font-size:21px;}
 #ssh-secret-server {margin:5px 0;color:var(--muted);overflow-wrap:anywhere;}
 #secret-removal {padding-top:10px;border-top:1px solid var(--border);}
 #secret-clear {color:var(--danger);}
 @media(max-width:600px) {
  .field-pair {grid-template-columns:minmax(0,1fr);gap:0;}
- .settings-group-title {margin:13px 6px 3px;}
+
  .compute-scope {margin-bottom:18px;}
  .compute-scope button {margin-left:0;}
  .setup-list li {gap:6px;}
  .config-facts {grid-template-columns: minmax(50px,32%) minmax(0,1fr);gap:5px 8px;}
  .config-editor form {padding-inline:10px;}
 }
-@media(max-width:600px) {
- :root[lang=en] body {grid-template-columns:min(35vw,138px) minmax(0,1fr);}
- .settings-sidebar {overflow-x:hidden;}
- .settings-sidebar nav {grid-template-columns:minmax(0,1fr);}
- .settings-sidebar :is(nav button,.settings-group-title,.back span) {min-width:0;white-space:normal;overflow-wrap:anywhere;}
- .settings-sidebar nav button {padding-inline:8px;}
-}
-
 .queue-resources summary { cursor:pointer; color:var(--muted); padding:6px 0; }
 .queue-resources .config-facts + .config-facts {border-top:1px solid var(--border);padding-top:8px;}

@@ -222,6 +222,13 @@ class AuthenticationMiddleware:
                 "/auth/login",
                 "/auth/logout",
             }
+            # Direct settings links serve the same sign-in shell as the homepage.
+            if (
+                request.method in {"GET", "HEAD"}
+                and request.url.path == "/settings"
+                and "embed" not in request.query_params
+            ):
+                public = True
             if not public and not request.url.path.startswith("/assets/") and not user:
                 response = JSONResponse(
                     status_code=401,

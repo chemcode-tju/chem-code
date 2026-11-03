@@ -9,10 +9,37 @@ let models = [];
 let lastAuth = null;
 let accounts = [];
 
+// Only the same-origin workspace may host the settings controls and their messages.
+let embedded = false;
+if (parent !== window && new URLSearchParams(location.search).get("embed") === "1") {
+  try { embedded = parent.location.origin === location.origin; } catch { /* Foreign host. */ }
+}
+document.documentElement.classList.toggle("embedded-settings", embedded);
+const compactLayout = (embedded ? parent : window).matchMedia("(max-width:767px)");
+function syncNavigationLayout() {
+  document.documentElement.classList.toggle("compact-settings", compactLayout.matches);
+  document.querySelector(".settings-sidebar nav").setAttribute("aria-orientation", compactLayout.matches ? "horizontal" : "vertical");
+}
+syncNavigationLayout();
+compactLayout.addEventListener("change", syncNavigationLayout);
+function closeSettings() {
+  if (embedded) parent.postMessage({type:"chem:close-settings"}, location.origin);
+  else location.assign("/");
+}
+document.querySelector(".close-settings").addEventListener("click", (event) => {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault(); closeSettings();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
+    event.preventDefault(); closeSettings();
+  }
+});
+
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json" } });
   const data = await response.json().catch(() => null);
-  if (response.status === 401) { location.assign("/"); throw new Error("请先登录研究空间。"); }
+  if (response.status === 401) { (embedded ? parent : window).location.assign("/"); throw new Error("请先登录研究空间。"); }
   if (!response.ok) throw new Error(data?.error?.message || "设置未保存，请检查输入格式。也请确认远程服务使用 HTTPS。");
   return data;
 }
@@ -181,18 +208,20 @@ function displayAppearance() {
   selectedMode = value.mode;
   document.querySelectorAll("[data-mode]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === value.mode)));
   $("accent-color").value = value.accent;
+  $("chat-font-size").value = String(value.fontSize);
   document.querySelectorAll("[data-accent]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.accent === value.accent));
   });
 }
 let selectedMode = theme.read().mode;
 function saveAppearance() {
-  const saved = theme.save({ mode: selectedMode, accent: $("accent-color").value });
+  const saved = theme.save({ mode: selectedMode, accent: $("accent-color").value, fontSize: Number($("chat-font-size").value) });
   $("appearance-notice").textContent = saved ? "已保存到当前浏览器。" : "已应用；浏览器禁止存储，刷新后可能恢复默认。";
   if (saved) displayAppearance();
 }
 document.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => { selectedMode = button.dataset.mode; saveAppearance(); }));
 $("accent-color").addEventListener("input", saveAppearance);
+$("chat-font-size").addEventListener("change", saveAppearance);
 for (const button of document.querySelectorAll("[data-accent]")) {
   button.addEventListener("click", () => { $("accent-color").value = button.dataset.accent; saveAppearance(); });
 }
@@ -207,13 +236,13 @@ api("/auth/status").then((data) => {
   $("settings-logout").hidden = !data.enabled;
 }).catch((error) => notice(error.message, true));
 $("settings-logout").addEventListener("click", () => action(async () => {
-  await api("/auth/logout", { method: "POST" }); location.assign("/");
+  await api("/auth/logout", { method: "POST" }); (embedded ? parent : window).location.assign("/");
 }));
 
-const computeSettings = createComputeSettings();
+const computeSettings = createComputeSettings(selectTab);
 function showSettingsPanel() {
   const aliases = { account: "general", "model-form": "model" };
-  const hash = location.hash.slice(1);
+  const hash = embedded ? new URLSearchParams(location.search).get("tab") : location.hash.slice(1);
   const selected = aliases[hash] || (tabs.some(tab => tab.dataset.tab === hash) ? hash : "general");
   document.querySelectorAll("[data-panel]").forEach((panel) => { panel.hidden = panel.dataset.panel !== selected; });
   document.querySelectorAll("[data-tab]").forEach((tab) => {
@@ -221,6 +250,9 @@ function showSettingsPanel() {
     tab.tabIndex = tab.dataset.tab === selected ? 0 : -1;
   });
   $("notice").hidden = selected !== "model";
+  document.querySelector("main").scrollTop = 0;
+  if (compactLayout.matches) document.querySelector('[data-tab][aria-selected="true"]').scrollIntoView({block:"nearest", inline:"nearest"});
+  if (embedded) parent.postMessage({type:"chem:settings-tab", tab:selected}, location.origin);
   computeSettings.activate(selected);
   if (selected === "model" && !modelLoaded) {
     modelLoaded = true;
@@ -231,8 +263,27 @@ function showSettingsPanel() {
   }
 }
 const tabs = [...document.querySelectorAll("[data-tab]")];
+function selectTab(key) {
+  // Nested documents must not push history entries ahead of the host dialog.
+  if (!embedded && location.hash !== "#" + key) {
+    location.hash = key;
+    return;
+  }
+  if (embedded) {
+    const url = new URL(location.href);
+    url.searchParams.set("tab", key);
+    history.replaceState(null, "", url);
+  }
+  showSettingsPanel();
+}
+if (embedded) document.addEventListener("click", (event) => {
+  const link = event.target.closest?.('a[href^="#"]');
+  if (link && tabs.some(tab => tab.dataset.tab === link.hash.slice(1))) {
+    event.preventDefault(); selectTab(link.hash.slice(1));
+  }
+});
 tabs.forEach((tab, index) => {
-  tab.addEventListener("click", () => { location.hash = tab.dataset.tab; showSettingsPanel(); });
+  tab.addEventListener("click", () => selectTab(tab.dataset.tab));
   tab.addEventListener("keydown", (event) => {
     const offset = {ArrowDown:1, ArrowRight:1, ArrowUp:-1, ArrowLeft:-1}[event.key];
     if (!offset && !["Home", "End"].includes(event.key)) return;

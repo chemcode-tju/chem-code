@@ -116,12 +116,16 @@ async function go(index) {
   })();
   return navigationTask;
 }
-function discardDocument() {doc?.dispose();doc=null;activeRecord=null;navigationTarget=null;navigationTask=null;}
+function discardDocument() {
+  doc?.dispose(); doc=null; activeRecord=null; navigationTarget=null; navigationTask=null;
+  document.body.classList.remove("has-structure");
+}
 async function showDocument(store,generation) {
   if(generation!==readGeneration){store.dispose();return;}
   doc=store;const record=await store.get(0);
   if(generation!==readGeneration)return;
   activeRecord=record;
+  document.body.classList.add("has-structure");
   frameIndex=0;streamComplete=store.complete;render(true,true);status('');loading=false;
   // Render the first frame before starting any background index batch.
   afterPaint(()=>store.scan(()=>{if(doc===store){streamComplete=store.complete;updateTimeline();}})
@@ -243,7 +247,7 @@ async function openStructure(files, format = $("import-format").value) {
     return {name: file.name, error: error.message};
   } finally { if (generation === readGeneration) loading = false; }
 }
-$("open-file").onclick = () => $("file-picker").click();
+$("open-empty").onclick = $("open-file").onclick = () => $("file-picker").click();
 $("file-picker").onchange = () => {
   const files = Array.from($("file-picker").files); $("file-picker").value = "";
   if (files.length) openStructure(files);

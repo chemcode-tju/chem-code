@@ -1,5 +1,7 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "个人工作空间":"Personal workspace", "新对话所属项目":"Project for new chat", "关闭设置":"Close settings",
+  "对话字号":"Chat text size", "字号":"Text size", "经典蓝":"Classic blue",
   "节点资源与状态":"Node resources and states",
   "尚未核实":"Not checked yet", "尚未测试连接":"Connection not tested yet",
   "上次连接测试":"Last connection test","上次连接测试通过":"Last connection test passed",
@@ -322,7 +324,7 @@ export function translateUI() {
     }
     attributeOriginals.set(element, records);
   }
-  document.title = document.querySelector('[data-panel]') ? `${t('设置')} · Chemistry Agent` : 'Chemistry Agent';
+  document.title = document.querySelector('[data-panel],#workspace-settings[open]') ? `${t('设置')} · Chemistry Agent` : 'Chemistry Agent';
 }
 export function setLanguage(value) {
   language = value === 'en' ? 'en' : 'zh-CN';
