@@ -1055,3 +1055,26 @@ async def test_group_paths_survive_draft_revision_and_match_single_node_query(gr
     assert cleared["changed_nodes"] == ["opaque"]
     assert not cleared["nodes"][1].get("group_path")
     assert not engine.submits
+
+
+async def test_plan_uses_default_target_with_chat_science(graph):
+    from chemistry_agent.automation.configuration import CalculationConfiguration, ExecutionTarget
+
+    chat, context, engine, initial = graph
+    config = CalculationConfiguration(engine.settings.aiida_path)
+    target = ExecutionTarget(
+        id="default-low",
+        resources={"queue": "low"},
+        default=True,
+        **{k: engine.protocol[k] for k in ("server_id", "code_id", "potential_source_id")},
+    )
+    config.save("execution_targets", target)
+    node = vasp("relax", {"structure_id": initial}, incar={"ENCUT": 300}, kmesh=[2, 2, 1])
+    del node["calculation"]["protocol_id"]
+    result = await chat.plans.draft(draft([node]), context)
+    snapshot = chat.load(context.session_id, "plans", result["id"])["snapshots"]["relax"][
+        "protocol"
+    ]
+    assert snapshot["id"] == "default-low" and snapshot["resources"]["queue"] == "low"
+    assert snapshot["incar"] == {"ENCUT": 300} and snapshot["kmesh"] == [2, 2, 1]
+    assert not engine.submits

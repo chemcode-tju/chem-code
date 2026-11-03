@@ -169,3 +169,52 @@ def test_submission_errors_are_visible_before_scheduler_id_exists(profile):
     assert "Traceback" not in result["recent_process_errors"][0]["message"]
     node.set_job_id("123")
     assert backend.job_record(node)["submission_state"] == "accepted_by_scheduler"
+
+
+def test_register_software_and_path_then_build_resource_target(profile, tmp_path, monkeypatch):
+    from chemistry_agent.automation.settings_backend import settings_status
+
+    monkeypatch.setenv("AIIDA_PATH", str(tmp_path))
+    server_id = make_payload()["server_id"]
+    software = {"server_id": server_id, "executable": "/bin/sh", "version": "6.3.2"}
+    env = tmp_path / "environment.sh"
+    env.write_text("# test environment\n")
+    vasp = backend.create_code({**software, "name": "VASP", "environment_script": str(env)})
+    assert vasp == backend.create_code({**software, "name": "VASP", "environment_script": str(env)})
+    legacy = orm.InstalledCode(
+        label="old-vasp",
+        computer=orm.load_computer(uuid=server_id),
+        filepath_executable="/bin/sh",
+        default_calc_job_plugin="vasp.vasp",
+        prepend_text="ulimit -s unlimited\nsource /opt/old.sh\nexport OMP_NUM_THREADS=1",
+    ).store()
+    assert backend.code_record(legacy)["environment_script"] == "/opt/old.sh"
+    qe = backend.create_code({**software, "name": "Quantum ESPRESSO"})
+    assert qe["plugin"] is None
+    source = backend.register_potential_path({"server_id": server_id, "root": str(tmp_path)})
+    assert source == backend.register_potential_path(
+        {"server_id": server_id, "root": str(tmp_path)}
+    )
+    target = {
+        "id": "cluster-low",
+        "server_id": server_id,
+        "resources": {"queue": "low"},
+        "potential_source_id": source["id"],
+        "default": True,
+    }
+    with pytest.raises(AgentError) as error:
+        backend.save_configuration(
+            {"kind": "execution_targets", "value": {**target, "code_id": qe["id"]}}
+        )
+    assert error.value.code == "code_mismatch"
+    saved = backend.save_configuration(
+        {"kind": "execution_targets", "value": {**target, "code_id": vasp["id"]}}
+    )
+    assert "incar" not in saved and "kmesh" not in saved
+    status = settings_status(profile.name, server_id)
+    assert status["missing"] == ["daemon"]
+    assert status["default_id"] == "cluster-low"
+    assert {c["name"] for c in status["codes"]} == {"VASP", "Quantum ESPRESSO", "old-vasp"}
+    assert all("environment" not in c for c in status["codes"])
+    assert status["potential_sources"] == [source]
+    assert orm.QueryBuilder().append(orm.CalcJobNode).count() == 0

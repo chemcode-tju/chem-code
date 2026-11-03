@@ -9,6 +9,12 @@ from chemistry_agent.errors import AgentError
 
 
 def dispatch(message: dict) -> dict:
+    from chemistry_agent.automation.settings_backend import initialize, settings_status
+
+    if message["action"] == "settings_status":
+        return settings_status(message["profile"], message.get("payload", {}).get("server_id"))
+    if message["action"] == "settings_initialize":
+        return initialize(message["profile"])
     try:
         from aiida import load_profile
         from aiida.common.exceptions import MissingConfigurationError, ProfileConfigurationError
@@ -18,7 +24,7 @@ def dispatch(message: dict) -> dict:
         load_profile(message["profile"])
     except (MissingConfigurationError, ProfileConfigurationError) as exc:
         raise AgentError(
-            "aiida_profile_missing", "请先运行 scripts/setup_automation.py 初始化独立配置。", 503
+            "aiida_profile_missing", "请先在本地计算设置中初始化 AiiDA。", 503
         ) from exc
     from chemistry_agent.automation import backend
     from chemistry_agent.automation.branch_retry import preview_retry
@@ -50,6 +56,10 @@ def dispatch(message: dict) -> dict:
         "job_details": backend.job_details,
         "job_structure": job_structure,
         "session_job": backend.session_job,
+        "register_potential_path": backend.register_potential_path,
+        "save_execution_target": lambda value: backend.save_configuration(
+            {"kind": "execution_targets", "value": value}
+        ),
         "save_configuration": backend.save_configuration,
         "resolve_calculation": backend.resolve_calculation,
         "tracked_jobs": backend.tracked_jobs,
