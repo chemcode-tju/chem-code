@@ -151,7 +151,9 @@ class SubmitRequest(StrictModel):
 
 class CodeCreate(StrictModel):
     server_id: UUID
-    label: Name
+    label: Name | None = None
+    name: str = Field(default="VASP", pattern=r"^[A-Za-z0-9][A-Za-z0-9 _.+-]{0,63}$")
+    version: Name | None = None
     executable: str = Field(min_length=2, max_length=500)
     environment_script: str = Field(default="", max_length=500)
 

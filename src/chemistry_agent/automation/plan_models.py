@@ -23,7 +23,7 @@ class InputReference(StrictModel):
 
 
 class VaspSettings(StrictModel):
-    protocol_id: str = Field(min_length=1, max_length=64)
+    protocol_id: str | None = Field(default=None, min_length=1, max_length=64)
     incar: dict = Field(default_factory=dict, max_length=200)
     kmesh: tuple[int, int, int] | None = None
     resources: Resources | None = None

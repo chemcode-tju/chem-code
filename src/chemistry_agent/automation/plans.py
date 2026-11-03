@@ -15,7 +15,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from ase.io import read
 
-from chemistry_agent.automation.configuration import CalculationConfiguration, CalculationProtocol
+from chemistry_agent.automation.configuration import CalculationConfiguration
 from chemistry_agent.automation.constraints import poscar_text, restore_constraints
 from chemistry_agent.automation.events import (
     QUOTA_HOLD,
@@ -124,15 +124,17 @@ class CalculationPlans:
                         self.chat.load(session, "structures", str(reference.structure_id))
                 if node.calculation:
                     settings = node.calculation
-                    protocol = CalculationProtocol.model_validate(
-                        configuration.get("protocols", settings.protocol_id)
+                    protocol = configuration.resolve(
+                        settings.protocol_id, settings.incar, settings.kmesh
                     ).model_dump(mode="json")
                     protocol["incar"] = {k.upper(): v for k, v in protocol["incar"].items()}
                     protocol["incar"].update({k.upper(): v for k, v in settings.incar.items()})
                     if settings.kmesh:
                         protocol.update(kmesh=list(settings.kmesh), kpoint_spacing=None)
                     if settings.resources:
-                        protocol["resources"] = settings.resources.model_dump(mode="json")
+                        protocol["resources"].update(
+                            settings.resources.model_dump(mode="json", exclude_unset=True)
+                        )
                     source = configuration.get("sources", protocol["potential_source_id"])
                     if queue and protocol["resources"]["queue"] != queue:
                         raise AgentError("wrong_queue", f"本轮只授权 {queue} 队列。", 422)

@@ -7,6 +7,8 @@ from fastapi.responses import RedirectResponse
 from chemistry_agent.automation.configuration import (
     CalculationConfiguration,
     CalculationProtocol,
+    ExecutionTarget,
+    PotentialPath,
     PotentialSource,
 )
 from chemistry_agent.automation.models import (
@@ -132,3 +134,31 @@ async def read_notification(event_id: UUID, request: Request) -> dict:
     if monitor:
         monitor.events.mark_read(str(event_id))
     return {"read": True}
+
+
+SettingsService = Annotated[AutomationService, Depends(local_service)]
+
+
+@router.get("/api/automation/settings")
+async def automation_settings(service: SettingsService, server_id: UUID | None = None) -> dict:
+    return await service.call("settings_status", {"server_id": str(server_id)} if server_id else {})
+
+
+@router.post("/api/automation/settings/initialize")
+async def initialize(service: SettingsService) -> dict:
+    return await service.call("settings_initialize")
+
+
+@router.post("/api/automation/settings/potential-sources")
+async def register_source(body: PotentialPath, service: SettingsService) -> dict:
+    return await service.call("register_potential_path", body.model_dump(mode="json"))
+
+
+@router.post("/api/automation/settings/execution-targets")
+async def register_execution_target(body: ExecutionTarget, service: SettingsService) -> dict:
+    return await service.call("save_execution_target", body.model_dump(mode="json"))
+
+
+@router.get("/api/automation/settings/servers/{server_id}/queues")
+async def server_queues(server_id: UUID, service: SettingsService) -> dict:
+    return await service.call("scheduler_options", {"server_id": str(server_id)})

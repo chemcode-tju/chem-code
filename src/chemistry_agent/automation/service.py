@@ -52,7 +52,7 @@ class AutomationService:
                     1800
                     if action == "stage_files"
                     else 360
-                    if action in {"preview", "branch_retry"}
+                    if action in {"preview", "branch_retry", "settings_initialize"}
                     else 90
                 )
                 stdout, stderr = await asyncio.wait_for(

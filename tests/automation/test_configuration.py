@@ -151,3 +151,38 @@ def test_cached_non_pbe_is_rejected(configured):
 def test_source_path_validation(root):
     with pytest.raises(ValidationError):
         PotentialSource(id="pbe", server_id=uuid4(), family="PBE", root=root)
+
+
+def test_target_science_only_at_preview_and_snapshot_is_reusable(configured):
+    from chemistry_agent.automation.configuration import ExecutionTarget
+
+    backend, config, _, _, transfers = configured
+    legacy = config.get("protocols", "static")
+    target = ExecutionTarget(
+        id="cluster-low",
+        default=True,
+        resources={"queue": "low"},
+        **{key: legacy[key] for key in ("code_id", "server_id", "potential_source_id")},
+    )
+    config.save("execution_targets", target)
+    with pytest.raises(AgentError) as error:
+        backend.resolve_calculation({"structure": {"content": POSCAR}})
+    assert error.value.code == "science_required" and not transfers
+    settings = {"incar": {"ENCUT": 300}, "kmesh": [3, 3, 1]}
+    result = backend.resolve_calculation({"structure": {"content": POSCAR}, **settings})
+    assert result["request"]["resources"]["queue"] == "low"
+    assert result["request"]["incar"] == settings["incar"]
+    assert result["request"]["kmesh"] == settings["kmesh"]
+    snapshot = config.resolve(None, **settings).model_dump(mode="json")
+    target.resources.queue = "batch"
+    config.save("execution_targets", target)
+    restored = backend.resolve_calculation(
+        {"structure": {"content": POSCAR}, "protocol_snapshot": snapshot}
+    )
+    assert restored["request"]["resources"]["queue"] == "low"
+    assert (
+        backend.resolve_calculation({"structure": {"content": POSCAR}, "protocol_id": "static"})[
+            "request"
+        ]["incar"]["ENCUT"]
+        == 520
+    )

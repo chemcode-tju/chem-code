@@ -4,6 +4,23 @@
 
 当前面向本地单用户。状态监控与工作流推进不调用模型；新发生的任务故障可唤起已配置的模型诊断，产生相应模型用量。实际重提交由明确授权的恢复策略约束。
 
+## 本地计算设置
+
+在启用自动化的单用户服务中，设置页通过以下接口调用同一个 Python 后台。首次读取即使还没有 profile 也会返回缺少的项目。
+
+| 接口（均位于 `/api/automation`） | 用途 |
+| --- | --- |
+| `GET /settings`，可附 `?server_id=UUID` | 返回本机 AiiDA 和 daemon 状态、服务器、软件、赝势目录、执行目标、旧 protocol、缺项与默认 ID |
+| `POST /settings/initialize` | 创建独立 SQLite/ZeroMQ profile，按需启动 daemon，重复调用保留现有数据 |
+| `POST /codes` | 登记 `server_id, name, version, executable, environment_script`。只有 VASP 对接计算适配器，其他程序可登记和回显 |
+| `POST /settings/potential-sources` | 登记服务器 ID 和 PBE 库目录，准备计算时才按元素导入 |
+| `GET /settings/servers/{server_id}/queues` | 查询服务器的 Slurm 或 PBS 队列 |
+| `POST /settings/execution-targets` | 保存目标 ID、服务器、VASP code、赝势源、队列和资源，可设默认和配额回退 |
+
+默认目标只保存运行环境。Agent 根据用户这次的任务给出 INCAR 与 k 点网格，单任务预览和多步方案使用同一选择规则。显式 ID 优先，其次是默认执行目标、默认旧 protocol、唯一执行目标。旧 protocol 可继续提供原有参数。方案保存后，计算使用已记录的配置快照。
+
+聊天可以直接说“帮我注册软件 VASP 6.4，路径……”，或“在 cluster-b 上把赝势目录设为……”。计算设置写权限只限本轮用户的明确请求，也支持首行 `/configure`。设置回显和队列查询可直接读取。
+
 ## 当前能力与边界
 
 | 功能 | 实现及验证范围 |

@@ -19,6 +19,7 @@ from chemistry_agent.automation.models import (
 )
 from chemistry_agent.automation.progress import ProgressStore
 from chemistry_agent.automation.service import AutomationService
+from chemistry_agent.automation.settings_tools import settings_tools
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
 
@@ -426,6 +427,7 @@ class CalculationChat:
         return (
             self.plans.tools()
             + self.analysis.tools()
+            + settings_tools(self.service)
             + [
                 Tool(
                     "calculation_events",
@@ -487,7 +489,8 @@ class CalculationChat:
                 ),
                 Tool(
                     "calculation_prepare",
-                    "Prepare a VASP preview from structure_id and a saved protocol. Resolves "
+                    "Prepare a VASP preview using an execution target or legacy protocol. "
+                    "For a target, supply INCAR and kmesh in chat. Resolves "
                     "server/code/resources and imports missing POTCARs from user-approved sources. "
                     "Set queue/resources, INCAR or kmesh in the preview. Never submits. "
                     "For fcc(100) slabs use workflow=bulk_surface and surface_plan; "

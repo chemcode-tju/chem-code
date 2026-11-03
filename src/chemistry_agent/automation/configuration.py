@@ -11,21 +11,24 @@ from chemistry_agent.automation.models import Name, PreviewRequest, Resources, S
 from chemistry_agent.errors import AgentError
 
 
-class PotentialSource(StrictModel):
-    id: Name
+class PotentialPath(StrictModel):
     server_id: UUID
     root: str = Field(min_length=2, max_length=500)
-    family: Name
-    functional: str = Field(default="PBE", pattern="^PBE$")
 
     @field_validator("root")
     @classmethod
     def safe_root(cls, value: str) -> str:
-        if not value.startswith("/") or any(c in value for c in "\n\r\x00"):
+        if not value.strip("/") or not value.startswith("/") or any(c in value for c in "\n\r\x00"):
             raise ValueError("赝势库须为服务器上的绝对目录。")
         if "archive" in Path(value).parts or ".." in Path(value).parts:
             raise ValueError("不允许 archive 或上级目录。")
         return value.rstrip("/")
+
+
+class PotentialSource(PotentialPath):
+    id: Name
+    family: Name
+    functional: str = Field(default="PBE", pattern="^PBE$")
 
 
 class QueueFallback(StrictModel):
@@ -33,21 +36,24 @@ class QueueFallback(StrictModel):
     target: Name
 
 
-class CalculationProtocol(StrictModel):
+class ExecutionTarget(StrictModel):
     quota_fallback: QueueFallback | None = None
     id: Name
-    description: str = Field(min_length=1, max_length=1000)
     server_id: UUID
     code_id: UUID
     resources: Resources
     potential_source_id: Name
+    default: bool = False
+
+
+class CalculationProtocol(ExecutionTarget):
+    description: str = Field(min_length=1, max_length=1000)
     potential_mapping: dict[str, Name] = Field(default_factory=dict, max_length=100)
     incar: dict = Field(min_length=1, max_length=200)
     kmesh: tuple[int, int, int]
     kpoint_spacing: float | None = Field(default=None, gt=0, le=2)
     max_atoms: int = Field(ge=1, le=10000)
     allowed_elements: list[str] = Field(default_factory=list, max_length=100)
-    default: bool = False
 
     @field_validator("kmesh")
     @classmethod
@@ -68,15 +74,21 @@ class CalculationConfiguration:
 
     def read(self) -> dict:
         if not self.path.exists():
-            return {"sources": [], "protocols": []}
-        return json.loads(self.path.read_text())
+            return {"sources": [], "protocols": [], "execution_targets": []}
+        data = json.loads(self.path.read_text())
+        data.setdefault("execution_targets", [])
+        return data
 
-    def save(self, kind: str, value: PotentialSource | CalculationProtocol) -> dict:
+    def save(self, kind: str, value: PotentialSource | ExecutionTarget) -> dict:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with FileLock(str(self.path) + ".lock"):
             data = self.read()
             item = value.model_dump(mode="json")
-            if kind == "protocols" and item["default"]:
+            if kind in {"protocols", "execution_targets"}:
+                other = "protocols" if kind == "execution_targets" else "execution_targets"
+                if any(row["id"] == item["id"] for row in data[other]):
+                    raise AgentError("configuration_id_conflict", "此 ID 已用于另一种配置。", 409)
+            if kind in {"protocols", "execution_targets"} and item["default"]:
                 for protocol in data[kind]:
                     protocol["default"] = False
             data[kind] = [entry for entry in data[kind] if entry["id"] != item["id"]] + [item]
@@ -93,3 +105,31 @@ class CalculationConfiguration:
         raise AgentError(
             "configuration_missing", "未找到计算方案或赝势源，请先在自动化设置中注册。", 422
         )
+
+    @staticmethod
+    def default_id(data: dict) -> str | None:
+        for key in ("execution_targets", "protocols"):
+            for entry in data[key]:
+                if entry.get("default"):
+                    return entry["id"]
+        targets = data["execution_targets"]
+        return targets[0]["id"] if len(targets) == 1 else None
+
+    def resolve(
+        self, identifier: str | None, incar: dict, kmesh: tuple | list | None
+    ) -> CalculationProtocol:
+        """Freeze the selected resources and the Agent's scientific inputs for this run."""
+        data = self.read()
+        identifier = identifier or self.default_id(data)
+        if not identifier:
+            raise AgentError("protocol_required", "请选择执行目标或旧版计算方案。", 422)
+        for entry in data["execution_targets"]:
+            if entry["id"] == identifier:
+                if not incar or not kmesh:
+                    raise AgentError(
+                        "science_required", "请在对话中为本次计算指定 INCAR 和 k 点网格。", 422
+                    )
+                return CalculationProtocol(
+                    **entry, description=identifier, incar=incar, kmesh=kmesh, max_atoms=10000
+                )
+        return CalculationProtocol.model_validate(self.get("protocols", identifier))

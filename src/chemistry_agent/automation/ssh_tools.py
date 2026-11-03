@@ -4,6 +4,8 @@ from uuid import UUID
 
 from chemistry_agent.automation.models import ServerCreate, StrictModel
 from chemistry_agent.automation.service import AutomationService
+from chemistry_agent.automation.settings_tools import configuration_grant
+from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
 
 
@@ -13,6 +15,8 @@ class ServerTest(StrictModel):
 
 def connection_tools(service: AutomationService) -> list[Tool]:
     async def register(args: ServerCreate, context: ToolContext) -> dict:
+        if not configuration_grant.get():
+            raise AgentError("settings_grant_required", "请在本轮明确说出要登记的服务器。", 403)
         return await service.call("create_server", args.model_dump(mode="json"))
 
     async def test(args: ServerTest, context: ToolContext) -> dict:

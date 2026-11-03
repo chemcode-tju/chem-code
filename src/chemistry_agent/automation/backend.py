@@ -25,6 +25,8 @@ from filelock import FileLock
 from chemistry_agent.automation.configuration import (
     CalculationConfiguration,
     CalculationProtocol,
+    ExecutionTarget,
+    PotentialPath,
     PotentialSource,
 )
 from chemistry_agent.automation.constraints import (
@@ -135,6 +137,35 @@ def load_server(server_id: str) -> orm.Computer:
     return computer
 
 
+def code_record(code: orm.InstalledCode) -> dict:
+    extras = code.base.extras
+    env = extras.get("environment_script", "")
+    if not env:
+        # Legacy codes may load the environment between ulimit and export commands.
+        scripts = set()
+        for line in code.prepend_text.splitlines():
+            if not line.lstrip().startswith(("source ", ". ")):
+                continue
+            try:
+                words = shlex.split(line, comments=True)
+            except ValueError:
+                continue
+            if len(words) == 2 and words[1].startswith("/"):
+                scripts.add(words[1])
+        if len(scripts) == 1:
+            env = scripts.pop()
+    return {
+        "id": code.uuid,
+        "label": code.label,
+        "name": extras.get("software_name", code.label),
+        "version": extras.get("software_version", ""),
+        "server_id": code.computer.uuid,
+        "plugin": code.default_calc_job_plugin,
+        "executable": str(code.filepath_executable),
+        "environment_script": env,
+    }
+
+
 def status() -> dict:
     servers = [
         server_record(item)
@@ -145,16 +176,7 @@ def status() -> dict:
     codes = []
     for code in orm.QueryBuilder().append(orm.InstalledCode).all(flat=True):
         if code.computer.description == MARKER:
-            codes.append(
-                {
-                    "id": code.uuid,
-                    "label": code.label,
-                    "server_id": code.computer.uuid,
-                    "plugin": code.default_calc_job_plugin,
-                    "executable": str(code.filepath_executable),
-                    "environment": code.prepend_text,
-                }
-            )
+            codes.append({**code_record(code), "environment": code.prepend_text})
     return {
         "configured": True,
         "daemon_running": get_daemon_client().is_daemon_running,
@@ -691,7 +713,16 @@ def scheduler_options(payload: dict) -> dict:
     if code:
         raise AgentError("scheduler_query_failed", f"无法读取队列配置：{command}", 502)
     if not columns:
-        return {"scheduler": computer.scheduler_type, "queues_output": output.strip()}
+        rows = [
+            {"queue": line.split()[0]}
+            for line in output.splitlines()
+            if line.strip() and re.match(r"^[A-Za-z0-9_.-]+\s+\d+\s+", line.strip())
+        ]
+        return {
+            "scheduler": computer.scheduler_type,
+            "partitions": rows,
+            "queues_output": output.strip(),
+        }
     rows = []
     for line in sorted(set(output.splitlines())):
         fields = line.strip().split("|")
@@ -717,11 +748,34 @@ def catalog() -> dict:
     result["potential_families"] = families
     configuration = CalculationConfiguration(Path(os.environ["AIIDA_PATH"])).read()
     result["protocols"] = configuration["protocols"]
+    result["execution_targets"] = configuration["execution_targets"]
+    result["default_id"] = CalculationConfiguration.default_id(configuration)
     result["potential_sources"] = [
         {key: value for key, value in source.items() if key != "root"}
         for source in configuration["sources"]
     ]
     return result
+
+
+def register_potential_path(payload: dict) -> dict:
+    path = PotentialPath.model_validate(payload)
+    config = CalculationConfiguration(Path(os.environ["AIIDA_PATH"]))
+    existing = next(
+        (
+            row
+            for row in config.read()["sources"]
+            if row["server_id"] == str(path.server_id) and row["root"] == path.root
+        ),
+        None,
+    )
+    identifier = "pbe-" + hashlib.sha256(f"{path.server_id}:{path.root}".encode()).hexdigest()[:16]
+    return save_configuration(
+        {
+            "kind": "sources",
+            "value": existing
+            or {**path.model_dump(mode="json"), "id": identifier, "family": identifier},
+        }
+    )
 
 
 def save_configuration(payload: dict) -> dict:
@@ -743,14 +797,23 @@ def save_configuration(payload: dict) -> dict:
             if not transport.isdir(source.root):
                 raise AgentError("potential_source_missing", "服务器赝势目录不存在。", 422)
         return configuration.save(kind, source)
-    protocol = CalculationProtocol.model_validate(payload["value"])
+    protocol = (
+        ExecutionTarget if kind == "execution_targets" else CalculationProtocol
+    ).model_validate(payload["value"])
     computer = load_server(str(protocol.server_id))
     code = orm.load_code(uuid=str(protocol.code_id))
     if code.computer.uuid != computer.uuid or code.default_calc_job_plugin != "vasp.vasp":
         raise AgentError("code_mismatch", "计算方案的 Code 与服务器不匹配。", 422)
     validate_gpu_type(computer, protocol.resources)
-    configuration.get("sources", protocol.potential_source_id)
-    return configuration.save("protocols", protocol)
+    source = configuration.get("sources", protocol.potential_source_id)
+    if kind == "execution_targets":
+        if source["server_id"] != str(protocol.server_id):
+            raise AgentError("source_mismatch", "执行目标与赝势源必须属于同一服务器。", 422)
+        if protocol.resources.gpu_type and not protocol.resources.gpus_per_node:
+            raise AgentError("gpu_count_required", "指定 GPU 型号时请设置 GPU 数量。", 422)
+        if protocol.resources.gpus_per_node and computer.scheduler_type != "core.slurm":
+            raise AgentError("gpu_scheduler_unsupported", "当前 PBS 配置仅支持 CPU 资源。", 422)
+    return configuration.save(kind, protocol)
 
 
 def resolve_calculation(payload: dict) -> dict:
@@ -758,16 +821,12 @@ def resolve_calculation(payload: dict) -> dict:
     from aiida_vasp.data.potcar import PotcarData, PotcarGroup
 
     configuration = CalculationConfiguration(Path(os.environ["AIIDA_PATH"]))
-    protocol_id = payload.get("protocol_id")
-    if not protocol_id:
-        defaults = [item for item in configuration.read()["protocols"] if item["default"]]
-        if len(defaults) != 1:
-            raise AgentError(
-                "protocol_required", "请从 calculation_setup 中选择一个已注册计算方案。", 422
-            )
-        protocol_id = defaults[0]["id"]
-    protocol = CalculationProtocol.model_validate(
-        payload.get("protocol_snapshot") or configuration.get("protocols", protocol_id)
+    protocol = (
+        CalculationProtocol.model_validate(payload["protocol_snapshot"])
+        if payload.get("protocol_snapshot")
+        else configuration.resolve(
+            payload.get("protocol_id"), payload.get("incar") or {}, payload.get("kmesh")
+        )
     )
     source = PotentialSource.model_validate(
         payload.get("source_snapshot") or configuration.get("sources", protocol.potential_source_id)
@@ -1029,20 +1088,48 @@ def execution_fingerprint(builder: ProcessBuilder) -> str:
 def create_code(payload: dict) -> dict:
     body = CodeCreate.model_validate(payload)
     computer = load_server(str(body.server_id))
-    label = f"chem-{body.label}"
-    if orm.QueryBuilder().append(orm.InstalledCode, filters={"label": label}).count():
-        raise AgentError("code_exists", "Code 名称已存在，请选择已有 Code。", 409)
-    with computer.get_transport() as transport:
-        if not transport.isfile(body.executable):
-            raise AgentError("executable_missing", "远端可执行文件不存在。", 422)
-        if body.environment_script and not transport.isfile(body.environment_script):
-            raise AgentError("environment_missing", "远端环境脚本不存在。", 422)
+    plugin = "vasp.vasp" if body.name.casefold() == "vasp" else None
+    identity = f"{computer.uuid}:{body.executable}:{body.environment_script}"
+    suffix = hashlib.sha256(identity.encode()).hexdigest()[:10]
+    generated = f"{body.name}-{body.version or 'unversioned'}-{suffix}"
+    label = f"chem-{body.label or generated}"
     prepend = f"source {shlex.quote(body.environment_script)}" if body.environment_script else ""
+    matches = orm.QueryBuilder().append(orm.InstalledCode, filters={"label": label}).all(flat=True)
+    if matches:
+        previous = matches[0]
+        if (
+            previous.computer.uuid == computer.uuid
+            and previous.default_calc_job_plugin == plugin
+            and str(previous.filepath_executable) == body.executable
+            and previous.prepend_text == prepend
+            and previous.base.extras.get("software_version", "") == (body.version or "")
+            and previous.base.extras.get("software_name", body.name) == body.name
+        ):
+            return code_record(previous)
+        raise AgentError("code_exists", "此名称已用于其他软件配置。", 409)
+    with computer.get_transport() as transport:
+        if (
+            not transport.isfile(body.executable)
+            or transport.exec_command_wait(f"test -x {shlex.quote(body.executable)}")[0]
+        ):
+            raise AgentError("executable_missing", "远端程序不存在或没有执行权限。", 422)
+        if body.environment_script and (
+            not transport.isfile(body.environment_script)
+            or transport.exec_command_wait(f"test -r {shlex.quote(body.environment_script)}")[0]
+        ):
+            raise AgentError("environment_missing", "远端环境脚本不存在或不可读。", 422)
     code = orm.InstalledCode(
         label=label,
         computer=computer,
         filepath_executable=body.executable,
-        default_calc_job_plugin="vasp.vasp",
+        default_calc_job_plugin=plugin,
         prepend_text=prepend,
     ).store()
-    return {"id": code.uuid, "label": code.label, "server_id": computer.uuid}
+    code.base.extras.set_many(
+        {
+            "software_name": body.name,
+            "software_version": body.version or "",
+            "environment_script": body.environment_script,
+        }
+    )
+    return code_record(code)

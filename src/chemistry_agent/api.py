@@ -24,6 +24,7 @@ from chemistry_agent.automation.monitor import TaskMonitor
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
+from chemistry_agent.automation.settings_tools import authorizes_configuration, configuration_grant
 from chemistry_agent.automation.ssh_profiles import shell_profiles
 from chemistry_agent.automation.ssh_routes import router as ssh_router
 from chemistry_agent.automation.ssh_tools import connection_tools
@@ -483,6 +484,9 @@ def create_app(
         )
 
         source_request = auto_request.set(getattr(request.state, "chat_request_id", run_id))
+        config_token = configuration_grant.set(
+            calculation_enabled and authorizes_configuration(body.message)
+        )
         shell_token = shell_grant.set(selected_host)
         grant = auto_queue.set(authorized_queue(body.message) if calculation_enabled else None)
         try:
@@ -519,6 +523,7 @@ def create_app(
             logger.error("Agent run failed (%s)", type(exc).__name__)
             raise AgentError("internal_error", "任务执行失败，请重试。", 500) from exc
         finally:
+            configuration_grant.reset(config_token)
             shell_grant.reset(shell_token)
             auto_queue.reset(grant)
             auto_request.reset(source_request)
