@@ -48,7 +48,7 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
     $("project-dialog-title").textContent = id ? "管理项目" : "新建项目";
     $("project-name").value = projects.find((p) => p.id === id)?.name || "";
     $("delete-project").hidden = !id;
-    $("project-hint").textContent = id ? "删除文件夹会保留所有对话，并将它们移回聊天列表。" : "将相关对话收纳在同一个项目中。";
+    $("project-hint").hidden = !id;
     $("project-error").textContent = "";
     $("project-dialog").showModal();
     $("project-name").focus();

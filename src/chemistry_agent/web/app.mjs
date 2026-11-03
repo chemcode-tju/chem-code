@@ -1,3 +1,4 @@
+import {activity, answerBox, initAnswerControls, liveCopyButton} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
 import { initSettingsDialog } from "./settings-dialog.mjs";
@@ -11,7 +12,7 @@ import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
 import { createFileUploads, renderFiles, contextFiles } from "./files.mjs";
 import { createProjectNavigation } from "./projects.mjs";
-import { TOOL_LABELS, buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
+import { TOOL_LABELS, buildTurns, createMarkdownRenderer, escapeHtml, metricValue } from "./core.mjs";
 
 const $ = (id) => document.getElementById(id);
 const icon = (name, className = "") => `<svg class="icon ${className}" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${name}"/></svg>`;
@@ -21,10 +22,11 @@ const markdown = globalThis.markdownit ? createMarkdownRenderer(globalThis.markd
 const state = {
   sessions: [], sessionId: null, turns: [], runs: [], pending: null, health: null,
   outbox: [], chatSignature: "",
-  busy: false, loading: false, hasMore: false, navigation: 0, results: new Map(),
+  busy: false, loading: false, hasMore: false, navigation: 0,
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
-const setDockMaximized = initWorkspaceControls();
+const setDockMaximized = initWorkspaceControls({closeInspector:()=>setInspectorOpen(false)});
+initAnswerControls({root:document.body,answer:i=>state.turns[i]?.answer,toast});
 
 const chatPositions=new Map();
 let restorePosition=false;
@@ -32,7 +34,7 @@ let toastTimer;
 let chatModels;
 let inspectorSession = null;
 let contextGeneration = 0;
-const notifications = createNotifications({ api });
+const notifications = createNotifications({ api, selectSession });
 const inspectorTabs = initInspectorTabs(open => {
   if (open) setDrawer("sidebar", false);
   setInspectorOpen(open, {focus:false});
@@ -72,18 +74,6 @@ const calculations = createCalculations({
   viewer, chatFiles: () => [...state.turns.flatMap(turn => turn.files?.length ? turn.files : contextFiles(turn.context)), ...uploads.files],
   api, getSession: () => state.sessionId,
   isBusy: () => state.busy || state.loading || chatModels?.saving || uploads.uploading,
-  ensureSession: async () => {
-    if (!state.sessionId) {
-      const selectedModel = chatModels.value;
-      const session = await api("/sessions", {method:"POST", body:JSON.stringify({title:"结构与计算"})});
-      state.sessionId = session.id; rememberSession(session.id); adoptInspector(session.id);
-      $("conversation-title").textContent = session.title;
-      await chatModels.saveNewSession(session.id, selectedModel);
-      await projectNavigation.assign(session.id);
-      await refreshSessions();
-    }
-    return state.sessionId;
-  },
   toast, onConfirmed: async (id) => { await selectSession(id); await refreshSessions(); },
 });
 
@@ -210,7 +200,6 @@ function updateControls() {
   $("message-input").disabled = state.loading;
   $("send-button").disabled = locked || uploads.uploading || !state.health?.model_configured;
   $("composer-add").disabled = locked || uploads.uploading;
-  $("sidebar-add").disabled = locked || uploads.uploading;
   $("send-button").setAttribute("aria-label", state.busy ? "正在生成回答" : "发送消息");
   $("new-chat").disabled = locked;
   $("new-project").disabled = locked;
@@ -260,6 +249,20 @@ async function refreshHealth() {
   updateControls();
 }
 
+const titledSessions = new Set();
+async function updateSessionTitle(id, session, turns) {
+  const first = turns.find(turn=>!turn.event && turn.answer);
+  if (!first || titledSessions.has(id) || !session.title_pending) return;
+  titledSessions.add(id);
+  const version=state.accountVersion;
+  try {
+    const result=await api("/sessions/"+id+"/title",{method:"POST"});
+    if (version!==state.accountVersion) return;
+    if (state.sessionId===id) $("conversation-title").textContent=result.title;
+    await refreshSessions();
+  } catch { titledSessions.delete(id); }
+}
+
 function sessionButton(session) {
   return `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}">${icon("chat")}<span>${escapeHtml(session.title)}</span></button>`;
 }
@@ -306,31 +309,16 @@ function artifactLinks(calls) {
     const id = isStructure ? r.id : r.surface_structure_id || r.structure_id;
     if (id) links.set(id, structureButton("artifact",id,(r.name || "structure")+".extxyz","查看"+(r.name || "输入结构")));
     if (r.finished_ok && r.output_structure && r.id) links.set(r.id,structureButton("job",r.id,"optimized.extxyz","查看优化结构"));
-    if (call.name.startsWith("calculation_") && !isStructure) links.set("task",'<button class="view-result" data-task-panel>查看方案</button>');
+    if (/^calculation_(?:plan|prepare|preview|submit|job)/.test(call.name) && !isStructure) links.set("task",'<button class="view-result" data-task-panel>查看方案</button>');
   }
   return [...links.values()].join(" ");
-}
-
-function renderToolTrace(calls, turnIndex) {
-  if (!calls.length) return "";
-  const success = calls.filter((call) => call.success).length;
-  return `<details class="tool-trace"><summary>${icon(success === calls.length ? "check" : "flask")}<span>已使用 ${calls.length} 次研究工具${success < calls.length ? ` · ${calls.length - success} 次需调整输入` : ""}</span>${icon("chevron", "disclosure")}</summary><div class="tool-trace-content">${calls.map((call, index) => {
-    const id = `${turnIndex}-${index}`;
-    state.results.set(id, call);
-    return `<div class="tool-trace-item"><strong>${escapeHtml(TOOL_LABELS[call.name] || call.name)}</strong><button type="button" class="view-result" data-result="${id}">查看结果</button><pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, result: call.result }, null, 2))}</pre></div>`;
-  }).join("")}</div></details>`;
-}
-
-function renderContextBadge(context) {
-  const badge = contextBadge(context);
-  return badge ? `<span class="context-badge" title="${escapeHtml(badge.description)}" aria-label="${escapeHtml(badge.description)}">${escapeHtml(badge.label)}</span>` : "";
 }
 
 function renderConversation(scroll = true) {
   const viewport=$("chat-scroll");
   const previousTop=viewport.scrollTop;
   const pinned=viewport.scrollHeight-viewport.clientHeight-previousTop<48;
-  state.results.clear();
+  const expanded = new Set([...$("conversation").querySelectorAll("[data-activity][open]")].map(el=>el.dataset.activity));
   const hasConversation = state.turns.length > 0 || state.pending !== null || state.outbox.length > 0;
   $("welcome").hidden = hasConversation || state.loading;
   viewport.closest(".main-panel").classList.toggle("new-session", !$("welcome").hidden);
@@ -342,19 +330,20 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div><div class="markdown">${markdown.render(turn.answer)}</div></article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${renderToolTrace(turn.calls, index)}<div class="markdown">${markdown.render(turn.answer)}</div>${artifactLinks(turn.calls)}<div class="message-footer"><button class="icon-button" data-copy="${index}" title="复制回答" aria-label="复制回答">${icon("copy")}</button><span>${turn.run ? `${turn.run.usage.total_tokens.toLocaleString()} tokens · ` : ""}对话已保存</span>${renderContextBadge(turn.run?.context)}</div></div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls})}${answerBox(markdown.render(turn.answer),index)}${artifactLinks(turn.calls)}</div></div></article>`
+
   ).join("");
   calculations.drawReportFigures();
   for (const item of state.outbox) {
     const article = document.createElement("article");
     article.className = "turn";
-    const label = ["failed","uncertain"].includes(item.status) ? item.error || "处理失败，消息已保存。"
-      : item.status === "running" ? "正在生成回答 · 消息已保存，可离开页面"
-      : "等待上一条回复 · 消息已保存";
+    const failed = ["failed","uncertain"].includes(item.status);
+    const label = failed ? item.error || "处理失败" : item.status==="queued" ? "等待上一条回复" : "";
     article.innerHTML = renderUser(item.body.message, item.body.context || "") +
-      `<div class="assistant-message"><div class="assistant-body"><div class="${["failed","uncertain"].includes(item.status) ? "message-error" : "thinking-indicator"}">${escapeHtml(label)}</div><div class="markdown" hidden data-live-request="${escapeHtml(item.id)}"></div>${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
+      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],running:item.status==='running'})}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}<div class="answer-output" hidden>${liveCopyButton()}<div class="markdown" data-live-request="${escapeHtml(item.id)}"></div></div>${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
     $("conversation").append(article);
   }
+  for (const el of $("conversation").querySelectorAll("[data-activity]")) el.open=expanded.has(el.dataset.activity);
   streamed.follow(state.sessionId, (state.outbox.find(item => item.status === "running") || state.outbox.find(item => item.status === "queued"))?.id);
   if (state.pending) {
     const pending = state.pending;
@@ -404,7 +393,7 @@ async function selectSession(id, quiet = false) {
   restorePosition=true;
   saveDraft();
   if (id !== state.sessionId) { resetContextMeter("正在读取上下文…"); progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
-  uploads.clear();
+  uploads.select(id);
   calculations.clearSelection();
   const navigation = ++state.navigation;
   state.loading = true;
@@ -426,6 +415,7 @@ async function selectSession(id, quiet = false) {
     state.turns = buildTurns(session.messages, runs);
     state.loadedAt = session.updated_at;
     $("conversation-title").textContent = session.title;
+    void updateSessionTitle(id,session,state.turns);
     rememberSession(id);
     const lastCall = state.turns.flatMap((turn) => turn.calls).at(-1);
     renderResult(lastCall || null);
@@ -438,7 +428,7 @@ async function selectSession(id, quiet = false) {
     state.turns = [];
     state.runs = [];
     rememberSession(null);
-    restoreInspector(null);
+    uploads.select(null); restoreInspector(null);
     $("conversation-title").textContent = t("新对话");
   } finally {
     if (navigation === state.navigation) {
@@ -477,7 +467,7 @@ function newConversation() {
   restoreInspector(null, true);
   $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
-  uploads.clear();
+  uploads.select(null);
   renderConversation(false);
   renderSessions();
   renderResult(null);
@@ -516,7 +506,7 @@ const streamed = liveAnswer({
     const pinned = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 56;
     el.dataset.preview = text;
     el.innerHTML = text ? (markdown.renderPartial?.(text) ?? markdown.render(text)) : "";
-    el.hidden = !text;
+    el.parentElement.hidden = !text;
     if (pinned) scroll.scrollTop = scroll.scrollHeight;
   },
   settle: () => void syncChat(),
@@ -530,7 +520,7 @@ async function syncChat() {
     const receipt = await api(`/sessions/${id}/chat-requests?compact=true`);
     if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
     const signature = JSON.stringify([receipt.updated_at, receipt.active_run_id,
-      receipt.requests.map(item=>[item.id,item.status,item.error])]);
+      receipt.requests.map(item=>[item.id,item.status,item.error,item.tools])]);
     if (state.pending?.request && receipt.requests.some(item=>item.id===state.pending.request.request_id)) {
       if ($("message-input").value.trim() === state.pending.message) $("message-input").value = "";
       state.pending = null;
@@ -547,6 +537,7 @@ async function syncChat() {
       state.runs = runs;
       state.turns = buildTurns(session.messages, runs);
       state.loadedAt = session.updated_at;
+      void updateSessionTitle(id,session,state.turns);
       void calculations.refresh().catch(() => {});
       void refreshContext();
     }
@@ -573,7 +564,7 @@ async function sendChat(message, context = "", files = uploads.files, retryReque
   renderConversation();
   try {
     if (!state.sessionId) {
-      const session = await api("/sessions", { method:"POST", body:JSON.stringify({title:message.trim().slice(0,80)}) });
+      const session = await api("/sessions", { method:"POST", body:JSON.stringify({}) });
       if (accountVersion !== state.accountVersion) return;
       state.sessionId = session.id;
       $("conversation-title").textContent = session.title;
@@ -608,6 +599,7 @@ async function sendChat(message, context = "", files = uploads.files, retryReque
       $("message-input").style.height = "";
     }
     uploads.clear();
+    uploads.select(state.sessionId);
     saveDraft();
     await refreshSessions().catch(()=>{});
   } catch (error) {
@@ -713,17 +705,6 @@ $("load-more").addEventListener("click", async () => {
 });
 $("conversation").addEventListener("click", async (event) => {
   if (event.target.closest("[data-task-panel]")) selectInspectorTab("calculation");
-  const resultButton = event.target.closest("[data-result]");
-  if (resultButton) {
-    const call = state.results.get(resultButton.dataset.result);
-    if (call.name.startsWith("calculation_")) selectInspectorTab("calculation");
-    else { renderResult(call); selectInspectorTab("tools"); }
-  }
-  const copyButton = event.target.closest("[data-copy]");
-  if (copyButton) {
-    try { await navigator.clipboard.writeText(state.turns[Number(copyButton.dataset.copy)].answer); toast("回答已复制。"); }
-    catch { toast("复制不可用，请选中文字后手动复制。"); }
-  }
   const retry = event.target.closest("[data-retry-request]");
   if (retry && !state.busy) {
     const item = state.outbox.find(item=>item.id===retry.dataset.retryRequest);
@@ -794,7 +775,6 @@ function showLogin(message = "") {
   state.turns = [];
   state.runs = [];
   state.pending = null; state.outbox = []; state.chatSignature = "";
-  state.results.clear();
   state.auth.user = null;
   chatModels.reset();
   projectNavigation.reset();
@@ -805,7 +785,8 @@ function showLogin(message = "") {
   $("session-list").replaceChildren();
   $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
-  uploads.clear();
+  uploads.reset();
+  titledSessions.clear();
   $("properties-form").reset();
   $("similarity-form").reset();
   renderResult(null);
@@ -836,7 +817,7 @@ async function startWorkspace() {
   // Model discovery may share the provider's inference lock. Never block conversation recovery.
   if (state.health?.model_configured) void chatModels.refresh();
   if (id) await selectSession(id, true);
-  else { restoreInspector(null); $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
+  else { uploads.select(null); restoreInspector(null); $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
   if (setup) {
     const field = $("message-input");
     if (!field.value.trim() && !state.pending) field.value = t("请检查我的计算配置，告诉我还需要提供哪些服务器、软件、赝势和队列信息。");
@@ -939,8 +920,3 @@ $("compact-context").onclick = async () => {
   } catch (error) { toast(error.message); }
   finally { state.busy = false; updateControls(); }
 };
-
-$("structure-upload").addEventListener("click", () => {
-  $("composer-upload-menu").hidden = true;
-  $("composer-add").setAttribute("aria-expanded", "false");
-});

@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
 
 from chemistry_agent.automation.configuration import (
@@ -121,10 +121,22 @@ async def create_code(
 
 
 @router.get("/api/automation/notifications")
-async def notifications(request: Request) -> dict:
+async def notifications(request: Request, limit: int = Query(40, ge=1, le=10000)) -> dict:
     local_service(request)
     monitor = getattr(request.app.state, "task_monitor", None)
-    return monitor.events.inbox(None) if monitor else {"events": [], "unread": 0, "monitor": {}}
+    return (
+        monitor.events.notification_inbox(limit)
+        if monitor
+        else {"events": [], "unread": 0, "monitor": {}}
+    )
+
+
+@router.post("/api/automation/notifications/read-all")
+async def read_all_notifications(request: Request) -> dict:
+    local_service(request)
+    if monitor := getattr(request.app.state, "task_monitor", None):
+        monitor.events.mark_read()
+    return {"read": True}
 
 
 @router.post("/api/automation/notifications/{event_id}/read")

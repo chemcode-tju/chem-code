@@ -1,5 +1,9 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "全部已读":"Mark all as read", "异常结束":"Ended with issues", "正常结束":"Completed normally", "暂无通知":"No notifications",
+  "复制内容":"Copy contents", "已复制":"Copied", "工具记录":"Tool activity",
+  "已用时":"Working for", "用时":"Worked for", "等待工具记录":"Waiting for tools", "未调用工具":"No tools used",
+  "需调整输入":"Needs attention", "查看更多":"Show more", "平移画布":"Pan canvas",
   "尚未生成历史摘要。":"No summary yet.",
   "正在读取上下文…":"Loading context…",
   "暂无对话记录。":"No chat history yet.",
@@ -296,11 +300,11 @@ const messages = {
   "计算分子属性":"Calculate properties", "分子 A · SMILES":"Molecule A · SMILES", "分子 B · SMILES":"Molecule B · SMILES", "例如 CCO":"e.g. CCO", "例如 CO":"e.g. CO", "比较结构相似度":"Compare structures",
   "工具结果":"Tool results", "暂无记录":"No results", "运行工具后，在这里查看结果。":"Run a tool to view results here.", "已计算":"Calculated", "请检查输入":"Check input",
   "分子量":"Molecular weight", "精确质量":"Exact mass", "氢键供体":"H-bond donors", "氢键受体":"H-bond acceptors", "可旋转键":"Rotatable bonds", "环数量":"Rings", "查看参数与完整结果":"Parameters and full result",
-  "项目名称":"Project name", "例如：CO₂ 还原机理":"e.g. CO₂ reduction", "将相关对话收纳在同一个项目中。":"Keep related conversations in one project.", "删除文件夹会保留所有对话，并将它们移回聊天列表。":"Deleting this folder keeps its conversations in Chats.", "删除文件夹":"Delete folder", "取消":"Cancel", "保存":"Save", "管理项目":"Manage project", "请输入项目名称。":"Enter a project name.", "已删除文件夹，对话保留在聊天列表。":"Folder deleted. Conversations are kept in Chats.",
-  "正在上传…":"Uploading…", "文本可读取":"Text available", "已上传，未解析":"Uploaded, not parsed", "移除附件":"Remove attachment", "每条消息最多附加 10 个文件。":"Attach up to 10 files per message.", "单个文件不能超过 25 MB。":"Each file must be 25 MB or smaller.", "文件上传失败，请重试。":"Upload failed. Please try again.",
-  "附件与上下文":"Attachments & context", "复制回答":"Copy response", "回答已复制。":"Response copied.", "复制不可用，请选中文字后手动复制。":"Select the text and copy it manually.", "重试这条消息":"Retry message", "对话已保存":"Saved", "研究助手":"Research assistant",
+  "项目名称":"Project name", "删除文件夹会保留所有对话，并将它们移回聊天列表。":"Deleting this folder keeps its conversations in Chats.", "删除文件夹":"Delete folder", "取消":"Cancel", "保存":"Save", "管理项目":"Manage project", "请输入项目名称。":"Enter a project name.", "已删除文件夹，对话保留在聊天列表。":"Folder deleted. Conversations are kept in Chats.",
+  "正在上传…":"Uploading…", "文本可读取":"Text available", "已上传，未解析":"Uploaded, not parsed", "移除附件":"Remove attachment", "文件上传失败，请重试。":"Upload failed. Please try again.",
+  "附件与上下文":"Attachments & context", "复制回答":"Copy response", "回答已复制。":"Response copied.", "复制不可用，请选中文字后手动复制。":"Select the text and copy it manually.", "重试这条消息":"Retry message", "研究助手":"Research assistant",
   "正在打开这段研究对话…":"Opening conversation…", "正在分析问题…":"Thinking…", "请先连接并配置模型。":"Connect a model first.", "请输入有效的 SMILES。":"Enter valid SMILES.", "正在计算…":"Calculating…", "计算完成，结果已显示在研究面板。":"Calculated. Results are in the research panel.",
-  "查看结果":"View result", "分子属性计算":"Molecular properties", "结构相似度比较":"Structure similarity", "上下文已压缩":"Context compacted", "工具结果已精简":"Tool results compacted",
+  "分子属性计算":"Molecular properties", "结构相似度比较":"Structure similarity", "上下文已压缩":"Context compacted",
   "计算未完成，请检查输入的分子结构。":"Calculation failed. Check the molecule input.", "暂时无法读取会话，请点击刷新。":"Unable to load chats. Try refreshing.",
   "暂时无法连接本地服务，请检查服务是否正在运行。":"Cannot connect to the local service. Check that it is running.", "登录已过期，请重新登录。":"Session expired. Sign in again.", "输入格式有误，请检查后再试。":"Check your input and try again.", "请求未能完成，请稍后重试。":"The request failed. Please try again.",
   "正在打开研究空间…":"Opening workspace…", "登录工作空间":"Sign in to workspace", "使用你的工作空间账号登录。":"Use your workspace account to sign in.", "用户名":"Username", "例如 researcher":"e.g. researcher", "密码":"Password", "请输入密码":"Enter your password", "账号由管理员开通。需要帮助时，请联系工作空间管理员。":"Accounts are created by your workspace administrator.", "暂时无法连接服务，请稍后刷新页面重试。":"Unable to connect. Refresh the page to try again."

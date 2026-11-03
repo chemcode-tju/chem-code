@@ -19,7 +19,7 @@ from aiida.engine.daemon.client import get_daemon_client
 from aiida.engine.processes.builder import ProcessBuilder
 from aiida.plugins import CalculationFactory
 from ase import Atoms
-from ase.io import read
+from ase.io import iread
 from filelock import FileLock
 
 from chemistry_agent.automation.configuration import (
@@ -30,6 +30,7 @@ from chemistry_agent.automation.configuration import (
     PotentialSource,
 )
 from chemistry_agent.automation.constraints import (
+    poscar_text,
     positions_dof,
     restore_constraints,
     structure_text,
@@ -61,12 +62,19 @@ def now() -> str:
 
 
 def read_structure(specification: StructureInput) -> Atoms:
-    """Reject lossy imports, multiple frames, invalid cells and non-finite positions."""
+    return _single_structure(io.StringIO(specification.content), specification.format)
+
+
+def _single_structure(source: Path | io.StringIO, fmt: str) -> Atoms:
+    """Stop at the second frame. A calculation input explicitly represents one geometry."""
     try:
-        frames = read(io.StringIO(specification.content), format=specification.format, index=":")
-        if len(frames) != 1:
-            raise ValueError("每个任务必须提供且只提供一个结构。")
-        atoms = frames[0]
+        frames = iread(source, format=fmt, index=":")
+        try:
+            atoms = next(frames, None)
+            if atoms is None or next(frames, None) is not None:
+                raise ValueError("计算输入需要选定一帧结构。")
+        finally:
+            frames.close()
         restore_constraints(atoms)
         if not 1 <= len(atoms) <= 10000:
             raise ValueError("结构原子数必须为 1–10000。")
@@ -686,8 +694,28 @@ def tracked_jobs(payload: dict) -> dict:
 def validate_structure(payload: dict) -> dict:
     specification = StructureInput.model_validate(payload)
     atoms = read_structure(specification)
+    return _validated_record(
+        atoms,
+        specification.model_dump(),
+        hashlib.sha256(specification.content.encode()).hexdigest(),
+    )
+
+
+def validate_structure_file(payload: dict) -> dict:
+    """The server resolves the file ID to its original bytes before calling this worker."""
+    path = Path(payload["file"]) if "file" in payload else None
+    atoms = _single_structure(path or io.StringIO(payload["text"]), payload["format"])
+    if path:
+        with path.open("rb") as source:
+            digest = hashlib.file_digest(source, "sha256").hexdigest()
+    else:
+        digest = hashlib.sha256(payload["text"].encode()).hexdigest()
+    return _validated_record(atoms, {"format": "vasp", "content": poscar_text(atoms)}, digest)
+
+
+def _validated_record(atoms: Atoms, structure: dict, digest: str) -> dict:
     return {
-        "structure": specification.model_dump(),
+        "structure": structure,
         "extxyz": structure_text(atoms),
         "positions_dof": positions_dof(atoms),
         "formula": atoms.get_chemical_formula(),
@@ -695,7 +723,7 @@ def validate_structure(payload: dict) -> dict:
         "elements": sorted(set(atoms.get_chemical_symbols())),
         "cell_angstrom": atoms.cell.tolist(),
         "volume_angstrom3": atoms.get_volume(),
-        "input_sha256": hashlib.sha256(specification.content.encode()).hexdigest(),
+        "input_sha256": digest,
     }
 
 

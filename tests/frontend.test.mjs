@@ -1,8 +1,9 @@
+import {activity, duration} from "../src/chemistry_agent/web/answer-ui.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { restoreDockSelection } from "../src/chemistry_agent/web/inspector-tabs.mjs";
-import { buildTurns, contextBadge, createMarkdownRenderer, escapeHtml, metricValue, splitReference } from "../src/chemistry_agent/web/core.mjs";
+import { buildTurns, createMarkdownRenderer, escapeHtml, metricValue, splitReference } from "../src/chemistry_agent/web/core.mjs";
 
 const require = createRequire(import.meta.url);
 const markdown = createMarkdownRenderer(require("../src/chemistry_agent/web/vendor/markdown-it.min.js"));
@@ -62,15 +63,14 @@ test("bad tool payloads are shown as failures and numerical output stays finite"
   assert.equal(metricValue(46.069), "46.069");
 });
 
-test("compression badges distinguish summaries and tool excerpts, including legacy runs", () => {
-  assert.equal(contextBadge(undefined), null);
-  assert.equal(contextBadge({ compressed: false }), null);
-  const summary = contextBadge({ compressed: true, summary_used: true, input_tokens_after: 3000,
-    input_budget_tokens: 8000, summarized_messages: 12, retained_turns: 4 });
-  assert.equal(summary.label, "上下文已压缩");
-  assert.match(summary.description, /12 条历史消息/);
-  assert.match(summary.description, /原始记录完整保存/);
-  assert.equal(contextBadge({ compressed: true, summary_used: false }).label, "工具结果已精简");
+test("turn activity uses real run time and keeps tool parameters inside the disclosure", () => {
+  const start="2026-11-03T09:00:00Z", end="2026-11-03T09:01:06Z";
+  assert.equal(duration(start,end),"1 分 6 秒");
+  const content=activity({id:"run",start,end,calls:[{name:"test",success:false,arguments:{x:"<img>"}}]});
+  assert.match(content,/用时 1 分 6 秒/);
+  assert.match(content,/&lt;img&gt;/);
+  assert.doesNotMatch(content,/查看结果|已保存/);
+  assert.equal(activity({id:"legacy"}),"");
 });
 
 test("manual compaction does not shift usage onto a conversation turn", () => {

@@ -42,6 +42,7 @@ def test_workspace_preserves_attachments_structures_models_and_routes(settings_f
             assert client.get(path).status_code == 200
         html = client.get("/").text
         assert client.get("/settings").text == html
+        assert 'id="structure-upload"' not in html and 'id="sidebar-add"' not in html
         settings_sheet = client.get("/settings?embed=1").text
         assert 'id="tab-model"' in settings_sheet
         assert 'id="workspace-settings"' not in settings_sheet
@@ -49,7 +50,7 @@ def test_workspace_preserves_attachments_structures_models_and_routes(settings_f
         for identifier in (
             "project-list",
             "chat-model",
-            "structure-upload",
+            "composer-add",
             "file-picker",
             "calculation-cards",
             "notification-panel",

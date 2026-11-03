@@ -1,45 +1,70 @@
-import { escapeHtml as esc } from './core.mjs';
+import {escapeHtml as esc} from './core.mjs';
+import {getLanguage,t} from './i18n.mjs';
 
-export function createNotifications({ api }) {
+export function createNotifications({api, selectSession}) {
   const panel = document.getElementById('notification-panel');
   const list = document.getElementById('notification-list');
-  const entry=document.getElementById('notification-entry');
-  const unread=document.getElementById('unread-count');
-  let generation=0;
-  let enabled = false, pending = false;
+  const entry = document.getElementById('notification-entry');
+  const unread = document.getElementById('unread-count');
+  const all = document.getElementById('notification-read-all');
+  const status = document.getElementById('monitor-status');
+  let enabled = false, generation = 0, limit = 40, signature = '';
   function displayUnread(count) {
-    unread.textContent = count || "";
-    const label = count ? `通知 · ${count} 条未读` : "通知";
-    entry.setAttribute("aria-label", label);
-    entry.title = label;
+    unread.textContent = count || '';
+    entry.title = count ? t('通知') + ' · ' + count : t('通知');
+    entry.setAttribute('aria-label', entry.title);
+    all.disabled = !count;
+  }
+  function group(events, title, total) {
+    const rows = events.map(item => {
+      const time = new Date(item.created_at);
+      return `<a class="notification-row" href="/?session=${encodeURIComponent(item.session_id)}" data-notice="${esc(item.id)}"${item.read_at?'':' data-unread'}><span class="read-dot"></span><span class="notice-name">${esc(item.title)}</span><time datetime="${esc(item.created_at)}" title="${esc(time.toLocaleString())}">${esc(time.toLocaleTimeString(getLanguage(), {hour:'2-digit',minute:'2-digit'}))}</time></a>`;
+    }).join('');
+    return `<section class="notice-group"><h3>${t(title)}<small>${total}</small></h3><div class="notice-rows">${rows || '<p>'+t('暂无通知')+'</p>'}${total>events.length?'<button data-more-notices>'+t('查看更多')+'</button>':''}</div></section>`;
   }
   async function refresh() {
-    if (!enabled || pending) return;
-    pending = true;
-    const token=generation;
+    if (!enabled) return;
+    const token = ++generation;
     try {
-      const data = await api('/api/automation/notifications');
-      if(token!==generation) return;
+      const data = await api('/api/automation/notifications?limit='+limit);
+      if (token !== generation) return;
       displayUnread(data.unread);
-      document.getElementById('notification-title').textContent = `通知 · ${data.unread} 条未读`;
-      document.getElementById('monitor-status').textContent = data.monitor.error ||
-        (data.monitor.last_success ? `后台同步于 ${new Date(data.monitor.last_success).toLocaleTimeString()}` : '后台正在同步任务…');
-      list.innerHTML = data.events.map(event => `<article class="task-notification ${event.read_at?'read':''}">
-        <a href="/?session=${encodeURIComponent(event.session_id)}" title="${esc(event.title)}">${esc(event.title)}</a>
-        <small>${esc(new Date(event.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small>
-        ${event.read_at?'':`<button type="button" data-read-event="${esc(event.id)}" aria-label="标为已读" title="标为已读"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg></button>`}</article>`).join('') || '<p>暂无通知。</p>';
-    } catch (error) {
-      document.getElementById('monitor-status').textContent = `通知同步暂不可用：${error.message}`;
-    } finally { pending = false; }
+      status.hidden = !data.monitor?.error;
+      status.textContent = data.monitor?.error || '';
+      const next = JSON.stringify([data.events.map(e=>[e.id,e.read_at]), data.totals, t('异常结束')]);
+      if (next === signature) return;
+      signature = next;
+      const normal = data.events.filter(e=>e.kind==='completed'), other = data.events.filter(e=>e.kind!=='completed');
+      list.innerHTML = group(other,'异常结束',data.totals?.exception ?? other.length) + group(normal,'正常结束',data.totals?.normal ?? normal.length);
+    } catch (error) { if(token===generation) {status.hidden=false;status.textContent=error.message;} }
   }
-  list.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-read-event]');
-    if (!button) return;
-    button.disabled = true;
-    try { await api(`/api/automation/notifications/${encodeURIComponent(button.dataset.readEvent)}/read`, {method:'POST'}); await refresh(); }
-    catch (error) { document.getElementById('monitor-status').textContent = `标记失败：${error.message}`; }
-    finally { button.disabled = false; }
-  });
-  setInterval(() => { if (!document.hidden) refresh(); }, 15000);
-  return { enabled(value) { enabled = value; entry.hidden = !value; if (!value) { generation++;panel.close();list.replaceChildren();displayUnread(0); } if (value) refresh(); }, refresh };
+  all.onclick = async () => {
+    all.disabled=true;
+    try { await api('/api/automation/notifications/read-all',{method:'POST'}); }
+    catch(error) { status.hidden=false;status.textContent=error.message;all.disabled=false;return; }
+    await refresh();
+  };
+  list.onclick = async event => {
+    if (event.target.closest('[data-more-notices]')) {limit=Math.min(10000,limit+40);await refresh();return;}
+    const link = event.target.closest('[data-notice]');
+    if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (link.hasAttribute('data-unread')) {
+      try { await api('/api/automation/notifications/'+encodeURIComponent(link.dataset.notice)+'/read',{method:'POST'}); }
+      catch(error) { status.hidden=false;status.textContent=error.message;return; }
+    }
+    panel.close();
+    await selectSession(new URL(link.href).searchParams.get('session'));
+    void refresh();
+  };
+  entry.addEventListener('click',refresh);
+  window.addEventListener('languagechange',refresh);
+  setInterval(()=>{if(!document.hidden) void refresh();},15000);
+  return {enabled(value) {
+    const changed = enabled !== value;
+    enabled=value;entry.hidden=!value;
+    if (!changed) return;
+    if (enabled) void refresh();
+    else {generation++;signature='';limit=40;panel.close();list.replaceChildren();displayUnread(0);}
+  },refresh};
 }

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
+from weakref import WeakValueDictionary
 
 import httpx
 from fastapi import FastAPI, Query, Request, Response
@@ -49,6 +50,7 @@ from chemistry_agent.schemas import (
     StrictModel,
     ToolExecution,
 )
+from chemistry_agent.session_titles import router as titles_router
 from chemistry_agent.store import Store
 from chemistry_agent.structures import router as structures_router
 from chemistry_agent.tokens import TokenCounter
@@ -97,8 +99,10 @@ def create_app(
         try:
             provider = ProviderRouter(settings, transport=transport)
             try:
+                app.state.title_locks = WeakValueDictionary()
                 app.state.provider = provider
                 app.state.store = store
+                calculation_chat.attachment_store = store
                 app.state.auth = AuthManager(settings, store)
                 counter = await asyncio.to_thread(TokenCounter, settings.tokenizer_path)
                 context_manager = ContextManager(
@@ -150,6 +154,7 @@ def create_app(
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
     app.include_router(model_router)
     app.include_router(projects_router)
+    app.include_router(titles_router)
     app.include_router(attachments_router)
     app.include_router(structures_router)
 
@@ -439,7 +444,7 @@ def create_app(
         session_id = (
             str(body.session_id)
             if body.session_id
-            else (await store.create_session(body.message[:80], request.state.user_id))["id"]
+            else (await store.create_session("新对话", request.state.user_id))["id"]
         )
         request.state.session_id = session_id
         attached_structures = [
@@ -453,6 +458,7 @@ def create_app(
             session_id,
             request.state.user_id,
             request_id=getattr(request.state, "chat_request_id", None),
+            file_ids=tuple(body.file_ids),
         )
         request.state.run_id = run_id
         content = body.message

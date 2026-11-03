@@ -341,9 +341,36 @@ class EventStore(ProgressStore):
             "monitor": meta,
         }
 
-    def mark_read(self, identifier: str) -> None:
+    def notification_inbox(self, limit: int) -> dict:
+        """Page each outcome separately so a burst of failures cannot hide completions."""
         with self.connect() as db:
-            db.execute("UPDATE events SET read_at=? WHERE id=?", (utc_now(), identifier))
+            events = []
+            totals = {}
+            for group, comparison in (("normal", "="), ("exception", "!=")):
+                predicate = f"kind {comparison} 'completed'"
+                totals[group] = db.execute(
+                    f"SELECT COUNT(*) FROM events WHERE {predicate}"
+                ).fetchone()[0]
+                rows = db.execute(
+                    "SELECT id, session_id, kind, title, created_at, read_at FROM events "
+                    f"WHERE {predicate} "
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (limit,),
+                )
+                events.extend(dict(row) for row in rows)
+            unread = db.execute("SELECT COUNT(*) FROM events WHERE read_at IS NULL").fetchone()[0]
+            monitor = dict(db.execute("SELECT key,value FROM meta"))
+        return {"events": events, "totals": totals, "unread": unread, "monitor": monitor}
+
+    def mark_read(self, identifier: str | None = None) -> None:
+        with self.connect() as db:
+            if identifier is None:
+                db.execute("UPDATE events SET read_at=? WHERE read_at IS NULL", (utc_now(),))
+            else:
+                db.execute(
+                    "UPDATE events SET read_at=? WHERE id=? AND read_at IS NULL",
+                    (utc_now(), identifier),
+                )
 
     def policy(self, job_id: str) -> dict:
         with self.connect() as db:

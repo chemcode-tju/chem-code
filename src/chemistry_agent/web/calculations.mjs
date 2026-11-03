@@ -36,7 +36,7 @@ export function renderTaskCard(item, job, recovery, sessionPath, policy={}) {
     ${job ? (!job.finished_ok ? `<details data-fold="recovery"><summary>故障处理</summary>${surface && !surface.co_sites?.length ? '' : `<label>自动重试上限 <input type="number" min="0" max="5" value="${esc(policy.max_attempts ?? 2)}" data-retry-limit="${id}"></label><button data-recovery-job="${esc(job.id)}" data-recovery-mode="auto">启用或更新自动重试</button>`}<button data-recovery-job="${esc(job.id)}" data-recovery-mode="diagnose">请求分析</button><button data-recovery-job="${esc(job.id)}" data-recovery-mode="off">关闭自动处理</button></details>` : '') : `${surface && !surface.co_sites?.length ? '' : `<details data-fold="policy"><summary>重试设置</summary><label><input type="checkbox" data-auto-recovery="${id}">自动修复</label><label>最多 <input type="number" min="0" max="5" value="2" data-retry-limit="${id}"> 次</label></details>`}<button type="button" class="tool-submit" data-confirm-preview="${id}">${item.workflow && item.workflow !== 'single' ? '确认整个流程并提交' : '确认提交'}</button>`}</article>`;
 }
 
-export function createCalculations({ api, getSession, ensureSession, isBusy, toast, onConfirmed, viewer, chatFiles, syncReport, refreshProgress, reviseStep }) {
+export function createCalculations({ api, getSession, isBusy, toast, onConfirmed, viewer, chatFiles, syncReport, refreshProgress, reviseStep }) {
   const panel = document.getElementById("calculation-cards");
   const knownSteps = new Map();
   function displayCount(preview,key,count) {
@@ -49,8 +49,6 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   }
   const detail = createStepDetail({api,reviseStep,rememberCount});
   const attachments = document.getElementById("structure-attachments");
-  const input = document.getElementById("structure-file");
-  const button = document.getElementById("structure-upload");
   let enabled = false, session = null, selected = [], records = null, pending = false;
   const path = (id) => `/api/automation/chat/${encodeURIComponent(id)}`;
 
@@ -136,23 +134,6 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     render();
   }
 
-  button.addEventListener("click", () => { if (!isBusy() && !pending) input.click(); });
-  input.addEventListener("change", async () => {
-    const file = input.files[0];
-    if (!file || isBusy() || pending) return;
-    pending = true; button.disabled = true;
-    try {
-      if (file.size > 2_000_000) throw new Error("结构文件不能超过 2 MB。");
-      const id = await ensureSession();
-      const format = /\.cif$/i.test(file.name) ? "cif" : /\.(extxyz|xyz)$/i.test(file.name) ? "extxyz" : "vasp";
-      const result = await api(`${path(id)}/structures`, { method: "POST", body: JSON.stringify({ name: file.name.slice(0, 120), structure: { format, content: await file.text() } }) });
-      if (id !== getSession()) return;
-      await refresh();
-      selected = [...selected.filter((item) => item.id !== result.id), result].slice(-8);
-      drawAttachments(); toast("结构已验证并附加；发送消息即可让 Agent 使用。");
-    } catch (error) { toast(error.message); }
-    finally { pending = false; input.value = ""; button.disabled = false; }
-  });
   attachments.addEventListener("click", (event) => {
     const target = event.target.closest("[data-remove-structure]");
     if (target && !isBusy()) { selected = selected.filter((item) => item.id !== target.dataset.removeStructure); drawAttachments(); }
@@ -193,7 +174,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
     }
     if (target.dataset.attachStructure) {
       const item = records.structures.find((value) => value.id === target.dataset.attachStructure);
-      selected = [...selected.filter((value) => value.id !== item.id), item].slice(-8);
+      selected = [...selected.filter((value) => value.id !== item.id), item];
       drawAttachments(); return;
     }
     pending = true; target.disabled = true;
@@ -216,7 +197,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
         const imported = await api(`${path(id)}/jobs/${encodeURIComponent(target.dataset.importJob)}/structure`, {method: "POST"});
         if (id !== getSession()) return;
         await refresh();
-        selected = [...selected.filter(item => item.id !== imported.id), imported].slice(-8); drawAttachments();
+        selected = [...selected.filter(item => item.id !== imported.id), imported]; drawAttachments();
         toast("优化结构已附加到输入框。");
       } else if (target.dataset.recoveryJob) {
         const control = target.closest("[data-task]").querySelector("[data-retry-limit]");
@@ -288,7 +269,7 @@ export function createCalculations({ api, getSession, ensureSession, isBusy, toa
   return {
     refresh, drawStructures,
     drawReportFigures,
-    enabled(value) { enabled = value; button.hidden = !enabled; if (!enabled) { detail.close(); selected = []; records = null; drawAttachments(); render(); } },
+    enabled(value) { enabled = value; if (!enabled) { detail.close(); selected = []; records = null; drawAttachments(); render(); } },
     selection() { return [...selected]; },
     selectedIds() { return selected.map((item) => item.id); },
     clearSelection() { selected = []; drawAttachments(); },

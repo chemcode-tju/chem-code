@@ -148,16 +148,28 @@ class ChatQueue:
             if state is None:
                 raise AgentError("session_not_found", "会话不存在。", 404)
             async with self.store.db.execute(
-                "SELECT id,session_id,created_at,run_id,status,error,"
-                "CASE WHEN status='completed' AND ? THEN NULL ELSE body END AS body "
-                "FROM chat_requests WHERE session_id=? AND (status IN ('queued','running') OR "
-                "rowid IN (SELECT rowid FROM chat_requests WHERE session_id=? "
+                "SELECT q.id,q.session_id,q.created_at,q.run_id,q.status,q.error,"
+                "r.started_at,r.finished_at,"
+                "(SELECT json_group_array(json_object('name', json_extract(value,'$.name'), "
+                "'success',json_extract(value,'$.success'))) FROM json_each("
+                "CASE WHEN q.status='running' THEN c.payload END,'$.calls')) AS activity,"
+                "CASE WHEN q.status='completed' AND ? THEN NULL ELSE q.body END AS body "
+                "FROM chat_requests q LEFT JOIN runs r ON r.id=q.run_id "
+                "LEFT JOIN chat_checkpoints c ON c.request_id=q.id "
+                "WHERE q.session_id=? AND (q.status IN ('queued','running') OR "
+                "q.rowid IN (SELECT rowid FROM chat_requests WHERE session_id=? "
                 "ORDER BY rowid DESC LIMIT 100)) "
-                "ORDER BY rowid DESC",
+                "ORDER BY q.rowid DESC",
                 (compact, session, session),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return {**dict(state), "requests": [self.public(row) for row in reversed(rows)]}
+        receipts = [self.public(row) for row in reversed(rows)]
+        for item in receipts:
+            item["tools"] = [
+                {"name": call["name"], "success": bool(call["success"])}
+                for call in json.loads(item.pop("activity"))
+            ]
+        return {**dict(state), "requests": receipts}
 
     async def run(self, identifier: str, body: ChatRequest, request: Request) -> None:
         session = str(body.session_id)

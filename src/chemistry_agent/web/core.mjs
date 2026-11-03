@@ -121,9 +121,3 @@ export function metricValue(value, digits = 4) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(digits)));
 }
-
-export function contextBadge(context) {
-  if (!context?.compressed) return null;
-  const label = context.summary_used ? "上下文已压缩" : "工具结果已精简";
-  return { label, description: `预计输入 ${Number(context.input_tokens_after || 0).toLocaleString()} / ${Number(context.input_budget_tokens || 0).toLocaleString()} tokens；已摘要 ${context.summarized_messages || 0} 条历史消息，保留 ${context.retained_turns || 0} 轮近期对话；原始记录完整保存。` };
-}

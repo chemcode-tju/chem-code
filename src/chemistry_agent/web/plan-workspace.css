@@ -155,3 +155,8 @@
 .map-position:has([data-reset-card]:not([hidden])) :is(.map-node strong,.map-card-context) {max-width:calc(100% - 49px);}
 .map-board [data-reset-card] svg {width:15px;height:15px;}
 .step-group-path {margin-top:8px;color:var(--muted);font-size:13px;overflow-wrap:anywhere;}
+.map-window { touch-action:none; cursor:grab; overflow-anchor:none; }
+.map-window.pan-ready,.map-window.pan-ready * { cursor:grab; }
+.map-size { margin:0; }
+.map-world { position:absolute; }
+.map-lane > span,.map-board strong,.map-lanes b,.step-kicker,.step-status { font-weight:400; }

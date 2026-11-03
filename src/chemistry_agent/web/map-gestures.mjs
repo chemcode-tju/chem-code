@@ -1,12 +1,27 @@
 // Capture only after the drag threshold: a stationary press still opens the step.
-export function bindMapGestures({board,view,grip,resize,zoomBy,getScale,save,startNode,select,move,endNode}) {
-  let drag=null, ignoreClick=false, frame=0;
+export function bindMapGestures({board,view,grip,resize,zoomBy,camera,panTo,getScale,save,startNode,select,move,endNode}) {
+  let drag=null, ignoreClick=false, frame=0, space=false;
+  const listeners=new AbortController();
+  document.addEventListener('keydown',e=>{
+    if(e.code!=='Space' || e.target.closest('input,select,textarea,[contenteditable=true]')) return;
+    if(view.contains(e.target) || view.matches(':hover')) {
+      e.preventDefault();space=true;view.classList.add('pan-ready');
+    }
+  },{signal:listeners.signal});
+  const release=()=>{space=false;view.classList.remove('pan-ready');};
+  board.addEventListener('mapdispose',()=>listeners.abort(),{once:true});
+  document.addEventListener('keyup',e=>{if(e.code==='Space') release();},{signal:listeners.signal});
+  window.addEventListener('blur',release,{signal:listeners.signal});
+  board.addEventListener('focusout',e=>{if(!board.contains(e.relatedTarget)) release();});
   function busy(on) {
     if(on) board.dataset.gesture='';
     else {delete board.dataset.gesture;board.dispatchEvent(new Event('mapidle',{bubbles:true}));}
   }
   view.addEventListener('wheel',e=>{
-    if(!e.ctrlKey && !e.metaKey) return;
+    if(!e.ctrlKey && !e.metaKey) {
+      e.preventDefault();const p=camera(), factor=e.deltaMode===1?16:e.deltaMode===2?view.clientHeight:1;
+      panTo(p.left+(e.shiftKey && !e.deltaX?e.deltaY:e.deltaX)*factor,p.top+(e.shiftKey?0:e.deltaY)*factor);save();return;
+    }
     e.preventDefault();
     const r=view.getBoundingClientRect();zoomBy(Math.exp(-e.deltaY*.008),e.clientX-r.left,e.clientY-r.top);
   },{passive:false});
@@ -17,21 +32,21 @@ export function bindMapGestures({board,view,grip,resize,zoomBy,getScale,save,sta
     frame=0;
     if(!drag?.moving) return;
     const d=drag;
-    if(!d.id) {view.scrollTo(d.left-d.x+d.sx,d.top-d.y+d.sy);return;}
+    if(!d.id) {panTo(d.left-d.x+d.sx,d.top-d.y+d.sy);return;}
     const rect=view.getBoundingClientRect();
     const auto=(pos,min,max)=>pos<min+20?-8:pos>max-20?8:0;
     const vx=auto(d.x,rect.left,rect.right),vy=auto(d.y,rect.top,rect.bottom);
     if(vx || vy) view.scrollBy(vx,vy);
-    const dx=(d.x-d.sx+view.scrollLeft-d.left)/getScale(),dy=(d.y-d.sy+view.scrollTop-d.top)/getScale();
+    const dx=(d.x-d.sx+camera().left-d.left)/getScale(),dy=(d.y-d.sy+camera().top-d.top)/getScale();
     move(d.id,d.start,dx,dy);
     if(vx || vy) frame=requestAnimationFrame(paint);
   }
   view.onpointerdown=e=>{
     ignoreClick=false;
-    if(!e.isPrimary || e.button!==0 || e.target.closest('[data-branch],[data-reset-card],[data-folder]')) return;
-    const id=e.target.closest('[data-vertex]')?.dataset.vertex;
-    if(!id && e.pointerType==='touch') return; // Empty paper retains native touch scrolling.
-    drag={pid:e.pointerId,id,start:id && startNode(id),sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,left:view.scrollLeft,top:view.scrollTop,moving:false};
+    if(!e.isPrimary || ![0,1].includes(e.button) || (!space && e.button===0 && e.target.closest('[data-branch],[data-reset-card],[data-folder]'))) return;
+    const id=!space && e.button===0 && e.target.closest('[data-vertex]')?.dataset.vertex;
+    if(e.button===1 || space) e.preventDefault();
+    drag={pid:e.pointerId,id,start:id && startNode(id),sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,...camera(),moving:false};
     // Keep click targeting the original button even if the pointer leaves the paper.
     e.target.setPointerCapture(e.pointerId);busy(true);
   };

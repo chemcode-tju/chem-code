@@ -64,7 +64,7 @@ async def list_projects(request: Request) -> list[dict]:
         ) as cursor:
             projects = [dict(row) for row in await cursor.fetchall()]
         async with store.db.execute(
-            "SELECT s.id, s.title, ps.project_id FROM sessions s "
+            "SELECT s.id, COALESCE(s.summary_title,s.title) title, ps.project_id FROM sessions s "
             "JOIN project_sessions ps ON ps.session_id=s.id "
             "JOIN projects p ON p.id=ps.project_id "
             "WHERE s.owner_id IS ? AND p.owner_id IS ? ORDER BY s.updated_at DESC",

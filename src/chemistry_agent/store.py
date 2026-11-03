@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import aiosqlite
 from filelock import FileLock
@@ -16,6 +16,7 @@ from chemistry_agent.errors import AgentError
 from chemistry_agent.projects import init_project_schema
 from chemistry_agent.runtime.checkpoint import UNCERTAIN
 from chemistry_agent.schemas import ContextMemory, ContextUsage, TokenUsage, ToolExecution
+from chemistry_agent.session_titles import init_title_schema
 
 
 def utc_now() -> str:
@@ -25,7 +26,8 @@ def utc_now() -> str:
 class Store:
     """Single-process SQLite storage with atomic per-session run reservations."""
 
-    def __init__(self, db: aiosqlite.Connection, process_lock: FileLock):
+    def __init__(self, db: aiosqlite.Connection, process_lock: FileLock, path: Path):
+        self.attachment_dir = path.parent / (path.name + ".files")
         self.db = db
         self.lock = asyncio.Lock()
         self.process_lock = process_lock
@@ -112,6 +114,7 @@ class Store:
             )
             await init_project_schema(db)
             await init_attachment_schema(db)
+            await init_title_schema(db)
             # End old run leases but preserve replayable request checkpoints.
             await db.execute(
                 "UPDATE runs SET status='interrupted', error_code='service_restarted', "
@@ -141,7 +144,7 @@ class Store:
             await db.close()
             process_lock.release()
             raise
-        return cls(db, process_lock)
+        return cls(db, process_lock, path)
 
     async def close(self) -> None:
         try:
@@ -200,9 +203,16 @@ class Store:
         session_id, now = str(uuid4()), utc_now()
         async with self.transaction():
             await self.db.execute(
-                "INSERT INTO sessions(id, title, created_at, updated_at, owner_id) "
-                "VALUES (?,?,?,?,?)",
-                (session_id, title, now, now, owner_id),
+                "INSERT INTO sessions(id, title, created_at, updated_at, owner_id, summary_title) "
+                "VALUES (?,?,?,?,?,?)",
+                (
+                    session_id,
+                    title,
+                    now,
+                    now,
+                    owner_id,
+                    title if title in {"新对话", "结构与计算"} else None,
+                ),
             )
         return {"id": session_id, "title": title, "created_at": now, "updated_at": now}
 
@@ -212,7 +222,8 @@ class Store:
         async with (
             self.lock,
             self.db.execute(
-                "SELECT id, title, created_at, updated_at FROM sessions "
+                "SELECT id, COALESCE(summary_title,title) title, created_at, updated_at, "
+                "(summary_title IS NOT NULL AND summary_ready=0) title_pending FROM sessions "
                 "WHERE owner_id IS ? ORDER BY updated_at DESC, id LIMIT ? OFFSET ?",
                 (owner_id, limit, offset),
             ) as cursor,
@@ -222,7 +233,8 @@ class Store:
     async def get_session(self, session_id: str, owner_id: str | None = None) -> dict[str, Any]:
         async with self.lock:
             row = await self._one(
-                "SELECT id, title, created_at, updated_at FROM sessions "
+                "SELECT id, COALESCE(summary_title,title) title, created_at, updated_at, "
+                "(summary_title IS NOT NULL AND summary_ready=0) title_pending FROM sessions "
                 "WHERE id=? AND owner_id IS ?",
                 (session_id, owner_id),
             )
@@ -277,7 +289,12 @@ class Store:
             )
 
     async def begin_run(
-        self, session_id: str, owner_id: str | None = None, *, request_id: str | None = None
+        self,
+        session_id: str,
+        owner_id: str | None = None,
+        *,
+        request_id: str | None = None,
+        file_ids: tuple[UUID, ...] = (),
     ) -> tuple[str, list[dict[str, Any]]]:
         run_id = str(uuid4())
         async with self.transaction():
@@ -296,6 +313,11 @@ class Store:
             await self.db.execute(
                 "UPDATE sessions SET active_run_id=? WHERE id=?", (run_id, session_id)
             )
+            if file_ids:
+                await self.db.executemany(
+                    "INSERT OR IGNORE INTO session_files(session_id,file_id) VALUES(?,?)",
+                    [(session_id, str(file_id)) for file_id in file_ids],
+                )
             if request_id:
                 await self.db.execute(
                     "UPDATE chat_requests SET status='running',run_id=? "

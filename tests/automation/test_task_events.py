@@ -264,6 +264,19 @@ def test_notification_routes_respect_local_boundary(settings_factory, tmp_path):
         response = client.post(f"/api/automation/notifications/{event_id}/read")
         assert response.status_code == 200
         assert client.get("/api/automation/notifications").json()["unread"] == 0
+        for i in range(3):
+            store.notify("second-session", "other", "failed", "failed", {}, f"failed-{i}")
+        page = client.get("/api/automation/notifications?limit=1").json()
+        assert page["totals"] == {"normal": 1, "exception": 3}
+        assert {row["session_id"] for row in page["events"]} == {"session", "second-session"}
+        assert (
+            client.post(
+                "/api/automation/notifications/read-all", headers={"Origin": "https://evil.example"}
+            ).status_code
+            == 403
+        )
+        assert client.post("/api/automation/notifications/read-all").status_code == 200
+        assert client.get("/api/automation/notifications").json()["unread"] == 0
         assert (
             client.post(
                 f"/api/automation/notifications/{event_id}/read",

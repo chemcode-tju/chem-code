@@ -1,13 +1,13 @@
 // A single path and a viewport rectangle represent the whole graph, even when it contains hundreds of cards.
-export function createNavigator(button, view, read) {
+export function createNavigator(button, view, read, panTo) {
   const svg=button.querySelector('svg'), dots=svg.querySelector('path'), viewport=svg.querySelector('rect');
   function position() {
-    const {layout,scale}=read();
+    const {layout,scale,left,top}=read();
     if(!layout) return;
     const w=Math.min(layout.width,view.clientWidth/scale),h=Math.min(layout.height,view.clientHeight/scale);
     viewport.setAttribute('width',w);viewport.setAttribute('height',h);
-    viewport.setAttribute('x',Math.max(0,Math.min(layout.width-w,view.scrollLeft/scale)));
-    viewport.setAttribute('y',Math.max(0,Math.min(layout.height-h,view.scrollTop/scale)));
+    viewport.setAttribute('x',Math.max(0,Math.min(layout.width-w,left/scale)));
+    viewport.setAttribute('y',Math.max(0,Math.min(layout.height-h,top/scale)));
   }
   function draw() {
     const {layout,width,height}=read();
@@ -19,7 +19,7 @@ export function createNavigator(button, view, read) {
   }
   function pan(e) {
     const r=svg.getBoundingClientRect(), {layout,scale}=read();
-    view.scrollTo((e.clientX-r.left)/r.width*layout.width*scale-view.clientWidth/2,
+    panTo((e.clientX-r.left)/r.width*layout.width*scale-view.clientWidth/2,
       (e.clientY-r.top)/r.height*layout.height*scale-view.clientHeight/2);
   }
   button.onpointerdown=e=>{if(e.button===0){button.setPointerCapture(e.pointerId);pan(e);}};

@@ -4,10 +4,10 @@ import asyncio
 import json
 from functools import cached_property
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4, uuid5
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import (
@@ -23,6 +23,9 @@ from chemistry_agent.automation.settings_tools import settings_tools
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
 
+if TYPE_CHECKING:
+    from chemistry_agent.store import Store
+
 
 class EmptyInput(StrictModel):
     pass
@@ -34,7 +37,15 @@ class SetupInput(StrictModel):
 
 class ImportInput(StrictModel):
     name: str = Field(default="structure", min_length=1, max_length=120)
-    structure: StructureInput
+    structure: StructureInput | None = None
+    file_id: UUID | None = Field(default=None, description="Original file attached to this chat")
+    format: Literal["vasp", "cif", "extxyz"] | None = None
+
+    @model_validator(mode="after")
+    def one_source(self):
+        if (self.file_id is None) == (self.structure is None):
+            raise ValueError("请提供附件 ID 或结构内容。")
+        return self
 
 
 class ModelInput(StrictModel):
@@ -90,6 +101,7 @@ class CalculationChat:
         from chemistry_agent.automation.plans import CalculationPlans
 
         self.service = service
+        self.attachment_store: Store | None = None
         self.root = service.settings.aiida_path / "chat"
         self.review_lock = asyncio.Lock()
         self.model_lock = asyncio.Lock()
@@ -129,6 +141,45 @@ class CalculationChat:
         return [json.loads(path.read_text()) for path in paths[offset : offset + limit]]
 
     async def import_structure(self, args: ImportInput, context: ToolContext) -> dict:
+        if args.file_id:
+            from chemistry_agent.attachments import session_file
+
+            if self.attachment_store is None:
+                raise AgentError("file_not_found", "此对话中没有该附件。", 404)
+            name, source = await session_file(
+                self.attachment_store, context.session_id, args.file_id
+            )
+            fmt = args.format or (
+                "cif"
+                if name.lower().endswith(".cif")
+                else "extxyz"
+                if name.lower().endswith((".xyz", ".extxyz"))
+                else "vasp"
+            )
+            identifier = str(uuid5(UUID(context.session_id), f"file:{args.file_id}:{fmt}"))
+            async with self.import_lock:
+                target = self.directory(context.session_id, "structures") / f"{identifier}.json"
+                if target.is_file():
+                    return self.structure_summary(
+                        self.load(context.session_id, "structures", identifier)
+                    )
+                if isinstance(source, Path):
+                    validated = await self.service.call(
+                        "validate_structure_file", {"file": str(source), "format": fmt}
+                    )
+                else:
+                    validated = await self.service.call(
+                        "validate_structure_file",
+                        {"text": source.decode("utf-8-sig"), "format": fmt},
+                    )
+                data = {
+                    "id": identifier,
+                    "name": name,
+                    "source_file_id": str(args.file_id),
+                    **validated,
+                }
+                self.save(context.session_id, "structures", identifier, data)
+                return self.structure_summary(data)
         validated = await self.service.call("validate_structure", args.structure.model_dump())
         identifier = str(uuid4())
         data = {"id": identifier, "name": args.name, **validated}
@@ -448,7 +499,8 @@ class CalculationChat:
                 ),
                 Tool(
                     "import_structure",
-                    "Validate and save one periodic structure supplied in chat.",
+                    "Validate a periodic geometry. Use file_id for an original in this chat, "
+                    "or supply structure text. Choose a single frame for calculations.",
                     ImportInput,
                     self.import_structure,
                     True,

@@ -1,3 +1,4 @@
+import {progressMarkdown} from "./answer-ui.mjs";
 import {escapeHtml as esc} from './core.mjs';
 
 const kinds={submission:'提交回执',step:'步骤',diagnosis:'诊断',repair:'修复',interpretation:'Agent 解读',plan:'方案总结'};
@@ -5,15 +6,11 @@ export function createProgressFeed({api,getSession,markdown,onFinal}) {
   const list=document.getElementById('progress-events');
   let session=null, cursor=0, loading=false, generation=0, rows=[], history=[];
   const finals=new Set();
-  let visibleRows=40, inboxRows=16;
-  const inbox=document.getElementById('progress-inbox');
+  let visibleRows=40;
   const label=row=>row.kind==='step' && ['model','analysis'].includes(row.detail?.node_kind)
     ? '辅助操作' : kinds[row.kind] || row.kind;
   list.addEventListener('click', event => {
     if(event.target.closest('[data-earlier]')) {visibleRows+=40;draw();}
-  });
-  inbox.addEventListener('click', event => {
-    if(event.target.closest('[data-earlier]')) {inboxRows+=16;draw();}
   });
   const step=document.getElementById('step-screen');
   step.addEventListener('stepchange',draw);
@@ -24,7 +21,7 @@ export function createProgressFeed({api,getSession,markdown,onFinal}) {
       const title=titles.get(JSON.stringify([row.plan_id,row.node_id]));
       const state=row.status ? ' · '+esc(row.status) : '';
       const job=row.detail?.scheduler_job_id ? ' · #'+esc(row.detail.scheduler_job_id) : '';
-      return `<article><small>${esc(label(row))}${state}${job} · ${esc(new Date(row.created_at).toLocaleString())}</small>${title && row.kind!=='step'?`<h4>${esc(title)}</h4>`:''}<div class="markdown">${markdown.render(row.message || '')}</div></article>`;
+      return `<article><small>${esc(label(row))}${state}${job} · ${esc(new Date(row.created_at).toLocaleString())}</small>${title && row.kind!=='step'?`<h4>${esc(title)}</h4>`:''}${progressMarkdown(markdown,row.message || '')}</article>`;
     };
     const updates=rows.filter(row=>row.kind!=='plan').slice().reverse();
     const items=updates.slice(0,visibleRows).map(item);
@@ -32,24 +29,14 @@ export function createProgressFeed({api,getSession,markdown,onFinal}) {
     const related=rows.filter(row=>row.plan_id===step.dataset.planId && row.node_id===step.dataset.nodeId);
     document.getElementById('step-replies').hidden=!related.length;
     document.getElementById('step-reply-list').innerHTML=related.map(item).join('');
-    const seen=new Set();
-    const briefs=rows.slice().reverse().filter(row=>{
-      const key=row.detail?.run_id || row.seq;
-      if(seen.has(key)) return false;
-      seen.add(key);return true;
-    });
-    const open=new Set([...inbox.querySelectorAll('details[open]')].map(el=>el.dataset.event));
-    inbox.innerHTML=briefs.length?'<h3>当前会话</h3>'+briefs.slice(0,inboxRows).map(row=>
-      `<details data-event="${esc(row.seq)}" ${open.has(String(row.seq))?'open':''}><summary>${esc(label(row))} · ${esc(row.message.split('\n')[0].slice(0,120))}</summary><div class="markdown">${markdown.render(row.message)}</div></details>`
-    ).join('')+(briefs.length>inboxRows?'<button class="view-result" data-earlier>查看更早的消息</button>':''):'';
     const messages=new Set(rows.map(row=>row.message));
     for(const turn of history) if(!finals.has(turn.event) && !turn.event.startsWith('plan:') && !messages.has(turn.answer)) {
-      items.push(`<article><small>Agent · 历史步骤回复</small><div class="markdown">${markdown.render(turn.answer)}</div></article>`);
+      items.push(`<article><small>Agent · 历史步骤回复</small>${progressMarkdown(markdown,turn.answer)}</article>`);
     }
     list.innerHTML=items.join('') || '<p class="inspector-empty">暂无步骤回复</p>';
   }
   function reset(id=null) {
-    session=id; generation++; cursor=0; visibleRows=40; inboxRows=16; rows=[]; history=[]; finals.clear();loading=false;draw();
+    session=id; generation++; cursor=0; visibleRows=40; rows=[]; history=[]; finals.clear();loading=false;draw();
   }
   async function refresh(id) {
     if(session!==id) reset(id);

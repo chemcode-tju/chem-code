@@ -1,37 +1,57 @@
-export function initWorkspaceControls() {
+export function initWorkspaceControls({closeInspector}) {
   const body=document.body, dock=document.getElementById('inspector'), grip=document.getElementById('dock-grip');
   const maximize=document.getElementById('dock-max');
-  function maximumWidth() {
-    const sidebar = parseFloat(getComputedStyle(body).getPropertyValue('--sidebar')) || 0;
-    return Math.max(300, Math.floor(innerWidth - sidebar - 360));
-  }
+  const sidebarWidth = () => document.getElementById('sidebar').offsetWidth || parseFloat(getComputedStyle(body).getPropertyValue('--sidebar')) || 0;
+  const maximumWidth = () => Math.max(300,innerWidth-sidebarWidth()-40);
   function resize(width) {
     width=Math.round(Math.max(300,Math.min(maximumWidth(),width)));
     body.style.setProperty('--dock-width',width+'px');
     grip.setAttribute('aria-valuenow',String(width));
-    grip.setAttribute('aria-valuemax',String(maximumWidth()));
   }
-  try { const value=Number(localStorage.getItem('chemistry.dockWidth')); if(value>0) resize(value); } catch {}
   function remember() {
     try {localStorage.setItem('chemistry.dockWidth',String(dock.offsetWidth));} catch {}
   }
-  new ResizeObserver(() => {
-    if (!body.classList.contains('inspector-open') || body.classList.contains('dock-max')) return;
-    grip.setAttribute('aria-valuenow', String(dock.offsetWidth));
-    grip.setAttribute('aria-valuemax', String(maximumWidth()));
+  try {const saved=Number(localStorage.getItem('chemistry.dockWidth'));if(saved>0) resize(saved);} catch {}
+  new ResizeObserver(()=>{
+    grip.setAttribute('aria-valuemin','0');grip.setAttribute('aria-valuemax',String(innerWidth));
+    grip.setAttribute('aria-valuenow',String(dock.offsetWidth));
   }).observe(dock);
-  grip.onpointerdown=event=>{
-    if(event.button) return;
-    grip.setPointerCapture(event.pointerId);
+  let drag=null;
+  function preview(x) {
+    const width=innerWidth-x;
+    body.dataset.dockSnap=width<=72?'close':x<=sidebarWidth()+24?'full':'resize';
+    if(body.classList.contains('dock-max') && body.dataset.dockSnap!=='full') setMaximized(false);
+    if(body.dataset.dockSnap==='resize') resize(width);
+  }
+  grip.onpointerdown=e=>{
+    if(e.button!==0 || !e.isPrimary) return;
+    e.preventDefault();grip.focus({preventScroll:true});grip.setPointerCapture(e.pointerId);
+    drag={id:e.pointerId,x:e.clientX,width:dock.offsetWidth,full:body.classList.contains('dock-max')};
     body.classList.add('dock-drag');
   };
-  grip.onpointermove=event=>{if(grip.hasPointerCapture(event.pointerId)) resize(innerWidth-event.clientX);};
-  grip.onlostpointercapture=()=>{body.classList.remove('dock-drag');remember();};
-  grip.onkeydown=event=>{
-    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
-    event.preventDefault();
-    resize(event.key==='Home'?300:event.key==='End'?maximumWidth():dock.offsetWidth+(event.key==='ArrowLeft'?32:-32));
-    remember();
+  grip.onpointermove=e=>{if(drag?.id===e.pointerId && Math.abs(e.clientX-drag.x)>3) preview(e.clientX);};
+  function finish(e,cancel=false) {
+    if(drag?.id!==e.pointerId) return;
+    if(!cancel && Math.abs(e.clientX-drag.x)>3) preview(e.clientX);
+    const snap=body.dataset.dockSnap, before=drag;drag=null;
+    body.classList.remove('dock-drag');delete body.dataset.dockSnap;
+    if(cancel || !snap) {setMaximized(before.full);if(!before.full) resize(before.width);return;}
+    if(snap==='close' || snap==='full') {
+      if(!before.full) resize(before.width);
+      if(snap==='close') closeInspector();else setMaximized(true);
+    } else remember();
+  }
+  grip.onpointerup=e=>finish(e);
+  grip.onpointercancel=e=>finish(e,true);
+  grip.onlostpointercapture=e=>{if(drag) finish(e,true);};
+  grip.onkeydown=e=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
+    e.preventDefault();
+    if(e.key==='Home') {closeInspector();return;}
+    if(e.key==='End' || (e.key==='ArrowLeft' && dock.offsetWidth>=maximumWidth())) {setMaximized(true);return;}
+    if(e.key==='ArrowRight' && dock.offsetWidth<=300) {closeInspector();return;}
+    const width=body.classList.contains('dock-max')?maximumWidth():dock.offsetWidth;
+    setMaximized(false);resize(width+(e.key==='ArrowLeft'?32:-32));remember();
   };
   function setMaximized(active) {
     body.classList.toggle('dock-max', active);

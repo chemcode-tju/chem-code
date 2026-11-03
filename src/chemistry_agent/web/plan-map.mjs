@@ -37,7 +37,7 @@ export function planMap(layers, key, attribute, title = '') {
     <button type="button" class="map-navigator" title="点击或拖动缩略图定位" aria-label="缩略图导航"><svg preserveAspectRatio="none" aria-hidden="true"><path/><rect/></svg></button>
     <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><span class="map-quick">← 收起 · → 展开</span><span class="map-paper-title">${esc(title)}</span></div>
     <div class="map-pop map-help" data-pop="keys" hidden>
-      ${shortcut('← / →','收起 / 展开分支')}${shortcut('↑ / ↓','上一个 / 下一个节点')}${shortcut('Enter','查看步骤详情')}${shortcut('/','查找步骤')}${shortcut('R','恢复这张卡片原位')}${shortcut('F','切换全屏')}${shortcut('0','适应画布')}${shortcut('Esc','关闭浮层或全屏')}${shortcut('↔','拖动卡片移动，拖动空白平移')}
+      ${shortcut('← / →','收起 / 展开分支')}${shortcut('↑ / ↓','上一个 / 下一个节点')}${shortcut('Enter','查看步骤详情')}${shortcut('/','查找步骤')}${shortcut('R','恢复这张卡片原位')}${shortcut('F','切换全屏')}${shortcut('0','适应画布')}${shortcut('Esc','关闭浮层或全屏')}${shortcut('Space + 拖动','平移画布')}
     </div><div class="map-grip" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="调整画布高度" title="拖动调整画布高度"><i></i></div>
     </div><dialog class="map-dialog" aria-label="全屏方案画布"></dialog></div>`;
 }
@@ -59,7 +59,9 @@ function mount(map, previous) {
   const graphs=new Map(), modes={...saved.modes};
   let all=saved.all===true || onlyAux, graph, folds, closed, moves, group, layout, active=null, lit=null, paths=[], incident;
   let showNav=saved.showNav!==false;
-  const nav=createNavigator($('.map-navigator'),view,()=>({layout,scale,...CARD}));
+  let originX=0, originY=0;
+  const camera=()=>({left:view.scrollLeft-originX,top:view.scrollTop-originY});
+  const nav=createNavigator($('.map-navigator'),view,()=>({layout,scale,...camera(),...CARD}),panTo);
   let scale=bound(Number(saved.scale)||1,.005,3), height=saved.height || 0, pop='', raf=0, interacted=false;
   const cnEn=(cn,en)=>getLanguage()==='en'?en:cn;
   const folderButtons=new Map();
@@ -90,7 +92,7 @@ function mount(map, previous) {
     modes[all]={folds:[...folds],moves:[...moves],group,openFolders:[...graph.folders.keys()].filter(id=>!closed.has(id))};
     const focused=board.contains(document.activeElement);
     const focusedFolder=focused ? document.activeElement.closest('[data-folder]')?.dataset.folder : null;
-    return {modes,all,active,scale,height,showNav,left:view.scrollLeft,top:view.scrollTop,full:dialog.open,focused,focusedFolder};
+    return {modes,all,active,scale,height,showNav,...camera(),full:dialog.open,focused,focusedFolder};
   }
   function save() {
     if (!board.getClientRects().length) return;
@@ -99,15 +101,27 @@ function mount(map, previous) {
       try {const {full,focused,focusedFolder,...persist}=snapshot();sessionStorage.setItem(storageKey,JSON.stringify(persist));} catch { /* Optional. */ }
     });
   }
+  function panTo(left,top) {
+    const w=view.clientWidth, h=view.clientHeight;
+    if (!w || !h) return;
+    const graphWidth=Math.ceil(layout.width*scale), graphHeight=Math.ceil(layout.height*scale);
+    // Keep scrollable paper on both sides of the graph, extending it as the camera moves.
+    originX=Math.max(w,-Math.floor(left)+w);
+    originY=Math.max(h,-Math.floor(top)+h);
+    world.style.left=originX+'px';world.style.top=originY+'px';
+    size.style.width=(originX+Math.max(graphWidth,Math.ceil(left)+w)+w)+'px';
+    size.style.height=(originY+Math.max(graphHeight,Math.ceil(top)+h)+h)+'px';
+    view.scrollTo(originX+left,originY+top);
+    view.style.setProperty('--lane-inset',(left/scale+12)+'px');
+    nav.position();
+  }
   function setSize() {
-    world.style.width=layout.width+'px'; world.style.height=layout.height+'px';
-    size.style.marginTop=(dialog.open?Math.max(0,(view.clientHeight-layout.height*scale)/2):0)+'px';
-    size.style.width=Math.ceil(layout.width*scale)+'px'; size.style.height=Math.ceil(layout.height*scale)+'px';
+    const {left,top}=camera();
+    world.style.width=layout.width+'px';world.style.height=layout.height+'px';
     world.style.transform=`scale(${scale})`;map.dataset.scale=scale;
     $('[data-zoom="0"]').textContent=Math.round(scale*100)+'%';
-    view.style.setProperty('--lane-inset',(view.scrollLeft/scale+12)+'px');
-    $('.map-navigator').hidden=!showNav || !dialog.open || (layout.width*scale<=view.clientWidth && layout.height*scale<=view.clientHeight);
-    nav.position();
+    $('.map-navigator').hidden=!showNav || !dialog.open;
+    panTo(left,top);
   }
   function mark(id) {
     if (id===lit) return;
@@ -186,19 +200,16 @@ function mount(map, previous) {
     const p=layout.points.get(id) || layout.headers.get(id);
     if(!p) return;
     const h=layout.headers.has(id)?FOLDER_HEIGHT:CARD.height;
-    view.scrollTo((p.x+CARD.width/2)*scale-view.clientWidth/2,(p.y+h/2)*scale-view.clientHeight/2);
+    panTo((p.x+CARD.width/2)*scale-view.clientWidth/2,(p.y+h/2)*scale-view.clientHeight/2);
   }
   function zoom(value,x=view.clientWidth/2,y=view.clientHeight/2) {
-    const inset=s=>Math.max(0,(view.clientWidth-layout.width*s)/2);
-    const insetY=s=>dialog.open?Math.max(0,(view.clientHeight-layout.height*s)/2):0;
-    const ratio=value/scale,left=(view.scrollLeft+x-inset(scale))*ratio+inset(value)-x;
-    const top=(view.scrollTop+y-insetY(scale))*ratio+insetY(value)-y;
-    scale=value;setSize();view.scrollTo(left,top);save();
+    const position=camera(), ratio=value/scale;
+    scale=value;setSize();panTo((position.left+x)*ratio-x,(position.top+y)*ratio-y);save();
   }
   function zoomBy(factor,x,y) {zoom(bound(scale*factor,Math.min(scale,.12),3),x,y);}
   function fit() {
     if(!view.clientWidth || !view.clientHeight) return;
-    zoom(Math.min(1,(view.clientWidth-8)/layout.width,(view.clientHeight-8)/layout.height));view.scrollTo(0,0);save();
+    zoom(Math.min(1,(view.clientWidth-8)/layout.width,(view.clientHeight-8)/layout.height));panTo((layout.width*scale-view.clientWidth)/2,(layout.height*scale-view.clientHeight)/2);save();
   }
   function toggle(id,expanded) {
     if(!graph.byId.get(id)?.children.length || !layout.points.has(id)) return;
@@ -240,7 +251,7 @@ function mount(map, previous) {
   function setFull(on,focus=true) {
     if(on===dialog.open) return;
     closePop();
-    const left=view.scrollLeft,top=view.scrollTop;
+    const {left,top}=camera();
     if(on) {dialog.append(board);dialog.showModal();}
     else {dialog.close();map.insertBefore(board,dialog);}
     const trigger=$('[data-command="full"]'),label=t(on?'退出全屏':'全屏画布');
@@ -249,7 +260,7 @@ function mount(map, previous) {
     if(focus) trigger.focus({preventScroll:true});
     const narrow=view.clientWidth>0 && view.clientWidth<530;
     if(compact!==narrow) {compact=narrow;draw();} else setSize();
-    view.scrollTo(left,top);
+    panTo(left,top);
   }
   dialog.addEventListener('cancel',e=>{e.preventDefault();if(pop) closePop(true);else setFull(false);});
   function search() {
@@ -336,7 +347,7 @@ function mount(map, previous) {
   });
   view.onpointerover=e=>{if(e.pointerType!=='touch') {const el=e.target.closest('[data-vertex],[data-folder]');mark(el?.dataset.vertex || el?.dataset.folder || (interacted?active:null));}};
   view.onpointerleave=()=>mark(interacted?active:null);
-  view.onscroll=()=>{view.style.setProperty('--lane-inset',(view.scrollLeft/scale+12)+'px');nav.position();save();};
+  view.onscroll=()=>{view.style.setProperty('--lane-inset',(camera().left/scale+12)+'px');nav.position();save();};
   board.onfocusout=e=>{if(e.relatedTarget && !board.contains(e.relatedTarget)) closePop();};
   board.onpointerdown=e=>{if(pop && !e.target.closest('[data-pop],[data-command="'+pop+'"]')) closePop();};
   function navigate(key) {
@@ -390,7 +401,7 @@ function mount(map, previous) {
       layout.width=Math.max(layout.width,p.x+CARD.width+24);layout.height=Math.max(layout.height,p.y+CARD.height+20);setSize();
     }
   }
-  bindMapGestures({board,view,grip,resize,zoomBy,getScale:()=>scale,save,
+  bindMapGestures({board,view,grip,resize,zoomBy,camera,panTo,getScale:()=>scale,save,
     startNode:id=>({...layout.points.get(id),offset:moves.get(id)||{x:0,y:0}}),
     select:id=>choose(id,true),move,endNode:(id,start)=>{
       const clear=clearDrop(layout.points,id);
@@ -403,21 +414,20 @@ function mount(map, previous) {
     if(s.full) setFull(true,false);
     if(s.active && layout.points.has(s.active)) choose(s.active,s.focused && !s.focusedFolder);
     if(s.focused && s.focusedFolder) folderButtons.get(s.focusedFolder)?.focus({preventScroll:true});
-    view.scrollTo(s.left || 0,s.top || 0);
+    panTo(s.left ?? Math.min(0,(layout.width*scale-view.clientWidth)/2),s.top ?? 0);
   }
   const sizeObserver=new ResizeObserver(()=>{
     if(!view.clientWidth) return;
     const narrow=view.clientWidth<530;
     if(compact!==narrow) {
       compact=narrow;draw();
-      if(interacted) center(active);
     }
     if(height && !dialog.open) resize(height);
     setSize();
   });
   sizeObserver.observe(view);
   restore(saved);
-  return {snapshot,restore,dispose:()=>{sizeObserver.disconnect();cancelAnimationFrame(raf);},suspend:()=>{if(dialog.open)setFull(false,false);}};
+  return {snapshot,restore,dispose:()=>{board.dispatchEvent(new Event('mapdispose'));sizeObserver.disconnect();cancelAnimationFrame(raf);},suspend:()=>{if(dialog.open)setFull(false,false);}};
 }
 
 export function mountMaps(panel, previous = new Map()) {

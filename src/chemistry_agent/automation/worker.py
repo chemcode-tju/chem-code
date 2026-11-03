@@ -49,6 +49,7 @@ def dispatch(message: dict) -> dict:
         "resume_quota_job": backend.resume_quota_job,
         "jobs": lambda _: backend.jobs(),
         "validate_structure": backend.validate_structure,
+        "validate_structure_file": backend.validate_structure_file,
         "scheduler_options": backend.scheduler_options,
         "hold_quota_job": backend.hold_quota_job,
         "retire_quota_job": backend.retire_quota_job,

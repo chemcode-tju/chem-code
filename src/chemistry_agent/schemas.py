@@ -20,12 +20,12 @@ class ChatRequest(StrictModel):
     model: str | None = Field(
         default=None, min_length=1, max_length=160, pattern=r"^[^\x00-\x20\x7f]+$"
     )
-    file_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    file_ids: list[UUID] = Field(default_factory=list)
     message: str = Field(min_length=1, max_length=20000)
     session_id: UUID | None = None
     # User-supplied excerpts only; this endpoint does not read local files or fetch URLs.
     context: str | None = Field(default=None, max_length=50000)
-    structure_ids: list[UUID] = Field(default_factory=list, max_length=8)
+    structure_ids: list[UUID] = Field(default_factory=list)
 
 
 class QueuedChatRequest(ChatRequest):
@@ -91,6 +91,7 @@ class SessionSummary(BaseModel):
 
 
 class SessionDetail(SessionSummary):
+    title_pending: bool = False
     messages: list[dict[str, Any]]
 
 
