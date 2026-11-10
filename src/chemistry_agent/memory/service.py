@@ -155,6 +155,7 @@ class ResearchMemory:
 
     async def search(self, session: str, args: MemorySearch) -> dict:
         query_terms = sorted(tokens(args.query))[:80]
+        facets = [term for term in query_terms if re.fullmatch(r"[a-z]{1,2}[0-9]{3}", term)]
         async with self.store.lock:
             caller = await self._session(session)
             sql = (
@@ -176,8 +177,21 @@ class ResearchMemory:
             if args.query.strip() and not query_terms:
                 return {"items": [], "scope": args.scope, "truncated": False}
             if query_terms:
-                sql += "AND research_memory_fts MATCH ? ORDER BY bm25(research_memory_fts), "
+                sql += "AND research_memory_fts MATCH ? ORDER BY "
                 params.append(" OR ".join(f'"{term}"' for term in query_terms))
+                # Rank across the full authorized candidate set before LIMIT. Common task
+                # words must not bury the explicitly requested material/facet in large corpora.
+                if facets:
+                    matches = [
+                        "CASE WHEN instr(' ' || f.terms || ' ', ?) > 0 THEN 1 ELSE 0 END"
+                        for _ in facets
+                    ]
+                    sql += "(" + " + ".join(matches) + ") DESC, "
+                    params.extend(f" {term} " for term in facets)
+                if set(query_terms) & ALIASES.keys():
+                    sql += "CASE json_extract(m.document,'$.kind') "
+                    sql += "WHEN 'plan' THEN 0 WHEN 'lesson' THEN 1 ELSE 2 END, "
+                sql += "bm25(research_memory_fts), "
             else:
                 sql += "ORDER BY "
             sql += "m.updated_at DESC, m.id LIMIT ?"
@@ -198,6 +212,7 @@ class ResearchMemory:
                     "evidence": body["evidence"],
                     "excerpt": body["content"][:500],
                     "matched_terms": sorted(set(query_terms) & tokens(row["document"])),
+                    "matched_facets": sorted(set(facets) & tokens(row["document"])),
                     "session_id": row["session_id"],
                     "project_id": row["project_id"],
                     "updated_at": row["updated_at"],

@@ -100,6 +100,32 @@ async def test_project_scoping_is_dynamic_personal_scope_explicit_and_no_other_o
         await store.close()
 
 
+async def test_requested_facet_and_plan_rank_before_short_wrong_facet_hits(tmp_path):
+    store = await Store.open(tmp_path / "ranking.sqlite3")
+    try:
+        session = (await store.create_session("ranking"))["id"]
+        memory = ResearchMemory(store)
+        for index in range(30):
+            await memory.save(session, document(
+                title=f"Cu(100) adsorption {index}", content="吸附能 adsorption",
+                systems=["Cu(100)"],
+            ), source_key=f"wrong:{index}")
+        target = await memory.save(session, document(
+            title="Cu(111) reaction scheme", content="长流程说明 " * 1000,
+            systems=["Cu(111)"], tasks=["reaction"],
+        ), source_key="target")
+        await memory.save(session, document(
+            title="Cu111 adsorption gas model", kind="calculation", content="adsorption",
+        ), source_key="short-node")
+        hits = await memory.search(session, MemorySearch(query="Cu(111) 吸附能", limit=3))
+        assert hits["items"][0]["id"] == target["id"]
+        assert hits["items"][0]["matched_facets"] == ["cu111"]
+        assert hits["items"][0]["kind"] == "plan"
+        assert hits["truncated"]
+    finally:
+        await store.close()
+
+
 async def test_versions_concurrent_updates_and_forgotten_source_stays_forgotten(tmp_path):
     store = await Store.open(tmp_path / "version.sqlite3")
     try:
