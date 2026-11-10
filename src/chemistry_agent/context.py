@@ -202,6 +202,7 @@ class ContextManager:
             "import_structure",
             "calculation_prepare",
             "calculation_artifact",
+            "memory_search",
             "memory_read",
             "memory_compare",
         }

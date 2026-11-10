@@ -440,6 +440,41 @@ def test_budget_is_rechecked_after_large_thinking_output(settings_factory):
         assert run["tool_calls"][0]["result"]["formula"] == "C2H6O"
 
 
+async def test_memory_search_keeps_candidates_for_followup_read(settings_factory):
+    """Large search results must not lose IDs before the Agent can read a match."""
+    settings = budget_settings(settings_factory, context_tool_result_tokens=128)
+    counter = TokenCounter(settings.tokenizer_path)
+    store = await Store.open(settings.database_path)
+    provider = DeepSeekClient(
+        settings, transport=httpx.MockTransport(lambda request: httpx.Response(500))
+    )
+    manager = ContextManager(settings, provider, store, counter, SYSTEM_PROMPT, [])
+    content = json.dumps({"items": [
+        {"id": str(uuid4()), "title": f"BRMIX retry {index}", "excerpt": "evidence " * 200}
+        for index in range(8)
+    ], "scope": "personal", "truncated": False})
+    current = [
+        {"role": "assistant", "content": "", "tool_calls": [{
+            "id": "search", "type": "function",
+            "function": {"name": "memory_search", "arguments": '{"query":"BRMIX"}'},
+        }]},
+        {"role": "tool", "tool_call_id": "search", "content": content},
+    ]
+    before = copy.deepcopy(current)
+    try:
+        wire, compacted = manager._wire([], current, ContextMemory())
+        assert compacted == 0
+        assert json.loads(wire[-1]["content"]) == json.loads(content)
+        assert current == before
+        # Protecting current candidates must still allow the whole-request budget fallback.
+        reduced, compacted = manager._wire([], current, ContextMemory(), active_limit=128)
+        assert compacted == 1
+        assert counter.text_tokens(reduced[-1]["content"]) <= 128
+    finally:
+        await provider.close()
+        await store.close()
+
+
 async def test_tool_compaction_does_not_mutate_source_and_remains_valid_json(settings_factory):
     settings = budget_settings(settings_factory, context_tool_result_tokens=128)
     counter = TokenCounter(settings.tokenizer_path)
