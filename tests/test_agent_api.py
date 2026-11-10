@@ -47,7 +47,8 @@ def test_starts_without_key_and_local_tools_work(settings_factory):
         assert client.get("/docs").status_code == 200
         assert client.get("/openapi.json").status_code == 200
         assert {item["function"]["name"] for item in client.get("/tools").json()} == {
-            "molecular_properties", "molecular_similarity", "web_search", "ask_user_question"
+            "molecular_properties", "molecular_similarity", "web_search", "ask_user_question",
+            "memory_search", "memory_read", "memory_save", "memory_compare",
         }
         result = client.post(
             "/tools/molecular_properties/invoke",

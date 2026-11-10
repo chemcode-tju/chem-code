@@ -13,6 +13,7 @@ from filelock import Timeout as LockTimeout
 from chemistry_agent.attachments import init_attachment_schema
 from chemistry_agent.auth import init_auth_schema
 from chemistry_agent.errors import AgentError
+from chemistry_agent.memory.service import init_memory_schema
 from chemistry_agent.projects import init_project_schema
 from chemistry_agent.runtime.checkpoint import UNCERTAIN
 from chemistry_agent.schemas import ContextMemory, ContextUsage, TokenUsage, ToolExecution
@@ -113,6 +114,7 @@ class Store:
                 "CREATE UNIQUE INDEX IF NOT EXISTS messages_task_event ON messages(task_event)"
             )
             await init_project_schema(db)
+            await init_memory_schema(db)
             await init_attachment_schema(db)
             await init_title_schema(db)
             # End old run leases but preserve replayable request checkpoints.

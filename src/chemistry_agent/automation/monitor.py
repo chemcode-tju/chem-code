@@ -8,6 +8,7 @@ from uuid import UUID
 
 from chemistry_agent.automation.events import EventStore, utc_now
 from chemistry_agent.automation.recovery import RecoveryAgent
+from chemistry_agent.memory.capture import capture_job
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ class TaskMonitor:
                         continue
                     session, preview = tracked[job["id"]]
                     artifact = self.chat.load(session, "previews", preview)
+                    await capture_job(self.session_store, session, artifact, job)
                     root = artifact.get("recovery_root_id", job["id"])
                     individual = not initial and not artifact.get("plan_id")
                     job["recovery_root_id"] = root

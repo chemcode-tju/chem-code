@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>科研记忆 · Chem Code</title>
+<link rel="stylesheet" href="/assets/memory.css">
+<body>
+<main>
+  <header><a href="/">← 返回研究工作区</a><h1>科研记忆</h1>
+    <p>查阅计算方案、参数和故障经验。每份记录保留来源与版本。</p></header>
+  <form id="search-form">
+    <label>所在对话<select id="session" required></select></label>
+    <label>检索范围<select id="scope"><option value="project">当前项目（未分组对话共用个人区）</option>
+      <option value="personal">我的全部项目</option></select></label>
+    <label>体系、任务或报错关键词<input id="query" placeholder="例如 Pt(111) 吸附能、电子不收敛"></label>
+    <button type="submit">检索记忆</button>
+  </form>
+  <p id="status" role="status" aria-live="polite"></p>
+  <div class="columns"><section id="results" aria-label="记忆检索结果"></section>
+    <section id="detail" aria-label="记忆详情"><p>选择记录查看正文、参数和证据。</p></section></div>
+  <details><summary>保存补充文档</summary>
+    <form id="save-form">
+      <label>标题<input id="note-title" required maxlength="200"></label>
+      <label>体系标签（逗号分隔）<input id="note-systems" placeholder="Pt(111), CO, 显式水"></label>
+      <label>任务标签（逗号分隔）<input id="note-tasks" placeholder="吸附能"></label>
+      <label>正文与来源<textarea id="note-content" required rows="10" maxlength="100000"></textarea></label>
+      <label>适用条件与局限<textarea id="note-applicability" rows="3"></textarea></label>
+      <p>补充文档记为“未核验”；计算收敛证据由运行记录提供。</p>
+      <button>保存文档</button>
+    </form>
+  </details>
+</main>
+<script type="module" src="/assets/memory.mjs"></script>
+</body></html>

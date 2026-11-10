@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     )
 
     web_search_enabled: bool = Field(default=True, validation_alias="CHEMISTRY_WEB_SEARCH_ENABLED")
+    research_memory_enabled: bool = Field(
+        default=True, validation_alias="CHEMISTRY_RESEARCH_MEMORY_ENABLED"
+    )
     search_endpoint: str = Field(default="", validation_alias="CHEMISTRY_SEARXNG_URL")
     ssh_hosts: str = Field(default="", validation_alias="CHEMISTRY_SSH_HOSTS")
 

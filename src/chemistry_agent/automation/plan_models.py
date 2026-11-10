@@ -95,6 +95,8 @@ class PlanNode(StrictModel):
 
 
 class PlanDraft(StrictModel):
+    research_systems: list[GroupLabel] = Field(default_factory=list, max_length=30)
+    research_tasks: list[GroupLabel] = Field(default_factory=list, max_length=30)
     plan_id: UUID | None = None
     expected_revision: int | None = Field(default=None, ge=1)
     title: str = Field(min_length=1, max_length=160)

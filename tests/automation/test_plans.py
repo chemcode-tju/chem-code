@@ -188,6 +188,48 @@ def test_graph_validation_and_auto_dependencies():
             draft(nodes)
 
 
+async def test_plan_lifecycle_populates_cross_session_memory(graph, tmp_path):
+    from chemistry_agent.memory.models import MemorySearch
+    from chemistry_agent.memory.service import ResearchMemory
+    from chemistry_agent.store import Store
+
+    chat, context, engine, structure = graph
+    store = await Store.open(tmp_path / "research-memory.sqlite3")
+    try:
+        session = (await store.create_session("原始体系"))["id"]
+        other = (await store.create_session("后续研究"))["id"]
+        # Move the fixture's source geometry into the actual persisted conversation.
+        artifact = chat.load(context.session_id, "structures", structure)
+        chat.save(session, "structures", structure, artifact)
+        context = ToolContext(session, context.run_id)
+        chat.plans.store = store
+        plan = await chat.plans.draft(
+            draft(
+                [vasp("relax", {"structure_id": structure})],
+                research_systems=["Cu"],
+                research_tasks=["结构优化"],
+            ),
+            context,
+        )
+        memory = ResearchMemory(store)
+        assert (await memory.search(other, MemorySearch(query="Cu reaction")))["items"]
+        assert not engine.submits  # Remembering the draft grants no submission authority.
+        await chat.plans.confirm(session, plan["id"], 1)
+        await chat.plans.tick_plan(session, plan["id"])
+        engine.finish(engine.submits[0])
+        await chat.plans.tick_plan(session, plan["id"])
+        records = await memory.search(other, MemorySearch(kind="calculation"))
+        item = await memory.read(other, records["items"][0]["id"])
+        assert item["evidence"]["level"] == "converged"
+        assert item["parameters"]["incar"]["ENCUT"] == 520
+        assert item["parameters"]["potential_family"] == "PBE"
+        assert len(item["parameters"]["structure_fingerprint"]) == 64
+        assert item["evidence"]["input_structure_id"] == structure
+    finally:
+        chat.plans.store = None
+        await store.close()
+
+
 async def test_review_revisions_and_no_unapproved_execution(graph):
     chat, context, engine, structure = graph
     plan = await chat.plans.draft(draft([vasp("a", {"structure_id": structure})]), context)

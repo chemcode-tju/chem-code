@@ -6,6 +6,7 @@ submission is checkpointed by preview ID before the idempotent AiiDA submit call
 
 import asyncio
 import contextlib
+import hashlib
 import io
 import json
 import logging
@@ -41,6 +42,7 @@ from chemistry_agent.automation.plan_repair import diagnose, eligible, replace_n
 from chemistry_agent.automation.plan_stop import PlanStop, job_ids
 from chemistry_agent.automation.reporting import job_evidence, summarize_result
 from chemistry_agent.errors import AgentError
+from chemistry_agent.memory.capture import safely_capture_plan
 from chemistry_agent.tools import Tool, ToolContext
 
 logger = logging.getLogger(__name__)
@@ -167,6 +169,12 @@ class CalculationPlans:
                 "revision": revision,
                 "title": args.title,
                 "goal": args.goal,
+                "research_systems": args.research_systems or (
+                    old.get("research_systems", []) if old else []
+                ),
+                "research_tasks": args.research_tasks or (
+                    old.get("research_tasks", []) if old else []
+                ),
                 "status": "running" if queue else "draft",
                 "max_parallel": None if queue else args.max_parallel,
                 **(
@@ -199,6 +207,7 @@ class CalculationPlans:
                 # Immutable revision bodies permit later audit of conversation edits.
                 self.chat.save(session, "plan_versions", str(uuid4()), old)
             self.save(session, plan)
+            await safely_capture_plan(self.store, session, plan)
             return self.public(plan)
 
     async def repair_node(self, args: NodeRepair, context: ToolContext) -> dict:
@@ -498,7 +507,12 @@ class CalculationPlans:
                 ChatPreviewInput(structure_id=structure_id, **request),
                 ToolContext(session, plan["id"]),
             )
-            state.update(preview_id=preview["preview_id"], input_structure_id=structure_id)
+            state.update(
+                preview_id=preview["preview_id"], input_structure_id=structure_id,
+                input_structure_fingerprint=hashlib.sha256(
+                    json.dumps(structure["structure"], sort_keys=True).encode()
+                ).hexdigest(),
+            )
             artifact = self.chat.load(session, "previews", preview["preview_id"])
             artifact.update(
                 plan_id=plan["id"],
@@ -698,6 +712,7 @@ class CalculationPlans:
                 self.record_steps(session, plan, plan["nodes"])
                 self.projected.add(projection_key)
             if stopped:
+                await safely_capture_plan(self.store, session, plan)
                 return
             if plan["status"] in {"running", "paused"}:
                 for node in plan["nodes"]:
@@ -763,6 +778,7 @@ class CalculationPlans:
                     )
                     plan["completed_at"] = utc_now()
                 self.save(session, plan)
+            await safely_capture_plan(self.store, session, plan)
             if (
                 plan["status"] in {"completed", "failed"}
                 and not plan.get("reported")

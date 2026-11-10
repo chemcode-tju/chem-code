@@ -254,6 +254,10 @@ def test_shared_mode_has_no_calculation_tools(settings_factory):
             "molecular_similarity",
             "web_search",
             "ask_user_question",
+            "memory_search",
+            "memory_read",
+            "memory_save",
+            "memory_compare",
         }
         assert client.get("/api/automation/status").status_code in {401, 403}
 

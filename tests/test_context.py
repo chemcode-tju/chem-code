@@ -38,6 +38,8 @@ def budget_settings(factory, **overrides):
             {
                 "context_window_tokens": 8192,
                 "web_search_enabled": False,
+                # Isolate conversation-compaction budgets from optional research tools.
+                "research_memory_enabled": False,
                 "deepseek_max_tokens": 256,
                 "context_summary_tokens": 256,
                 "context_recent_turns": 1,

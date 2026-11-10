@@ -15,7 +15,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from chemistry_agent import __version__
-from chemistry_agent.agent import AUTOMATION_PROMPT, SYSTEM_PROMPT, ChemistryAgent, RunProgress
+from chemistry_agent.agent import (
+    AUTOMATION_PROMPT,
+    MEMORY_PROMPT,
+    SYSTEM_PROMPT,
+    ChemistryAgent,
+    RunProgress,
+)
 from chemistry_agent.attachments import attachment_context
 from chemistry_agent.attachments import router as attachments_router
 from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthManager
@@ -33,6 +39,8 @@ from chemistry_agent.chat_queue import ChatQueue
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
+from chemistry_agent.memory.routes import router as memory_router
+from chemistry_agent.memory.tools import memory_tools
 from chemistry_agent.model_routes import router as model_router
 from chemistry_agent.model_runtime import ProviderRouter
 from chemistry_agent.projects import router as projects_router
@@ -80,6 +88,8 @@ def create_app(
     calculation_enabled = settings.automation_enabled and not settings.auth_enabled
     extras = calculation_chat.tools() if calculation_enabled else []
     extras.append(QUESTION_TOOL)
+    if settings.research_memory_enabled:
+        extras.extend(memory_tools(lambda: app.state.store))
     if settings.web_search_enabled:
         extras.append(web_search_tool(settings.search_endpoint))
     ssh_hosts = settings.allowed_ssh_hosts
@@ -98,6 +108,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         store = await Store.open(settings.database_path)
+        store.research_memory_enabled = settings.research_memory_enabled
         try:
             provider = ProviderRouter(settings, transport=transport)
             try:
@@ -112,7 +123,9 @@ def create_app(
                     provider,
                     store,
                     counter,
-                    SYSTEM_PROMPT + (AUTOMATION_PROMPT if calculation_enabled else ""),
+                    SYSTEM_PROMPT
+                    + (AUTOMATION_PROMPT if calculation_enabled else "")
+                    + (MEMORY_PROMPT if settings.research_memory_enabled else ""),
                     registry.schemas(),
                 )
                 app.state.agent = ChemistryAgent(
@@ -156,6 +169,7 @@ def create_app(
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
     app.include_router(model_router)
     app.include_router(projects_router)
+    app.include_router(memory_router)
     app.include_router(titles_router)
     app.include_router(attachments_router)
     app.include_router(structures_router)
