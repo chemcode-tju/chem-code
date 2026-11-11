@@ -1,5 +1,6 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "处理过程":"Activity", "执行中":"Running", "结果待核对":"Outcome needs checking", "正在生成下一步…":"Preparing the next step…",
   "全部已读":"Mark all as read", "异常结束":"Ended with issues", "正常结束":"Completed normally", "暂无通知":"No notifications",
   "复制内容":"Copy contents", "已复制":"Copied", "工具记录":"Tool activity",
   "已用时":"Working for", "用时":"Worked for", "等待工具记录":"Waiting for tools", "未调用工具":"No tools used",

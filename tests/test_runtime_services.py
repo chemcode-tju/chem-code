@@ -180,7 +180,7 @@ async def test_restart_after_tool_boundary_never_reexecutes_tool(
         if json.loads(request.content)["messages"][-1]["role"] == "tool":
             paused.set()
             await asyncio.Event().wait()
-        return httpx.Response(200, json=completion(None, calls=[tool_call()]))
+        return httpx.Response(200, json=completion("我现在要进行下一步", calls=[tool_call()]))
 
     app = create_app(settings, transport=httpx.MockTransport(first))
     async with (
@@ -209,6 +209,9 @@ async def test_restart_after_tool_boundary_never_reexecutes_tool(
             "status"
         ] == receipt["status"]
         assert called == 1
+        if interrupt_tool:
+            assert receipt["steps"][0] == {"type": "commentary", "text": "我现在要进行下一步"}
+            assert receipt["steps"][1]["status"] == "uncertain"
         assert (
             await client.get(f"/sessions/{uuid4()}/chat-requests/{body['request_id']}/stream")
         ).status_code == 404
@@ -248,3 +251,70 @@ async def test_transient_failure_before_first_text_retries_inference_not_tool(se
         messages = (await client.get(f"/sessions/{session}")).json()["messages"]
         assert received_roles == ["user", "tool", "tool"]
         assert [m["role"] for m in messages] == ["user", "assistant", "tool", "assistant"]
+
+
+async def test_public_steps_survive_tool_start_next_model_and_reconnection(
+    settings_factory, monkeypatch
+):
+    import chemistry_agent.tools as registry
+
+    started, release = asyncio.Event(), asyncio.Event()
+    second_model, finish = asyncio.Event(), asyncio.Event()
+    original = registry.molecular_properties
+
+    async def effect(args):
+        started.set()
+        await release.wait()
+        return original(args)
+
+    monkeypatch.setattr(registry, "molecular_properties", effect)
+
+    async def provider(request):
+        if json.loads(request.content)["messages"][-1]["role"] == "tool":
+            second_model.set()
+            await finish.wait()
+            return httpx.Response(200, json=completion("最终回答。"))
+        return httpx.Response(
+            200,
+            json=completion(
+                "我现在要进行下一步。", calls=[tool_call()], reasoning="private-reasoning"
+            ),
+        )
+
+    app = create_app(settings_factory(), transport=httpx.MockTransport(provider))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+    ):
+        session = (await client.post("/sessions", json={})).json()["id"]
+        request_id = str(uuid4())
+        await client.post(
+            "/chat/requests",
+            json={"session_id": session, "request_id": request_id, "message": "使用工具"},
+        )
+        await asyncio.wait_for(started.wait(), 3)
+        live = app.state.chat_queue.live[request_id]
+        assert live.text == ""
+        assert live.steps[0]["text"] == "我现在要进行下一步。"
+        assert live.steps[1]["status"] == "running"
+        receipt = (await client.get(f"/sessions/{session}/chat-requests?compact=true")).json()
+        assert receipt["requests"][0]["steps"] == live.steps
+        assert "private-reasoning" not in json.dumps(receipt)
+        stream = live.events()
+        first = await anext(stream)
+        assert '"steps"' in first and "private-reasoning" not in first
+        await stream.aclose()
+        release.set()
+        await asyncio.wait_for(second_model.wait(), 3)
+        assert live.text == "" and live.steps[0]["text"] == "我现在要进行下一步。"
+        assert live.steps[1]["status"] == "completed"
+        reconnect = live.events()
+        snapshot = await anext(reconnect)
+        assert "completed" in snapshot and '"steps"' in snapshot
+        await reconnect.aclose()
+        finish.set()
+        await asyncio.wait_for(asyncio.gather(*app.state.chat_queue.tasks), 3)
+        saved = (await client.get(f"/sessions/{session}")).json()["messages"]
+        assert saved[1]["content"] == "我现在要进行下一步。"
+        assert saved[-1]["content"] == "最终回答。"
+        assert "private-reasoning" not in json.dumps(saved)

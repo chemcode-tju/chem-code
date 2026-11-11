@@ -10,12 +10,42 @@ from dataclasses import dataclass, field
 from pydantic_core import from_json
 
 
+def public_steps(messages: list[dict], calls: list[dict], pending: str = "running") -> list[dict]:
+    """Extract user-facing commentary and tool states, never private reasoning or arguments."""
+    results = {call["call_id"]: call for call in calls}
+    steps = []
+    for message in messages:
+        if message.get("role") != "assistant" or not message.get("tool_calls"):
+            continue
+        if message.get("content"):
+            steps.append({"type": "commentary", "text": message["content"]})
+        for call in message["tool_calls"]:
+            result = results.get(call["id"])
+            steps.append(
+                {
+                    "type": "tool",
+                    "call_id": call["id"],
+                    "name": call["function"]["name"],
+                    "status": ("completed" if result["success"] else "failed")
+                    if result
+                    else pending,
+                }
+            )
+    return steps
+
+
 @dataclass
 class LiveAnswer:
     text: str = ""
+    steps: list[dict] = field(default_factory=list)
     version: int = 0
     finished: bool = False
     changed: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def set_steps(self, steps: list[dict]) -> None:
+        if self.steps != steps:
+            self.steps = steps
+            self.wake()
 
     def set_text(self, text: str) -> None:
         if self.text != text:
@@ -34,6 +64,7 @@ class LiveAnswer:
     async def events(self) -> AsyncIterator[str]:
         version = -1
         previous = ""
+        previous_steps = None
         while not self.finished:
             event = self.changed
             if version != self.version:
@@ -44,6 +75,9 @@ class LiveAnswer:
                     "append": append,
                     "text": self.text[len(previous) :] if append else self.text,
                 }
+                if previous_steps != self.steps:
+                    body["steps"] = self.steps
+                    previous_steps = self.steps
                 previous = self.text
                 yield f"event: draft\ndata: {json.dumps(body)}\n\n"
             try:
