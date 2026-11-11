@@ -106,17 +106,34 @@ async def test_requested_facet_and_plan_rank_before_short_wrong_facet_hits(tmp_p
         session = (await store.create_session("ranking"))["id"]
         memory = ResearchMemory(store)
         for index in range(30):
-            await memory.save(session, document(
-                title=f"Cu(100) adsorption {index}", content="吸附能 adsorption",
-                systems=["Cu(100)"],
-            ), source_key=f"wrong:{index}")
-        target = await memory.save(session, document(
-            title="Cu(111) reaction scheme", content="长流程说明 " * 1000,
-            systems=["Cu(111)"], tasks=["reaction"],
-        ), source_key="target")
-        await memory.save(session, document(
-            title="Cu111 adsorption gas model", kind="calculation", content="adsorption",
-        ), source_key="short-node")
+            await memory.save(
+                session,
+                document(
+                    title=f"Cu(100) adsorption {index}",
+                    content="吸附能 adsorption",
+                    systems=["Cu(100)"],
+                ),
+                source_key=f"wrong:{index}",
+            )
+        target = await memory.save(
+            session,
+            document(
+                title="Cu(111) reaction scheme",
+                content="长流程说明 " * 1000,
+                systems=["Cu(111)"],
+                tasks=["reaction"],
+            ),
+            source_key="target",
+        )
+        await memory.save(
+            session,
+            document(
+                title="Cu111 adsorption gas model",
+                kind="calculation",
+                content="adsorption",
+            ),
+            source_key="short-node",
+        )
         hits = await memory.search(session, MemorySearch(query="Cu(111) 吸附能", limit=3))
         assert hits["items"][0]["id"] == target["id"]
         assert hits["items"][0]["matched_facets"] == ["cu111"]
@@ -124,6 +141,42 @@ async def test_requested_facet_and_plan_rank_before_short_wrong_facet_hits(tmp_p
         assert hits["truncated"]
     finally:
         await store.close()
+
+
+def test_selected_conversation_scope_differs_from_shared_project_and_paginates(settings_factory):
+    with TestClient(
+        create_app(settings_factory(), transport=httpx.MockTransport(response))
+    ) as client:
+        first = client.post("/sessions", json={"title": "Pt111 adsorption"}).json()["id"]
+        second = client.post("/sessions", json={"title": "Pt111 reaction"}).json()["id"]
+        first_path = f"/api/sessions/{first}/memories"
+        second_path = f"/api/sessions/{second}/memories"
+        first_ids = set()
+        for index in range(23):
+            saved = client.post(first_path, json=document(title=f"Pt111 {index}").model_dump())
+            first_ids.add(saved.json()["id"])
+        other = client.post(second_path, json=document(title="Pt111 reaction").model_dump()).json()
+        page_one = client.get(first_path, params={"scope": "session", "query": "Pt111"}).json()
+        page_two = client.get(
+            first_path, params={"scope": "session", "query": "Pt111", "offset": 20}
+        ).json()
+        assert page_one["truncated"] and not page_two["truncated"]
+        hits = page_one["items"] + page_two["items"]
+        assert len(hits) == 23 and {item["id"] for item in hits} == first_ids
+        assert all(item["session_id"] == first for item in hits)
+        assert all(item["session_title"] == "Pt111 adsorption" for item in hits)
+        selected = client.get(second_path, params={"scope": "session"}).json()["items"]
+        assert [item["id"] for item in selected] == [other["id"]]
+        # Ungrouped conversations intentionally share the project/personal area.
+        for scope in ("project", "personal"):
+            a = client.get(first_path, params={"scope": scope}).json()
+            b = client.get(second_path, params={"scope": scope}).json()
+            assert a == b
+        assert (
+            client.get(first_path, params={"scope": "session", "query": "no_match"}).json()["items"]
+            == []
+        )
+        assert client.get(first_path, params={"offset": -1}).status_code == 422
 
 
 async def test_versions_concurrent_updates_and_forgotten_source_stays_forgotten(tmp_path):
@@ -317,8 +370,9 @@ def test_api_export_revision_read_update_forget_and_no_html_execution(settings_f
         assert client.get(f"{path}/{item['id']}/versions/1").json()["content"] == body["content"]
         assert len(client.get(f"{path}/{item['id']}/versions").json()) == 2
         assert client.get("/memory").status_code == 200
-        source = client.get("/assets/memory.mjs").text
-        assert "innerHTML" not in source
+        # Rendered documents use the shared HTML-disabled Markdown renderer;
+        # frontend tests exercise malicious titles, JSON fields and Markdown.
+        assert client.get("/assets/memory-view.mjs").status_code == 200
         assert (
             client.post(f"{path}/{item['id']}/forget", json={"expected_version": 2}).status_code
             == 204
@@ -347,6 +401,7 @@ async def test_account_isolation_all_routes_and_model_tools(settings_factory):
         path = f"/api/sessions/{a}/memories"
         item = (await alice.post(path, json=document().model_dump())).json()
         assert (await bob.get(path)).status_code == 404
+        assert (await bob.get(path + "?scope=session")).status_code == 404
         other = f"/api/sessions/{b}/memories/{item['id']}"
         for suffix in ("", "/document.md", "/versions", "/versions/1"):
             assert (await bob.get(other + suffix)).status_code == 404

@@ -48,12 +48,13 @@ async def search_memories(
     scope: str = "project",
     kind: str | None = None,
     limit: int = Query(default=20, ge=1, le=20),
+    offset: int = Query(default=0, ge=0),
 ) -> dict:
     from pydantic import ValidationError
 
     memory = await authorized(request, session)
     try:
-        args = MemorySearch(query=query, scope=scope, kind=kind, limit=limit)
+        args = MemorySearch(query=query, scope=scope, kind=kind, limit=limit, offset=offset)
     except ValidationError as exc:
         raise AgentError("invalid_memory_query", "检索范围或类型无效。", 422) from exc
     return await memory.search(str(session), args)

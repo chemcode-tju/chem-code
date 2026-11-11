@@ -109,6 +109,7 @@ function toast(message) {
 }
 
 function rememberSession(id) {
+  $("memory-entry").href = id ? `/memory?session=${encodeURIComponent(id)}` : "/memory";
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try {
     if (id) localStorage.setItem(storageKey, id);

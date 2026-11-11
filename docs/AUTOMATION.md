@@ -6,6 +6,12 @@
 
 ## 本地计算设置
 
+### macOS 常驻服务
+
+在已完成 `.conda` 自动化环境配置的运行目录执行 `.conda/bin/python scripts/install_automation_service.py`，安装当前用户的 `com.chem-code.automation` LaunchAgent。它使用该目录现有设置、数据库和绝对 Python 路径，监听 `127.0.0.1:8766`；登录后启动，进程退出后由 launchd 重新拉起。安装器发现端口被手动启动的服务占用时会停止，避免两个实例争抢数据库；请先等待聊天任务空闲，再关闭旧实例并安装。
+
+日志为运行目录的 `data/automation-service.log` 和 `data/automation-service-error.log`。检查状态：`launchctl print gui/$(id -u)/com.chem-code.automation`。需要停止服务时使用 `launchctl bootout gui/$(id -u)/com.chem-code.automation`；重新启动使用 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.chem-code.automation.plist`。退出登录或电脑休眠期间，本机服务不能保持访问；此托管不改变计算权限或公网入口。
+
 在启用自动化的单用户服务中，设置页通过以下接口调用同一个 Python 后台。首次读取即使还没有 profile 也会返回缺少的项目。
 
 | 接口（均位于 `/api/automation`） | 用途 |

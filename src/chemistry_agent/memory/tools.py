@@ -79,7 +79,8 @@ def memory_tools(get_store: Callable[[], "Store"]) -> list[Tool]:
         Tool(
             "memory_search",
             "查科研记忆：体系、任务、报错关键词。默认当前项目；"
-            "personal 显式检索本人其他项目。命中后用 memory_read 读来源。",
+            "session 仅检索当前对话，personal 显式检索本人其他项目；offset 翻页。"
+            "命中后用 memory_read 读来源。",
             MemorySearch,
             search,
             contextual=True,

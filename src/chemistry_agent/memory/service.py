@@ -159,7 +159,7 @@ class ResearchMemory:
         async with self.store.lock:
             caller = await self._session(session)
             sql = (
-                "SELECT m.*, ps.project_id FROM research_memories m "
+                "SELECT m.*, s.title AS session_title, ps.project_id FROM research_memories m "
                 "JOIN sessions s ON s.id=m.session_id "
                 "LEFT JOIN project_sessions ps ON ps.session_id=s.id "
             )
@@ -168,7 +168,10 @@ class ResearchMemory:
                 sql += "JOIN research_memory_fts f ON f.memory_id=m.id "
             sql += "WHERE m.forgotten=0 AND s.owner_id IS ? "
             params.append(caller["owner_id"])
-            if args.scope == "project":
+            if args.scope == "session":
+                sql += "AND m.session_id=? "
+                params.append(session)
+            elif args.scope == "project":
                 sql += "AND ps.project_id IS ? "
                 params.append(caller["project_id"])
             if args.kind:
@@ -194,8 +197,8 @@ class ResearchMemory:
                 sql += "bm25(research_memory_fts), "
             else:
                 sql += "ORDER BY "
-            sql += "m.updated_at DESC, m.id LIMIT ?"
-            params.append(args.limit + 1)
+            sql += "m.updated_at DESC, m.id LIMIT ? OFFSET ?"
+            params.extend((args.limit + 1, args.offset))
             async with self.store.db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
         hits = []
@@ -214,6 +217,7 @@ class ResearchMemory:
                     "matched_terms": sorted(set(query_terms) & tokens(row["document"])),
                     "matched_facets": sorted(set(facets) & tokens(row["document"])),
                     "session_id": row["session_id"],
+                    "session_title": row["session_title"],
                     "project_id": row["project_id"],
                     "updated_at": row["updated_at"],
                 }

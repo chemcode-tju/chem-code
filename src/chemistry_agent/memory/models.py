@@ -25,9 +25,10 @@ class MemorySave(MemoryDocument):
 class MemorySearch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str = Field(default="", max_length=2000)
-    scope: Literal["project", "personal"] = "project"
+    scope: Literal["session", "project", "personal"] = "project"
     kind: Literal["plan", "calculation", "lesson", "document"] | None = None
     limit: int = Field(default=6, ge=1, le=20)
+    offset: int = Field(default=0, ge=0)
 
 
 class MemoryRead(BaseModel):
