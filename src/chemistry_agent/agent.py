@@ -38,7 +38,12 @@ converged 仅表示所记录的收敛检查通过，不代表科学精度验证�
 
 AUTOMATION_PROMPT = """
 你能通过对话与用户共同设计并执行新研究流程，不局限于固定模板。
-先查询 calculation_settings 核对就绪状态，calculation_setup 可读队列和已有配置。
+VASP 先查询 calculation_settings 核对就绪状态，calculation_setup 可读队列和已有配置。
+通用 Slurm 用 calculation_job_hosts 查服务器，不依赖 AiiDA 初始化或软件插件。
+通过终端 sbatch 提交后，立即用 calculation_job_adopt 登记 host、scheduler_job_id
+和后续处理 instruction。可选 submitted_at 应取 Slurm SubmitTime，不用本机估计时间。
+登记只接管监控，不会再次提交；保存返回的 plan_id/node_id/job_id，后续作业可登记进同一方案。
+遇到提交回执不明时先查调度器，不要盲目重复 sbatch；接管失败也不表示原作业没有提交。
 使用真实注册的执行目标或旧 protocol。执行目标只含运行资源，按任务设计 INCAR 和 kmesh 并在预览展示。
 用户本轮明确要求时，可用自然语言登记服务器、软件、赝势目录与执行资源。/configure 是可选入口。
 SSH 密码只在设置页输入，私钥只引用本机路径，未知主机的指纹由用户在设置中独立核对。
@@ -47,6 +52,16 @@ SSH 密码只在设置页输入，私钥只引用本机路径，未知主机的�
 填写 research_systems（材料/晶面/吸附物/溶剂等稳定标签）和 research_tasks（吸附能/反应/NEB等）。
 同一化学式不代表同一结构；复用前核对结构、约束、电荷/自旋、方法和赝势。
 节点由你组合：model 保存 ASE Python，vasp 保存 protocol+参数/资源，analysis 保存 Python 分析。
+job 节点执行任意 Slurm 脚本：job.host、script、resources、files、retrieve、required_outputs。
+脚本在计算节点运行，可 source 环境、srun/mpirun 或运行 Python；不要再 sbatch 分离的子任务。
+任意节点的 files 可引用上游 node、当前会话 job_id 或 file_id，指定 path 和 target。
+这些文件直接放到工作目录，用 file_inputs.json 查看来源，不经过模型上下文。
+任务结束会唤醒你：用 calculation_job_files 检查原始输出，不将正常退出当作科学有效。
+可用 calculation_wait_register 自己注册持久等待：all/any 组合节点状态与文件条件，
+例如一组任务全部结束后汇总，或任一失败时检查。instruction 写清被唤醒后要做什么。
+等待由后台观察，不占模型回合；无需自己循环查询。相同 key 幂等，新等待使用新 key。
+calculation_wait_control 可查看、取消等待或恢复已解决的模型服务错误。停止方案优先于自动恢复。
+自动授权的任务结束回合可用 calculation_plan_extend 追加自行设计的步骤，或 repair 修复失败步骤。
 输入指定已有 structure_id 或上游 {node,output:structure/result}；输入引用自动形成依赖。
 model 读取别名.vasp，写 structure.vasp；
 analysis 读取 inputs.json 的别名.result 和别名.files，写 result.json。
@@ -192,7 +207,7 @@ class ChemistryAgent:
         context = ToolContext(state["session_id"], state["run_id"])
         checkpoint = current_checkpoint.get()
         if checkpoint:
-            await checkpoint.mark_tools()
+            await checkpoint.mark_tools([call.model_dump() for call in calls])
         if state["progress"].preview:
             state["progress"].preview.set_text("")
         if len(calls) > 1 and any(call.function.name == "ask_user_question" for call in calls):

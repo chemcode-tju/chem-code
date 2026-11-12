@@ -21,7 +21,7 @@ class Checkpoint:
             )
         return json.loads(row["payload"]) if row and row["payload"] else {}
 
-    async def mark_tools(self) -> None:
+    async def mark_tools(self, intent: list[dict] | None = None) -> None:
         async with self.store.transaction():
             await self.store.db.execute(
                 "UPDATE chat_checkpoints SET phase='tools' WHERE request_id=?", (self.identifier,)

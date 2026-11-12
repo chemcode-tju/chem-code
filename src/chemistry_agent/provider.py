@@ -4,7 +4,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from chemistry_agent.config import Settings
-from chemistry_agent.errors import AgentError
+from chemistry_agent.errors import AgentError, retry_after_seconds
 from chemistry_agent.runtime.completion_stream import read_chat_stream
 from chemistry_agent.runtime.live import current_answer
 from chemistry_agent.schemas import TokenUsage
@@ -154,7 +154,19 @@ class DeepSeekClient:
         if response.status_code == 402:
             raise AgentError("provider_insufficient_balance", "DeepSeek 账户余额不足。")
         if response.status_code == 429:
-            raise AgentError("provider_rate_limited", "DeepSeek 请求受限，请稍后重试。", 503)
+            raise AgentError(
+                "provider_rate_limited",
+                "DeepSeek 请求受限，请稍后重试。",
+                503,
+                retry_after=retry_after_seconds(response.headers.get("retry-after")),
+            )
+        if response.status_code >= 500:
+            raise AgentError(
+                "provider_error",
+                "模型服务暂时不可用。",
+                502,
+                retry_after=retry_after_seconds(response.headers.get("retry-after")) or 0,
+            )
         if not response.is_success:
             # Do not expose upstream response bodies: they can contain credentials or input text.
             raise AgentError("provider_error", f"DeepSeek 返回 HTTP {response.status_code}。")

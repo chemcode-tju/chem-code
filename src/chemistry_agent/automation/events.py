@@ -37,6 +37,24 @@ def waiting_for_submit_quota(job: dict) -> bool:
 
 
 def task_state(job: dict) -> tuple[str, str]:
+    if job.get("backend") == "slurm":
+        if job.get("terminal"):
+            return (
+                ("completed", "作业已结束")
+                if job.get("finished_ok")
+                else ("failed", "作业异常结束")
+            )
+        if job.get("status") == "quota_wait":
+            return "quota_wait", "等待队列名额"
+        if job.get("status") == "uncertain":
+            return "uncertain", "正在核对提交结果"
+        if job.get("scheduler_state") == "unknown":
+            return "unknown", "等待调度记账结果"
+        if job.get("scheduler_state") == "running":
+            return "running", "作业运行中"
+        if job.get("scheduler_job_id"):
+            return "queued", "已交给调度器"
+        return "preparing", "正在准备或提交"
     if job.get("finished_ok"):
         status = job.get("results", {}).get("run_status", {})
         ionic = status.get("nsw", 0) > 0 and not job.get("vibrational")

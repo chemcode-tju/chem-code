@@ -11,6 +11,9 @@ export function nodeStatus(plan,node) {
   if(state.status==='running' && job) {
     if(state.quota_move && !job.scheduler_job_id) return '正在切换至 '+state.quota_move.target;
     if(state.quota_wait_since && !job.scheduler_job_id) return '等待队列名额';
+    if(job.backend==='slurm' && job.status==='quota_wait') return '等待队列名额';
+    if(job.backend==='slurm' && job.status==='uncertain') return '正在核对提交结果';
+    if(job.backend==='slurm' && job.scheduler_state==='unknown') return '等待调度记账结果';
     if(job.paused) return 'AiiDA 已暂停';
     if(job.scheduler_state==='running') return '运行中';
     if(job.scheduler_job_id) return '已交调度器';
@@ -39,10 +42,10 @@ export function graphLayers(nodes) {
 }
 export function renderGeneralPlan(plan) {
   const titles=Object.fromEntries(plan.nodes.map(n=>[n.id,n.title]));
-  const compute = plan.nodes.filter(node => node.kind==='vasp');
+  const compute = plan.nodes.filter(node => ['vasp','job'].includes(node.kind));
   const completed = compute.filter(node=>plan.runtime[node.id].status==='completed').length;
   const layers = graphLayers(plan.nodes).map(layer => layer.map(node => ({
-    id:node.id, title:node.title, groupPath:node.group_path, dependencies:node.depends_on, auxiliary:node.kind!=='vasp',
+    id:node.id, title:node.title, groupPath:node.group_path, dependencies:node.depends_on, auxiliary:!['vasp','job'].includes(node.kind),
     description:(layer.length>1?'独立分支 · 可并行。':'')+(node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):node.title),
     state:plan.runtime[node.id].status, status:(plan.runtime[node.id].job?.scheduler_job_id?'#'+plan.runtime[node.id].job.scheduler_job_id+' · ':'')+(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
   })));
@@ -53,6 +56,15 @@ export function generalRows(plan,node) {
   const params=node.effective, byId=new Map(plan.nodes.map(n=>[n.id,n]));
   const rows=[['输入',Object.entries(node.inputs || {}).map(([alias,ref])=>`${alias} ← ${ref.node?`${byId.has(ref.node)?taskLabel(byId.get(ref.node)):ref.node} / ${ref.output==='structure'?'实际输出结构':'计算结果'}`:'已保存结构'}`).join('\n')]];
   if(params) rows.push(['k 点',params.kpoint_spacing?`间距 ${params.kpoint_spacing} Å⁻¹`:params.kmesh?.join(' × ')],['资源',`${params.resources.queue} · ${params.resources.nodes} 节点 · ${params.resources.wallclock_seconds/3600} h`],['完成条件',[node.calculation.require_electronic?'电子收敛':null,node.calculation.require_ionic?'离子收敛':null,'正常退出'].filter(Boolean).join('、')]);
+  if(node.job) {
+    const runtime=plan.runtime[node.id]?.job || {}, resources=node.job.resources;
+    rows.push(['队列',resources?.queue || runtime.queue],['服务器',node.job.host],
+      ['运行时限',resources?.wallclock_seconds ? `${resources.wallclock_seconds} s` : null],
+      ['来源',node.job.adopted?'接管已有作业':null],
+      ['工作目录',node.job.adopted?runtime.remote_directory:null],
+      ['取回文件',node.job.retrieve.join('、')],['完成条件','调度结束、退出码为 0、要求的输出文件存在']);
+  }
+  if(node.files?.length) rows.push(['文件依赖',node.files.map(f=>`${f.node || f.job_id || f.file_id}: ${f.path || '附件'} → ${f.target}`).join('\n')]);
   const entries=Object.entries(params?.incar || {});
   const incar=entries.length ? `<dt>INCAR</dt><dd><details class="param-list"><summary>${entries.length} 项参数</summary><div>${entries.map(([k,v])=>`<code><b>${esc(k)}</b> = ${esc(String(v))}</code>`).join('')}</div></details></dd>`:'';
   return rows.filter(([,v])=>v).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')+incar;

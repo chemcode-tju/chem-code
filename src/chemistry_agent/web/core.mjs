@@ -12,6 +12,9 @@ export const TOOL_LABELS = {
   calculation_prepare: "匹配方案与赝势",
   calculation_preview: "生成计算预览",
   calculation_submit_confirmed: "用户确认提交",
+  calculation_job_hosts: "查询任务服务器",
+  calculation_job_files: "检查作业与文件",
+  calculation_plan_extend: "追加后续步骤",
   calculation_jobs: "查询计算任务",
   calculation_job: "读取状态与结果",
 };

@@ -219,8 +219,8 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     if (config.dataset.html!==html) {config.innerHTML=html;config.dataset.html=html;}
     $('step-revise').hidden=plan.status!=='draft';
     $('step-config').hidden=!html && $('step-revise').hidden;
-    $('step-code-section').hidden=!node.code; $('step-code').textContent=node.code || '';
-    const files=state.outputs?.files || [], result=node.kind==='analysis' && state.outputs?.result;
+    $('step-code-section').hidden=!(node.code || node.job?.script); $('step-code').textContent=node.code || node.job?.script || '';
+    const files=state.outputs?.files || [], result=['analysis','job'].includes(node.kind) && state.outputs?.result;
     $('step-output-section').hidden=!result && !files.length;
     $('step-output').textContent=result?JSON.stringify(result,null,2):'';
     const base = current.sessionPath + '/workflows/' + encodeURIComponent(plan.id) + '/artifacts/' + encodeURIComponent(node.id);
@@ -233,7 +233,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   function openGeneral(plan,node,sessionPath) {
     enter();
     current={id:plan.id,key:node.id,general:true,revision:plan.revision,title:node.title,sessionPath,
-      failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar.NSW,
+      failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar?.NSW,
       related:id=>{const p=current.plan,n=p.nodes.find(n=>n.id===id);if(n) openGeneral(p,n,sessionPath);},
       base:`${sessionPath}/workflows/${plan.id}/steps/${node.id}`};
     heading(taskLabel(node),kindName(node.kind),node.id,plan.nodes.indexOf(node),plan.nodes.length,plan.title,node.purpose);
@@ -244,7 +244,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     drawGeneral(plan,node);
     $('step-back').focus({preventScroll:true});
     $('step-energies').hidden=node.kind!=='vasp'; $('step-progress').hidden=node.kind!=='vasp';$('step-refresh').hidden=false;
-    $('step-structures').hidden=node.kind==='analysis';
+    $('step-structures').hidden=['analysis','job'].includes(node.kind);
     $('step-config').open=true; $('step-structures').open=node.kind==='model';
     info={files:{},points:[]}; drawFiles(); refresh();
   }

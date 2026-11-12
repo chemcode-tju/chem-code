@@ -75,6 +75,9 @@ class ContextManager:
             "error",
             "url",
             "plan_id",
+            "job_id",
+            "node_id",
+            "wait_id",
             "exit_code",
             "message",
             "id",
@@ -123,6 +126,11 @@ class ContextManager:
         keys = [key for key in important if key in items]
         keys.extend(key for key in items if key not in keys)
         identifiers = {
+            "plan_id",
+            "job_id",
+            "node_id",
+            "wait_id",
+            "scheduler_job_id",
             "canonical_smiles",
             "canonical_smiles_a",
             "canonical_smiles_b",
@@ -197,6 +205,8 @@ class ContextManager:
             "calculation_artifacts",
             "calculation_preview",
             "calculation_job",
+            "calculation_job_adopt",
+            "calculation_wait_register",
             "calculation_jobs",
             "build_structure",
             "import_structure",

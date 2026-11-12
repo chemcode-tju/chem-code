@@ -27,6 +27,9 @@ def fold_tool_rounds(
                 result = {}
             keys = (
                 "plan_id",
+                "job_id",
+                "node_id",
+                "wait_id",
                 "revision",
                 "id",
                 "structure_id",

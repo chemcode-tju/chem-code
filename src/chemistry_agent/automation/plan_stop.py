@@ -17,6 +17,8 @@ def job_ids(plan: dict) -> list[str]:
             state,
             *(item["state"] for item in state.get("attempts", []) if "state" in item),
         ]:
+            if attempt.get("generic_job_id"):
+                continue
             identifier = attempt.get("job_id") or (attempt.get("job") or {}).get("id")
             if identifier:
                 identifiers.add(str(UUID(identifier)))

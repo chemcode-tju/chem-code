@@ -277,3 +277,180 @@ ASE 的 `FixAtoms` 不再被一律拒绝：转换为独立的 AiiDA `dynamics.po
 验证覆盖对话创建/修订、旧版本确认拒绝、实际输出传递、并行上限、暂停恢复、服务重启、提交中断幂等、
 失败分支阻断、离线分析、任意二进制文件复制以及右侧结构查看。测试中的调度器作业为模拟，不表示新的
 VASP 科学任务已通过实算验收。
+
+## 通用 Slurm 节点与文件依赖
+
+通用任务使用 `kind: "job"`，直接通过已登记 SSH 连接提交到 Slurm，**不调用 AiiDA、
+不要求 AiiDA profile 或 daemon**。原有 `vasp` 专用节点保持原执行方式。
+应用仍需启用本地自动化；数据目录暂沿用 `AIIDA_PATH/chat`，这是存储位置，不代表通用任务依赖 AiiDA。
+服务器需要 Bash、Python 3、`sbatch`、`squeue`、`sacct`、`scancel`；SSH 主机信任与认证沿用设置。
+
+Agent 通过 `calculation_job_hosts` 获取 SSH 别名，再用现有 `calculation_plan_save/program`
+设计流程。以下只是接口示例，平台没有内置 LAMMPS/GROMACS 计算方案：
+
+```json
+{
+  "id": "minimize",
+  "title": "结构优化",
+  "kind": "job",
+  "job": {
+    "host": "cluster-b",
+    "workdir": "~/.chem-agent/jobs",
+    "script": "source /path/to/environment.sh\nsrun lmp -in input.lmp",
+    "resources": {"queue": "low", "nodes": 1, "ranks_per_node": 1,
+                  "wallclock_seconds": 3600, "memory_mb": 2048},
+    "files": {"input.lmp": "实际输入由 Agent 编写"},
+    "retrieve": ["log.lammps", "final.data", "restart.*"],
+    "required_outputs": ["final.data"]
+  },
+  "files": [{"node": "build", "path": "initial.data", "target": "initial.data"}]
+}
+```
+
+- `job.script` 是计算节点执行的 Bash 内容，可加载软件环境、调用 MPI、运行 Python 或其他程序。
+  用 `srun/mpirun` 启动计算，不在其中再次 `sbatch` 一个脱离监控的子任务。
+- `scheduler_commands` 可填写额外的 `#SBATCH` 指令，例如 QOS、constraint、CPU 线程、作业数组。
+  平台管理的作业名、输出位置、队列与基础资源字段优先，以便回执与监控保持一致。
+- `job.files` 保存文本输入。二进制模型权重、拓扑、轨迹和重启文件使用节点的 `files` 引用。
+  每项指定 `node`、`job_id`、`file_id` 之一，指定源 `path` 与目的 `target`。
+  `file_id` 必须是当前对话附件；`job_id` 必须是当前对话的作业。
+- `files.node` 自动形成真实 DAG 依赖；建模、分析和通用任务均可消费这些文件。
+  专用 VASP 节点继续使用原结构/参数接口；需要自定义 VASP 文件脚本也可使用 `job`。
+- 本地代码通过 `file_inputs.json` 查询文件映射，直接打开 `target`。
+  通用任务的结构输入以 `alias.extxyz` 保存，路径写入 `inputs.json`。
+  文件不经大模型传输；同一 SSH 主机的通用计算节点间直接在远端复制文件，避免大轨迹/权重绕行本机。
+  本地分析优先复用已取回文件，未取回文件可从远端读取；跨服务器传递经本地流式暂存。
+- `retrieve` 支持文件路径与 glob；`required_outputs` 是必须存在的确切文件名。
+  结束后保存每个尝试的独立产物、大小、SHA256、调度器作业号和退出信息。
+  `calculation_job_files` 可列文件、分段读日志或查询状态。
+
+### 可靠性与 Agent 后续处理
+
+提交前持久保存唯一任务编号，远端在 `sbatch` 前写 reservation；响应丢失时先核对回执，
+再按唯一作业名查 Slurm，结果仍不明确时保持 uncertain，不盲目重投。
+`squeue` 消失后继续核对 `sacct` 和脚本退出码；没有记账结果不视为成功。
+数组任务汇总各元素的终态与独立退出标记。正常退出和要求文件存在只表示执行完成，科学判断交给分析。
+
+配额拒绝进入等待；只有相同 SSH 主机、账号和分区的**已接单任务完成事件**才能释放一个等待项。
+释放凭据持久保存且只能消费一次，读取状态不会重投。统计通用任务管理器记录的完成事件，
+包括通过下述接管工具登记的外部作业；未登记的外部任务不参与。
+
+完成/失败事件持久保存，自动启动原会话中的实际 Agent 工具循环；内部提示词不作为用户消息展示。
+用户正在对话时保留事件等待。Agent 可以读文件、分析、修复失败节点，也可以在 `/auto QUEUE`
+授权的流程中通过 `calculation_plan_extend` 追加新节点；已有节点及输出保留。方案的 `repair_limit` 指定每个节点允许自动修复的次数（默认 2，0 禁止自动重试）。
+普通确认方案按已确认步骤执行，
+超出原方案的计算需要新授权。稳定节点 ID 防止重复追加。
+
+通用任务的续跑通过下述持久等待与事件收件箱恢复；未知工具结果不自动重放。
+AiiDA 的既有失败诊断仍使用原有 rediagnose 路径。后台必须常驻；主机睡眠期间集群作业继续运行，
+查询、取回和模型回合在后台恢复后继续。
+
+本实现有本地模拟 Slurm 与真实 Agent 工具循环回归测试。早期 cluster-b 检查曾成功找到命令，随后 SSH 连接被拒绝；
+后续本地真实 Slurm/ORCA 验收见下节，尚不代表远端 cluster-b 或特定 LAMMPS/GROMACS/势函数版本已验证。
+
+调度接口依据：[Slurm sbatch](https://slurm.schedmd.com/sbatch.html)、[Slurm sacct](https://slurm.schedmd.com/sacct.html)。
+
+
+## 持久等待与会话续跑
+
+Agent 用 `calculation_wait_register` 注册一次性条件，`calculation_wait_control` 查询、取消或
+在配置修复后重试模型阶段。规则与事件保存在应用的 SQLite 数据库中，不依赖聊天页面或内存定时器。
+条件可嵌套 `all` / `any`；叶子是节点 `state` 或输出 `file`，不限定计算软件或科学步骤。
+`state` 观察方案节点状态（例如 completed/failed/blocked），不是 Slurm 分区中的全部作业。
+文件条件观察已发布产物；通用 Slurm 节点还可只读检查运行中作业目录，默认每 30 秒一次，
+`poll_seconds` 可调。文件出现不等于写入完成，Agent 可以等待自己脚本最后写出的完成标记。
+连接失败视为未知；不会当作文件存在，也不会因此调用模型。
+
+例如，Agent 可以自行调用：
+
+```json
+{
+  "plan_id": "实际方案 UUID",
+  "key": "compare-candidates-v1",
+  "condition": {
+    "op": "all",
+    "conditions": [
+      {"op": "state", "node": "candidate_a", "states": ["completed", "failed", "blocked"]},
+      {"op": "state", "node": "candidate_b", "states": ["completed", "failed", "blocked"]}
+    ]
+  },
+  "instruction": "核对实际输出，比较候选结构；根据结果决定是否补算和如何继续。",
+  "replace_default": true
+}
+```
+
+`key` 在会话与方案内幂等：重试同一注册返回原记录；换条件需要新 key。`replace_default=true`
+替代所覆盖节点的逐项完成通知，适合并行组汇总；false 则额外保留逐项通知。
+一次性等待匹配后不重新求值，结果和事件同一事务提交；取消或过期不会重新启用其覆盖节点的默认通知。
+需要再次观察修复后的尝试时注册新 key。匹配前可设 `expires_at`（Unix 时间）；已匹配的事件不因时间流逝丢失。
+
+没有自定义等待时，通用任务仍默认结束即唤醒；同一轮检测到的完成事件合并处理。
+重复观察使用同一事件 ID，不制造新回合。自定义条件目前限定当前会话中一个方案的节点；
+不支持任意跨会话或外部未登记作业。建模/分析/VASP 节点也可以被显式等待条件引用。
+现有 VASP 解读/诊断机制尚未迁移进此收件箱，不因此声称所有旧后台路径都具备相同恢复保证。
+
+### 恢复和一致性
+
+- 注册、匹配、接单和处理分别有持久状态。会话繁忙时保持 pending；不会丢弃事件或抢占用户回合。
+- 事件接单与会话 run 的创建在同一 SQLite 事务中；回复保存与事件 completed 在同一事务中。
+  即使在回复提交后、方案 JSON 更新前退出，也不会再次执行这条事件。
+- 工具批次开始前记下调用意图；全部工具结果确认后保存消息、结果、用量与模型检查点。
+  服务重启或模型限流后，从已确认的模型边界继续，不重新执行已完成工具。
+- 429、可识别的订阅用量限制、5xx 和暂时连接失败使用持久化退避，遵守 Retry-After。
+  到期仅尝试恢复，不声称额度一定恢复；后续仍失败就继续退避。认证/配置等非暂时错误进入 blocked，
+  可通过 `calculation_wait_control(action="retry", event_id=...)` 在修复后恢复。
+- 在工具执行期间中断，未观察到完整结果时进入 uncertain；保存 tool_intent 供 Agent 查询和对账，
+  不自动重放任意 shell/写入操作，也不把不明状态当成功。当前这类未知副作用仍需核对后另起处理，
+  不能用 retry 强行重放；通用 Slurm 的实际提交层另外通过唯一任务编号、远端回执和调度器对账防止重投。
+- 投递前检查方案停止/暂停状态与任务尝试身份，旧尝试事件不会错误作用于替换任务。
+  用户停止取消等待与未处理事件；服务正常退出仅保存恢复点，两者不同。
+- 内部消息作为带 event_id/type 的后台上下文进入原 Agent 工具循环，不存成可见用户消息。
+  只保存 Agent 的回复和工具记录；等待条件不会授予额外计算授权。
+
+回归覆盖事务回滚、进程重启、繁忙会话、分组通知、旧事件失效、等待过期、运行中文件观察、
+429 退避，以及真实应用 Agent 注册等待和在追加步骤后恢复。模型响应和 Slurm 在测试中模拟，
+不会消费实际模型额度或向 cluster-b 提交作业。
+
+## 接管终端提交的已有 Slurm 作业
+
+Agent 可以自行编写输入和提交脚本、通过 `remote_shell` 执行 `sbatch --parsable`，
+取得真实作业号后调用 `calculation_job_adopt`。登记不执行 sbatch、不改写作业目录，
+也不要求安装 AiiDA、使用特定计算软件或插入本系统的退出标记。
+
+```json
+{
+  "host": "已登记的SSH别名",
+  "scheduler_job_id": "实际Slurm作业号",
+  "title": "ORCA 几何优化",
+  "retrieve": ["orca.out", "input.xyz"],
+  "required_outputs": ["orca.out"],
+  "instruction": "读取实际输出核对几何收敛；使用最终结构继续已授权的频率计算。"
+}
+```
+
+返回 `job_id`、`plan_id`、`node_id`。后续已有作业可用 `plan_id` 登记到同一方案，
+或由 Agent 注册 all/any 分组等待。原始输出由 `calculation_job_files` 读取，
+文件依赖可引用这些 job/node ID。监控元数据不伪造原始脚本、资源或未知软件参数。
+
+- 接管时查询 `scontrol show job`，确认集群、提交时间、账号、作业号和绝对 WorkDir。
+  可填写 `remote_directory` 与 `submitted_at` 强制核对；提交时间应取调度器的 SubmitTime，
+  不应假定提交前执行的 `date` 与 SubmitTime 完全相同。
+- 控制器记录过期时查询 `sacct -D`；有多个作业号实例时需指定提交时间。
+  后续轮询固定原始身份，Slurm 作业号被复用、连接失败、记账缺失均不推断完成。
+- 已完成但尚未登记的作业也可接管，登记后的下一轮观察会产生完成事件。
+  重复/并发登记返回同一绑定；先持久化身份、再写方案，重启可补全中断的登记，绝不重投。
+- 支持普通作业和具体数组元素（例如 `123_4`）；数组父编号、范围、job step 和异构组件
+  不能当作一个普通作业接管。需要数组聚合时逐项登记，再注册分组等待。
+- 工作目录可列出/读取任意格式产物；文件依赖和取回沿用现有目录边界。
+  调度器 COMPLETED 且 ExitCode=0:0 只说明作业成功退出，软件收敛由 Agent 读取输出判断。
+- 结束事件进入同一个 SQLite 收件箱，自动唤醒原对话，隐藏后台提示词。
+  用户停止/暂停方案仍优先；接管本身不会授予额外计算权限。
+- 修复接管节点时必须提供新尝试的脚本和资源；监控占位数据不能作为提交输入重放。
+  Agent 也可通过终端在新目录提交修复作业并接管，保留原失败作业证据。
+  任意终端命令本身没有自动幂等保证；sbatch 回执不明时先查询调度器，不盲目重试。
+
+本地真实联调脚本：`scripts/verify_adopted_orca.py`。配置区指定现有 Docker Slurm、
+共享目录、本机 ORCA 和模型配置路径。它使用真实应用 Agent、真实队列及真实 ORCA 输出，
+通过共享文件桥接 macOS ORCA 与 Linux 队列，Docker exec 替代 SSH 传输；
+该联调不等于 Linux ORCA 安装或远端 SSH 链路验收。`resume_test` 可续接已保存的测试会话，
+不重建已完成作业。数据保存在被 Git 忽略的 `data/adopt-orca-validation/`。

@@ -11,6 +11,7 @@ import io
 import json
 import logging
 from collections import Counter
+from datetime import UTC
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -25,13 +26,16 @@ from chemistry_agent.automation.events import (
     utc_now,
     waiting_for_submit_quota,
 )
+from chemistry_agent.automation.job_models import JobSettings
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import StructureInput
 from chemistry_agent.automation.plan_authority import auto_queue, auto_request, repair_target
+from chemistry_agent.automation.plan_files import stage_dependencies
 from chemistry_agent.automation.plan_groups import display_nodes
 from chemistry_agent.automation.plan_models import (
     NodeRepair,
     PlanDraft,
+    PlanExtension,
     PlanFigure,
     PlanNode,
     PlanProgram,
@@ -41,6 +45,7 @@ from chemistry_agent.automation.plan_models import (
 from chemistry_agent.automation.plan_repair import diagnose, eligible, replace_node
 from chemistry_agent.automation.plan_stop import PlanStop, job_ids
 from chemistry_agent.automation.reporting import job_evidence, summarize_result
+from chemistry_agent.automation.slurm_jobs import SlurmJobs
 from chemistry_agent.errors import AgentError
 from chemistry_agent.memory.capture import safely_capture_plan
 from chemistry_agent.tools import Tool, ToolContext
@@ -51,7 +56,7 @@ TERMINAL = {"completed", "failed", "blocked"}
 
 def generated_files(directory: Path, aliases: set[str]) -> list[str]:
     """Expose generated artifacts, excluding staged inputs and interpreter bookkeeping."""
-    excluded = {"inputs.json", "model.py", "sandbox.sb", "execution.log"}
+    excluded = {"inputs.json", "file_inputs.json", "model.py", "sandbox.sb", "execution.log"}
     excluded.update(f"{alias}.{suffix}" for alias in aliases for suffix in ("vasp", "extxyz"))
     files = []
     pending = [directory]
@@ -60,6 +65,7 @@ def generated_files(directory: Path, aliases: set[str]) -> list[str]:
             relative = path.relative_to(directory)
             if (
                 relative.parts[0] in aliases
+                or relative.parts[0] in {"_dependency_cache", "_job_inputs"}
                 or path.name in {"archive", ".mplconfig", ".cache", ".matplotlib"}
                 or str(relative) in excluded
                 or path.is_symlink()
@@ -75,6 +81,8 @@ def generated_files(directory: Path, aliases: set[str]) -> list[str]:
 class CalculationPlans:
     def __init__(self, chat) -> None:
         self.chat = chat
+        self.slurm = SlurmJobs(chat)
+        self.event_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self.locks: dict[str, asyncio.Lock] = {}
         self.task: asyncio.Task | None = None
         self.summary_task: asyncio.Task | None = None
@@ -124,6 +132,15 @@ class CalculationPlans:
                 for reference in node.inputs.values():
                     if reference.structure_id:
                         self.chat.load(session, "structures", str(reference.structure_id))
+                if node.job:
+                    if node.job.adopted:
+                        raise AgentError(
+                            "use_job_adopt", "已有作业请用 calculation_job_adopt 登记。", 422
+                        )
+                    if node.job.host not in self.slurm.hosts():
+                        raise AgentError("job_host_unknown", "请先登记 SSH 服务器。", 422)
+                    if queue and node.job.resources.queue != queue:
+                        raise AgentError("wrong_queue", f"本轮只授权 {queue} 队列。", 422)
                 if node.calculation:
                     settings = node.calculation
                     protocol = configuration.resolve(
@@ -169,14 +186,13 @@ class CalculationPlans:
                 "revision": revision,
                 "title": args.title,
                 "goal": args.goal,
-                "research_systems": args.research_systems or (
-                    old.get("research_systems", []) if old else []
-                ),
-                "research_tasks": args.research_tasks or (
-                    old.get("research_tasks", []) if old else []
-                ),
+                "research_systems": args.research_systems
+                or (old.get("research_systems", []) if old else []),
+                "research_tasks": args.research_tasks
+                or (old.get("research_tasks", []) if old else []),
                 "status": "running" if queue else "draft",
                 "max_parallel": None if queue else args.max_parallel,
+                "repair_limit": args.repair_limit,
                 **(
                     {
                         "auto_queue": queue,
@@ -209,6 +225,106 @@ class CalculationPlans:
             self.save(session, plan)
             await safely_capture_plan(self.store, session, plan)
             return self.public(plan)
+
+    async def extend(self, args: PlanExtension, context: ToolContext) -> dict:
+        from chemistry_agent.automation.job_events import job_event_target
+
+        session, identifier = context.session_id, str(args.plan_id)
+        requested = args.parsed_nodes()
+        for node in requested:
+            node.depends_on = sorted(
+                set(node.depends_on)
+                | {ref.node for ref in node.inputs.values() if ref.node}
+                | {ref.node for ref in node.files if ref.node}
+            )
+        if job_event_target.get() != (session, identifier):
+            raise AgentError("extension_scope", "请在此方案的任务结束回合追加步骤。", 403)
+        async with self.lock(session, identifier):
+            plan = self.chat.load(session, "plans", identifier)
+            if not plan.get("auto_queue") or plan["status"] in {"paused", "stopping", "stopped"}:
+                raise AgentError(
+                    "extension_not_authorized", "未授权自动后续计算，请提出草稿。", 403
+                )
+            existing = {node["id"] for node in plan["nodes"]}
+            if existing & {node.id for node in requested}:
+                # Stable node IDs make repeated tool calls idempotent.
+                proposed = {node.id: node.stored_record() for node in requested}
+                old = {
+                    node["id"]: PlanNode.model_validate(
+                        {k: v for k, v in node.items() if k in PlanNode.model_fields}
+                    ).stored_record()
+                    for node in plan["nodes"]
+                    if node["id"] in proposed
+                }
+                if old == proposed:
+                    return {
+                        "id": identifier,
+                        "revision": plan["revision"],
+                        "status": plan["status"],
+                        "added_nodes": [node.id for node in requested],
+                    }
+                raise AgentError("node_id_conflict", "已有节点保持不变，请使用新节点 ID。", 409)
+            previous = [
+                PlanNode.model_validate(
+                    {k: v for k, v in node.items() if k in PlanNode.model_fields}
+                )
+                for node in plan["nodes"]
+            ]
+            validated = PlanDraft(
+                title=plan["title"], goal=plan["goal"], nodes=previous + requested
+            )
+            additions = validated.nodes[len(previous) :]
+            snapshots = {}
+            configuration = CalculationConfiguration(self.chat.service.settings.aiida_path)
+            for node in additions:
+                if node.job and node.job.adopted:
+                    raise AgentError(
+                        "use_job_adopt", "已有作业请用 calculation_job_adopt 登记。", 422
+                    )
+                if node.job and node.job.resources.queue != plan["auto_queue"]:
+                    raise AgentError("wrong_queue", "后续任务沿用已授权队列。", 422)
+                if node.job and node.job.host not in self.slurm.hosts():
+                    raise AgentError("job_host_unknown", "未登记此服务器。", 422)
+                if node.calculation:
+                    c = node.calculation
+                    protocol = configuration.resolve(c.protocol_id, c.incar, c.kmesh).model_dump(
+                        mode="json"
+                    )
+                    if c.resources:
+                        protocol["resources"].update(
+                            c.resources.model_dump(mode="json", exclude_unset=True)
+                        )
+                    if protocol["resources"]["queue"] != plan["auto_queue"]:
+                        raise AgentError("wrong_queue", "后续任务沿用已授权队列。", 422)
+                    snapshots[node.id] = {
+                        "protocol": protocol,
+                        "source": configuration.get("sources", protocol["potential_source_id"]),
+                        **await self.chat.service.call("plan_identity", protocol),
+                    }
+            self.chat.save(session, "plan_versions", str(uuid4()), plan)
+            plan["snapshots"].update(snapshots)
+            plan["nodes"].extend(node.stored_record() for node in additions)
+            plan["runtime"].update({node.id: {"status": "pending"} for node in additions})
+            plan["revision"] += 1
+            plan["changed_nodes"] = [node.id for node in additions]
+            plan["history"].append(
+                {
+                    "revision": plan["revision"],
+                    "changed_nodes": plan["changed_nodes"],
+                    "removed_nodes": [],
+                    "reason": args.reason,
+                    "at": utc_now(),
+                }
+            )
+            plan.update(status="running", reported=False)
+            plan.pop("completed_at", None)
+            self.save(session, plan)
+            return {
+                "id": identifier,
+                "revision": plan["revision"],
+                "status": plan["status"],
+                "added_nodes": [node.id for node in requested],
+            }
 
     async def repair_node(self, args: NodeRepair, context: ToolContext) -> dict:
         return await replace_node(self, args, context)
@@ -324,14 +440,57 @@ class CalculationPlans:
         session, identifier = context.session_id, str(args.plan_id)
         self.chat.load(session, "plans", identifier)
         self.stop_requests.add((session, identifier))
+        event_task = self.event_tasks.get((session, identifier))
+        if event_task:
+            event_task.cancel()
+            await asyncio.gather(event_task, return_exceptions=True)
         async with self.lock(session, identifier):
             self.stop_requests.discard((session, identifier))
             plan = self.chat.load(session, "plans", identifier)
-            if plan["status"] == "completed":
-                return {"status": "completed"}
+            if self.store:
+                async with self.store.transaction():
+                    await self.store.db.execute(
+                        "UPDATE agent_waits SET status='cancelled' "
+                        "WHERE session_id=? AND plan_id=?",
+                        (session, identifier),
+                    )
+                    await self.store.db.execute(
+                        "UPDATE agent_events SET status='cancelled' "
+                        "WHERE session_id=? AND plan_id=? "
+                        "AND status NOT IN ('completed','superseded')",
+                        (session, identifier),
+                    )
             plan["status"] = "stopping"
             self.save(session, plan)
-            result = await self.chat.service.call("stop_plan_jobs", {"job_ids": job_ids(plan)})
+            ids = job_ids(plan)
+            result = (
+                await self.chat.service.call("stop_plan_jobs", {"job_ids": ids})
+                if ids
+                else {"verified_stopped": True, "active_aiida": [], "active_scheduler": []}
+            )
+            for state in plan["runtime"].values():
+                for attempt in [
+                    state,
+                    *(a["state"] for a in state.get("attempts", []) if "state" in a),
+                ]:
+                    if not attempt.get("generic_job_id"):
+                        continue
+                    receipt = (
+                        self.chat.directory(session, "slurm_jobs")
+                        / f"{attempt['generic_job_id']}.json"
+                    )
+                    if not receipt.exists():
+                        continue
+                    record = self.slurm.load(session, attempt["generic_job_id"])
+                    if record.get("scheduler_job_id") and not record.get("terminal"):
+                        await self.slurm.remote(record, "cancel")
+                        record = await self.slurm.inspect(session, record["id"])
+                        if not record.get("terminal"):
+                            result["verified_stopped"] = False
+                            result["active_scheduler"].append(record["scheduler_job_id"])
+                    elif record["status"] == "uncertain":
+                        result["verified_stopped"] = False
+
             if result["verified_stopped"]:
                 plan["status"] = "stopped"
                 for state in plan["runtime"].values():
@@ -379,8 +538,17 @@ class CalculationPlans:
             if action == "rediagnose":
                 if not plan.get("auto_queue") or plan["status"] not in {"failed", "running"}:
                     raise AgentError("plan_state_conflict", "仅可重新诊断自动方案的失败节点。", 409)
-                if (session, identifier) in self.repair_tasks:
+                if (session, identifier) in self.repair_tasks or (
+                    session,
+                    identifier,
+                ) in self.event_tasks:
                     raise AgentError("session_busy", "已有故障诊断正在运行。", 409)
+                for event in plan.get("job_events", {}).values():
+                    if (
+                        event["status"] in {"uncertain", "completed"}
+                        and event["outcome"] == "failed"
+                    ):
+                        event["status"] = "pending"
                 for state in plan["runtime"].values():
                     if state["status"] == "failed":
                         state.pop("diagnosis_started", None)
@@ -417,6 +585,7 @@ class CalculationPlans:
         output = directory / ("structure.vasp" if node["kind"] == "model" else "result.json")
         output.unlink(missing_ok=True)
         inputs = self.resolved_inputs(session, plan, node)
+        await stage_dependencies(self, session, plan, node, directory)
         for alias, value in inputs.items():
             if "structure_id" in value:
                 data = self.chat.load(session, "structures", value["structure_id"])
@@ -458,7 +627,11 @@ class CalculationPlans:
                 ),
                 ToolContext(session, plan["id"]),
             )
-            return {"structure_id": imported["id"], "result": self.chat.structure_summary(imported)}
+            return {
+                "structure_id": imported["id"],
+                "result": self.chat.structure_summary(imported),
+                "files": generated_files(directory, set(inputs)),
+            }
         result = json.loads(
             content,
             parse_constant=lambda value: (_ for _ in ()).throw(
@@ -479,6 +652,103 @@ class CalculationPlans:
         ):
             raise AgentError("missing_figure", "绘图代码未生成图像，请使用 savefig 保存图片。", 422)
         return {"result": result, "files": files}
+
+    async def start_job(self, session: str, plan: dict, node: dict, state: dict) -> None:
+        if node["job"].get("adopted"):
+            raise AgentError("adopted_not_submittable", "接管节点只监控已有作业，不重新提交。", 409)
+        identifier = state.setdefault("generic_job_id", str(uuid4()))
+        self.save(session, plan)
+        directory = self.chat.directory(session, "plan_runs") / plan["id"] / node["id"]
+        # A fresh per-attempt input tree prevents an old restart/output becoming a new input.
+        inputs_dir = directory / "_job_inputs" / identifier
+        receipt = self.chat.directory(session, "slurm_jobs") / f"{identifier}.json"
+        settings = JobSettings.model_validate(node["job"])
+        if not receipt.exists():
+            inputs_dir.mkdir(parents=True, exist_ok=True)
+            await stage_dependencies(
+                self,
+                session,
+                plan,
+                node,
+                inputs_dir,
+                remote_destination={
+                    "host": settings.host,
+                    "remote_directory": settings.workdir.rstrip("/") + "/" + identifier,
+                },
+            )
+            resolved = self.resolved_inputs(session, plan, node)
+            for alias, value in resolved.items():
+                if "structure_id" in value:
+                    structure = self.chat.load(session, "structures", value["structure_id"])
+                    (inputs_dir / f"{alias}.extxyz").write_text(structure["extxyz"])
+                    value["file"] = f"{alias}.extxyz"
+            for name, text in settings.files.items():
+                path = inputs_dir / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+            (inputs_dir / "inputs.json").write_text(json.dumps(resolved, ensure_ascii=False))
+        record = await self.slurm.submit(session, identifier, settings, inputs_dir)
+        state.update(status="running", job=self.generic_snapshot(record))
+        if record["status"] == "rejected":
+            raise AgentError("job_rejected", record.get("error", "Slurm 拒绝提交。"), 422)
+
+    @staticmethod
+    def generic_snapshot(record: dict) -> dict:
+        status = record.get("scheduler_state", "").lower()
+        return {
+            **record,
+            "backend": "slurm",
+            "process_state": "finished" if record.get("terminal") else "waiting",
+            "scheduler_state": status,
+            "submission_state": "rejected_by_scheduler"
+            if record["status"] == "quota_wait"
+            else "accepted_by_scheduler"
+            if record.get("scheduler_job_id")
+            else "not_submitted",
+            "paused": record["status"] == "quota_wait",
+            "process_status": record.get("error"),
+            "pk": None,
+        }
+
+    async def inspect_job(self, session: str, plan: dict, node: dict, state: dict) -> None:
+        from datetime import datetime
+
+        checked = state.get("polled_at")
+        if checked and (datetime.now(UTC) - datetime.fromisoformat(checked)).total_seconds() < 30:
+            return
+        state["polled_at"] = utc_now()
+        record = await self.slurm.inspect(session, state["generic_job_id"], release_waiter=True)
+        state["job"] = self.generic_snapshot(record)
+        if record["status"] == "rejected":
+            raise AgentError("job_rejected", record.get("error", "Slurm 拒绝提交。"), 422)
+        if not record.get("terminal"):
+            return
+        directory = self.chat.directory(session, "plan_runs") / plan["id"] / node["id"]
+        # Retrieval failures keep the node tracked, and never resubmit the calculation.
+        files = await self.slurm.retrieve(record, directory / "attempts" / record["id"])
+        files["files"] = [f"attempts/{record['id']}/{name}" for name in files["files"]]
+        state["outputs"] = {
+            **files,
+            "result": {
+                "job_id": record["id"],
+                "backend": "slurm",
+                "scheduler_job_id": record.get("scheduler_job_id"),
+                "scheduler_state": record.get("scheduler_state"),
+                "exit_code": record.get("exit_code"),
+                "script_exit_code": record.get("script_exit_code"),
+            },
+        }
+        state["completed_at"] = record["completed_at"]
+        if not record.get("finished_ok") or files["missing_outputs"]:
+            raise AgentError(
+                "job_failed",
+                "作业结束："
+                + str(record.get("scheduler_state"))
+                + "；缺失输出："
+                + ", ".join(files["missing_outputs"]),
+                422,
+            )
+        state.update(status="completed")
 
     async def start_vasp(self, session: str, plan: dict, node: dict, state: dict) -> None:
         from chemistry_agent.automation.chat import ChatPreviewInput
@@ -508,7 +778,8 @@ class CalculationPlans:
                 ToolContext(session, plan["id"]),
             )
             state.update(
-                preview_id=preview["preview_id"], input_structure_id=structure_id,
+                preview_id=preview["preview_id"],
+                input_structure_id=structure_id,
                 input_structure_fingerprint=hashlib.sha256(
                     json.dumps(structure["structure"], sort_keys=True).encode()
                 ).hexdigest(),
@@ -721,6 +992,8 @@ class CalculationPlans:
                     state = plan["runtime"][node["id"]]
                     before = (state["status"], self.step_status(state))
                     try:
+                        if state.get("generic_job_id") and state["status"] == "running":
+                            await self.inspect_job(session, plan, node, state)
                         if state.get("job_id") and state["status"] == "running":
                             await self.inspect_vasp(session, plan, node, state)
                             await self.resume_quota_waiter(session, plan, node, state)
@@ -734,14 +1007,17 @@ class CalculationPlans:
                             continue
                         if not all(status == "completed" for status in dependencies):
                             continue
-                        if state.get("job_id"):
+                        if state.get("job_id") or (
+                            state.get("generic_job_id") and state["status"] == "running"
+                        ):
                             continue
                         active = sum(
-                            bool(s.get("job_id")) and s["status"] == "running"
+                            bool(s.get("job_id") or s.get("generic_job_id"))
+                            and s["status"] == "running"
                             for s in plan["runtime"].values()
                         )
                         if (
-                            node["kind"] == "vasp"
+                            node["kind"] in {"vasp", "job"}
                             and plan.get("max_parallel")
                             and active >= plan["max_parallel"]
                         ):
@@ -750,7 +1026,9 @@ class CalculationPlans:
                             status="preparing", started_at=state.get("started_at", utc_now())
                         )
                         self.save(session, plan)
-                        if node["kind"] == "vasp":
+                        if node["kind"] == "job":
+                            await self.start_job(session, plan, node, state)
+                        elif node["kind"] == "vasp":
                             await self.start_vasp(session, plan, node, state)
                         else:
                             outputs = await self.run_code(session, plan, node, state)
@@ -760,7 +1038,9 @@ class CalculationPlans:
                         state.pop("sync_error", None)
                     except AgentError as exc:
                         # Query/network outages are not calculation failures. Keep tracking the job.
-                        if state.get("job_id") and exc.status_code >= 500:
+                        if (
+                            state.get("job_id") or state.get("generic_job_id")
+                        ) and exc.status_code >= 500:
                             state["sync_error"] = exc.message
                         else:
                             state.update(status="failed", error=exc.message, error_code=exc.code)
@@ -829,7 +1109,33 @@ class CalculationPlans:
                     plan["reported"] = True
                     self.save(session, plan)
 
+            from chemistry_agent.automation.job_events import record_events, wake
+            from chemistry_agent.automation.wait_ledger import WaitLedger
+
+            record_events(plan)
+            self.save(session, plan)
             key = (session, identifier)
+            if self.store and self.agent:
+                ledger = WaitLedger(self.store)
+                await ledger.probe_files(self, session, plan)
+                await ledger.observe(session, plan)
+            if (
+                self.agent
+                and self.store
+                and self.provider
+                and plan["status"] not in {"paused", "stopping", "stopped"}
+                and await WaitLedger(self.store).pending(session, plan) is not None
+                and key not in self.event_tasks
+            ):
+                task = asyncio.create_task(wake(self, session, identifier))
+                self.event_tasks[key] = task
+
+                def finished(task, key=key):
+                    self.event_tasks.pop(key, None)
+                    if not task.cancelled() and task.exception():
+                        logger.error("Generic job event failed: %s", task.exception())
+
+                task.add_done_callback(finished)
             if (
                 self.agent
                 and plan.get("auto_queue")
@@ -883,20 +1189,38 @@ class CalculationPlans:
             self.summary_task = asyncio.create_task(self.watch_summaries())
 
     async def close(self) -> None:
-        if self.summary_task:
-            self.summary_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.summary_task
-        for task in self.repair_tasks.values():
-            task.cancel()
-        await asyncio.gather(*self.repair_tasks.values(), return_exceptions=True)
         if self.task:
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
+        if self.summary_task:
+            self.summary_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.summary_task
+        for task in list(self.event_tasks.values()):
+            task.cancel()
+        await asyncio.gather(*self.event_tasks.values(), return_exceptions=True)
+        for task in self.repair_tasks.values():
+            task.cancel()
+        await asyncio.gather(*self.repair_tasks.values(), return_exceptions=True)
 
     def tools(self) -> list[Tool]:
+        from chemistry_agent.automation.job_tools import tools as job_tools
+        from chemistry_agent.automation.wait_tools import tools as wait_tools
+
         return [
+            *job_tools(self),
+            *wait_tools(self),
+            Tool(
+                "calculation_plan_extend",
+                "Append agent-designed steps to this auto-authorized "
+                "plan during a job completion turn. Existing nodes and results remain unchanged. "
+                "Stable node IDs deduplicate repeated requests. File dependencies may reference "
+                "earlier nodes.",
+                PlanExtension,
+                self.extend,
+                True,
+            ),
             Tool(
                 "calculation_plan_stop",
                 "Stop this session plan and its submitted jobs on explicit user request. "
@@ -909,13 +1233,19 @@ class CalculationPlans:
                 "calculation_plan_save",
                 "Create or revise a general executable calculation DAG. "
                 "An explicit /auto QUEUE user header starts it immediately. Otherwise draft. "
-                "Nodes: model (ASE Python writes structure.vasp), vasp (registered "
+                "Nodes: job (arbitrary Slurm job.script, host, resources, text files, retrieve, "
+                "required_outputs; no AiiDA needed), model (ASE Python writes structure.vasp), "
+                "vasp (registered "
                 "protocol plus overrides), analysis (Python writes result.json; passed=false "
                 "blocks descendants). inputs map aliases to structure_id OR upstream node/output. "
                 "Code reads alias.vasp and inputs.json (alias: {result} or {structure_id,file}). "
                 'analysis.result_files stages any relative file paths (or ["*"] for all). '
                 "file_source selects retrieved or remote. inputs.json alias.files maps names "
                 "to local paths; no file-type whitelist. "
+                "files accepts {node OR job_id OR file_id, path, target, source}; files are staged "
+                "at target and described in file_inputs.json. File references imply dependencies. "
+                "For job nodes use srun/mpirun in script as needed, never sbatch a detached child. "
+                "Job completion wakes the agent with tools in the original conversation. "
                 "Dependencies include all input references. Branches execute concurrently after "
                 "authorization (auto mode or panel confirmation). Revisions require plan_id and "
                 "expected_revision; confirmed plans are immutable. Use this for new multi-step "

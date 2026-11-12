@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from chemistry_agent.chatgpt_plan import RESOURCE, ChatGPTPlan
-from chemistry_agent.errors import AgentError
+from chemistry_agent.errors import AgentError, retry_after_seconds
 from chemistry_agent.provider import AssistantMessage, Completion
 from chemistry_agent.runtime.live import StructuredPreview
 from chemistry_agent.schemas import TokenUsage
@@ -121,6 +121,17 @@ class PlanResponses:
                         json=body,
                         headers={"Authorization": f"Bearer {token}"},
                     ) as response:
+                        if response.status_code == 429 or response.status_code >= 500:
+                            raise AgentError(
+                                "provider_rate_limited"
+                                if response.status_code == 429
+                                else "provider_unavailable",
+                                "ChatGPT 暂时受限，请等待服务恢复。",
+                                503,
+                                retry_after=retry_after_seconds(
+                                    response.headers.get("retry-after")
+                                ),
+                            )
                         if response.status_code != 200:
                             raise AgentError(
                                 "chatgpt_response_failed",
@@ -203,5 +214,6 @@ async def read_completed(response: httpx.Response) -> dict:
                     "subscription_sharing_usage_unavailable",
                 }:
                     message = "ChatGPT 套餐用量不可用或已达上限，请在 ChatGPT 设置的用量页面检查。"
+                    raise AgentError("provider_rate_limited", message, 503)
                 raise AgentError("chatgpt_response_failed", message, 502)
     raise AgentError("chatgpt_stream_interrupted", "ChatGPT 响应流中断，未收到完成确认。", 502)
