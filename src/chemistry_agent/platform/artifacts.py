@@ -37,6 +37,16 @@ class ArtifactOperations:
         self.plans = plans
         self.locks: dict[str, asyncio.Lock] = {}
 
+    @staticmethod
+    def describe(artifact: dict) -> dict:
+        """Distinguish immutable storage from a capture of a still-running source."""
+        return artifact | {
+            "immutable": True,
+            "source_state_at_capture": "running" if artifact["snapshot"] else "terminal",
+            "snapshot_meaning": "snapshot=true means captured before the job ended; "
+            "both true and false are immutable stored copies",
+        }
+
     async def register(self, args: ArtifactRegister, context: OperationContext) -> dict:
         session = context.session_id
         identifier = str(
@@ -45,7 +55,7 @@ class ArtifactOperations:
         records = self.plans.chat.records
         async with self.locks.setdefault(identifier, asyncio.Lock()):
             if (records.directory(session, "artifacts") / f"{identifier}.json").exists():
-                return records.load(session, "artifacts", identifier)
+                return self.describe(records.load(session, "artifacts", identifier))
             job = self.plans.slurm.load(session, str(args.job_id))
             target = records.directory(session, "artifact_blobs") / identifier
             manifest = await self.plans.slurm.download(job, args.path, target)
@@ -61,13 +71,17 @@ class ArtifactOperations:
                 "sha256": manifest["sha256"],
             }
             records.save(session, "artifacts", identifier, artifact)
-            return artifact
+            return self.describe(artifact)
 
     async def read(self, args: ArtifactRead, context: OperationContext) -> dict:
         records, session = self.plans.chat.records, context.session_id
         if not args.artifact_id:
-            return {"artifacts": records.list_records(session, "artifacts")}
-        artifact = records.load(session, "artifacts", str(args.artifact_id))
+            return {
+                "artifacts": [
+                    self.describe(item) for item in records.list_records(session, "artifacts")
+                ]
+            }
+        artifact = self.describe(records.load(session, "artifacts", str(args.artifact_id)))
         if not args.content:
             return artifact
         path = records.directory(session, "artifact_blobs") / str(args.artifact_id)

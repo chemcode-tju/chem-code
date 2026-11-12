@@ -63,6 +63,30 @@ test("bad tool payloads are shown as failures and numerical output stays finite"
   assert.equal(metricValue(46.069), "46.069");
 });
 
+test("background job replies preserve the original answer and their own tool traces", () => {
+  const messages = [
+    {role:"user",content:"优化"}, {role:"assistant",content:"方案已准备"},
+    {role:"assistant",tool_calls:[{id:"t",function:{name:"job.inspect",arguments:"{}"}}]},
+    {role:"tool",tool_call_id:"t",content:'{"state":"COMPLETED"}'},
+    {role:"assistant",content:"优化完成"},
+    {role:"assistant",content:"方案完成",task_event:"plan:test"},
+    {role:"assistant",content:"汇总完成"},
+  ];
+  const runs = ["方案已准备","优化完成","汇总完成"].map((answer,index)=>({
+    id:String(index),status:"completed",started_at:`2026-01-0${index+1}`,answer,
+    context:index ? {automation_event:"job_completion"} : {},
+  }));
+  const turns=buildTurns(messages,runs);
+  assert.equal(turns.length,4);
+  assert.equal(turns[0].answer,"方案已准备");
+  assert.equal(turns[0].calls.length,0);
+  assert.equal(turns[1].background,true);
+  assert.equal(turns[1].calls[0].name,"job.inspect");
+  assert.equal(turns[1].run.id,"1");
+  assert.equal(turns[2].event,"plan:test");
+  assert.equal(turns[3].answer,"汇总完成");
+});
+
 test("turn activity uses real run time and keeps tool parameters inside the disclosure", () => {
   const start="2026-11-03T09:00:00Z", end="2026-11-03T09:01:06Z";
   assert.equal(duration(start,end),"1 分 6 秒");

@@ -17,7 +17,7 @@ from chemistry_agent.automation.wait_ledger import WaitLedger
 from chemistry_agent.errors import AgentError
 from chemistry_agent.platform.contracts import Delivery, DeliveryResult, OperationContext
 from chemistry_agent.platform.lease import RuntimeLease
-from chemistry_agent.schemas import TokenUsage
+from chemistry_agent.schemas import ContextUsage, TokenUsage
 from chemistry_agent.store import Store
 
 cluster = cluster_fixture
@@ -177,6 +177,9 @@ async def test_agent_step_many_jobs_failure_history_and_immutable_artifact(clust
             context,
         )
         (tmp / "43" / "result.bin").write_bytes(b"changed after snapshot")
+        assert artifact["immutable"] is True
+        assert artifact["snapshot"] is False
+        assert artifact["source_state_at_capture"] == "terminal"
         content = await service.execute(
             "artifact.read", {"artifact_id": artifact["id"], "content": True}, context
         )
@@ -280,5 +283,19 @@ def test_platform_api_without_model_and_writer_lease(settings_factory):
             == 422
         )
         assert client.get(f"/api/platform/{uuid4()}/records").status_code == 404
+        run, _ = client.portal.call(app.state.store.begin_run, session)
+        client.portal.call(
+            app.state.store.complete_run,
+            session,
+            run,
+            [{"role": "assistant", "content": "job inspected"}],
+            "job inspected",
+            [],
+            TokenUsage(),
+            ContextUsage(automation_event="job_completion"),
+        )
+        response = client.get(f"/sessions/{session}/runs")
+        assert response.status_code == 200, response.text
+        assert response.json()[0]["context"]["automation_event"] == "job_completion"
     with RuntimeLease(settings):
         pass  # Released even after an app lifecycle.

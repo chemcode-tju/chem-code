@@ -495,6 +495,21 @@ async def test_tool_compaction_does_not_mutate_source_and_remains_valid_json(set
         assert json.loads(wire[-1]["content"])["_context_compacted"]
         assert wire[-1]["tool_call_id"] == "pair"
         assert original == before
+        manager.settings.context_tool_result_tokens = 512
+        artifact = {
+            "id": "artifact",
+            "job_id": "job",
+            "source_path": "long/" * 2000,
+            "immutable": True,
+            "source_state_at_capture": "terminal",
+            "snapshot": False,
+            "sha256": "a" * 64,
+        }
+        reduced, changed = manager.compact_tool_content(json.dumps(artifact))
+        assert changed
+        metadata = json.loads(reduced)["data"]
+        for key in ("immutable", "source_state_at_capture", "snapshot", "sha256"):
+            assert metadata[key] == artifact[key]
     finally:
         await provider.close()
         await store.close()

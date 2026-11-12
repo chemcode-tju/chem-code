@@ -94,7 +94,16 @@ export function buildTurns(messages, runs = []) {
     .sort((a, b) => a.started_at.localeCompare(b.started_at));
   let turn = null;
   let pendingCalls = new Map();
+  const finalAnswers = new Set(completed.map(run=>run.answer).filter(Boolean));
   for (const message of messages) {
+    // A persisted background run has no synthetic user message. Keep its reply and
+    // tool trace separate instead of replacing the preceding user's answer.
+    if (message.role === "assistant" && !message.task_event &&
+        (!turn || finalAnswers.has(turn.answer))) {
+      turn = {text:"",context:"",answer:"",calls:[],run:null,background:true};
+      turns.push(turn);
+      pendingCalls = new Map();
+    }
     if (message.role === "assistant" && message.task_event) {
       turns.push({event:message.task_event,text:"",context:"",calls:[],answer:message.content,run:null});
       turn = null;
