@@ -127,7 +127,9 @@ class ToolRegistry:
     async def execute(self, call: ToolCall, context: ToolContext | None = None) -> ToolExecution:
         arguments: Any = call.function.arguments
         try:
-            arguments = json.loads(arguments)
+            # Some providers return literal newlines inside a tool string (e.g. a
+            # Python heredoc). Preserve those bytes instead of rejecting valid code.
+            arguments = json.loads(arguments, strict=False)
             tool = self.tools.get(call.function.name)
             if tool is None:
                 raise ValueError("未知工具，请选择已注册的工具。")
@@ -151,6 +153,13 @@ class ToolRegistry:
                     {"field": ".".join(map(str, issue["loc"])), "reason": issue["msg"]}
                     for issue in exc.errors(include_input=False, include_context=False)[:12]
                 ],
+            }
+            success = False
+        except json.JSONDecodeError as exc:
+            result = {
+                "error": "invalid_tool_input",
+                "message": f"工具参数 JSON 语法错误：{exc.msg}"
+                f"（行 {exc.lineno}，列 {exc.colno}）。",
             }
             success = False
         except ValueError:

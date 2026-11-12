@@ -1,6 +1,7 @@
 import {t} from './i18n.mjs';
 import {byId as $, computeRequest, empty, esc, facts, field, hasId, record, remotePath, replaceOptions, value} from './compute-settings-api.mjs';
 import {createSSHSettings} from './compute-ssh.mjs';
+import {createLocalSSH} from './local-ssh.mjs';
 
 const panels=new Set(['automation','servers','software','potentials','queues','environments']);
 const codeName=code=>[code.name || code.software || code.label,code.version].filter(Boolean).join(' ');
@@ -45,6 +46,7 @@ export function targetPayload(form,serverId,codes,sources) {
 }
 
 export function createComputeSettings(selectTab) {
+  const localSSH=createLocalSSH();
   const envForm=$('environment-form'), queues=new Map();
   let all=null, config=null, selected='', active='', generation=0, loading=false, busy=false, editing=null;
   let attempted=false, modelReady=null;
@@ -134,7 +136,7 @@ export function createComputeSettings(selectTab) {
         id==='environments' && !usableSources().length?['potentials','关联远端目录']:null);
       let link=$(id).querySelector('.needs-config');
       if(!link) {link=document.createElement('a');link.className='needs-config';$(id).append(link);}
-      link.hidden=!extra || extra[0]===id;
+      link.hidden=id==='servers' || !extra || extra[0]===id;
       if(!link.hidden) {link.href='#'+extra[0];link.textContent=t(extra[1]);}
     }
   }
@@ -248,8 +250,9 @@ export function createComputeSettings(selectTab) {
   });};
   window.addEventListener('languagechange',()=>{if(config) render();ssh.translate();});
   return {activate(panel) {
+    if(panel==='servers') localSSH.activate();
     if(active!==panel) {ssh.closeSecret();notify();}
-    active=panel;$('compute-scope').hidden=!panels.has(panel);
+    active=panel;$('compute-scope').hidden=!panels.has(panel) || panel==='servers';
     if(panel==='automation') {
       fetch('/health',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(h=>{
         modelReady=h?.model_configured ?? null; if(config) drawOverview();

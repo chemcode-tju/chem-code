@@ -296,7 +296,8 @@ class WaitLedger:
 
     async def failure(self, identifier: str, error: BaseException) -> None:
         code = getattr(error, "code", type(error).__name__)
-        temporary = code in {
+        cause_code = getattr(error, "cause_code", None) or code
+        temporary = cause_code in {
             "provider_rate_limited",
             "provider_timeout",
             "provider_unreachable",
@@ -308,12 +309,16 @@ class WaitLedger:
             "CancelledError",
         }
         temporary = temporary or (
-            code == "provider_error" and getattr(error, "retry_after", None) is not None
+            cause_code == "provider_error" and getattr(error, "retry_after", None) is not None
         )
         async with self.store.transaction():
             row = await self.store._one("SELECT * FROM agent_events WHERE id=?", (identifier,))
             if row["status"] == "completed":
                 return
+            # Limit automatic summary retries even for transient provider errors.
+            # The checkpoint remains available for an explicit retry after repair.
+            if code == "context_summary_failed" and row["retries"] >= 3:
+                temporary = False
             status = (
                 "uncertain" if row["phase"] == "tools" else "retry_wait" if temporary else "blocked"
             )
@@ -349,6 +354,31 @@ class EventCheckpoint:
             await self.store.db.execute(
                 "UPDATE agent_events SET phase='model',tool_intent=NULL,checkpoint=? WHERE id=?",
                 (json.dumps(payload, ensure_ascii=False), self.identifier),
+            )
+            # Publish completed tools and public commentary while the background
+            # turn is still running. Never expose the synthetic event prompt.
+            public = [
+                item["content"]
+                for item in payload.get("tail", [])
+                if item.get("role") == "assistant" and item.get("content")
+            ]
+            context = {**payload.get("context", {}), "automation_event": "job_completion"}
+            await self.store.db.execute(
+                "UPDATE runs SET tool_calls=?,answer=?,context_info=? "
+                "WHERE id=(SELECT run_id FROM agent_events WHERE id=?) AND status='running'",
+                (
+                    json.dumps(payload.get("calls", []), ensure_ascii=False),
+                    "\n\n".join(public) or "后台 Agent 正在准备计算并检查执行条件。",
+                    json.dumps(context),
+                    self.identifier,
+                ),
+            )
+            from chemistry_agent.store import utc_now
+
+            await self.store.db.execute(
+                "UPDATE sessions SET updated_at=? WHERE id="
+                "(SELECT session_id FROM agent_events WHERE id=?)",
+                (utc_now(), self.identifier),
             )
 
 

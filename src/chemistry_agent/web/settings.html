@@ -91,6 +91,10 @@
     </section>
     <section class="settings-panel compute-panel" id="servers" data-panel="servers" role="tabpanel" aria-labelledby="tab-servers" hidden>
       <h2>服务器连接</h2>
+      <p>选择这台电脑已配置的 SSH 服务器。Agent 可通过终端查找计算软件、环境脚本和赝势目录。</p>
+      <div class="compute-actions"><button type="button" id="local-ssh-refresh">读取本机 SSH 配置</button><button type="button" id="local-ssh-save">保存启用的服务器</button></div>
+      <div id="local-ssh-list"></div><p id="local-ssh-status" role="status"></p>
+      <details class="config-editor"><summary>AiiDA 连接配置（可选）</summary>
       <div id="server-record"></div>
       <div id="server-actions" class="compute-actions" hidden>
         <button type="button" id="server-test">测试连接</button><button type="button" id="existing-probe">检查主机指纹</button>
@@ -112,6 +116,7 @@
           <div id="new-trust" class="trust-result" hidden></div>
           <div class="compute-actions"><button type="button" class="primary" id="server-save" disabled>保存服务器</button></div>
         </fieldset></form>
+      </details>
       </details>
     </section>
     <section class="settings-panel compute-panel" id="software" data-panel="software" role="tabpanel" aria-labelledby="tab-software" hidden>

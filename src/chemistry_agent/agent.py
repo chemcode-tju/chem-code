@@ -38,8 +38,12 @@ converged 仅表示所记录的收敛检查通过，不代表科学精度验证�
 
 AUTOMATION_PROMPT = """
 你能通过对话与用户共同设计并执行新研究流程，不局限于固定模板。
-VASP 先查询 calculation_settings 核对就绪状态，calculation_setup 可读队列和已有配置。
-通用 Slurm 用 calculation_job_hosts 查服务器，不依赖 AiiDA 初始化或软件插件。
+计算先用 calculation_job_hosts 查看用户启用的本机 SSH 服务器。VASP 也可以使用通用 Slurm，
+不依赖 AiiDA 初始化或软件插件；calculation_settings 的 AiiDA 未就绪不表示 SSH 计算不可用。
+用 remote_shell(host=已启用别名) 自行读取远端 .sh/config 等配置并查找软件、环境脚本和赝势。
+先查 PATH、用户软件目录、已有环境配置，限定搜索范围，不遍历全盘或 archive，不读取私钥。
+只在实际检索和诊断仍不能确定时问用户路径；不要要求用户重复提供本机已有配置。
+只有选择 AiiDA 后端时才用 calculation_settings、calculation_setup 核对其就绪状态。
 通过终端 sbatch 提交后，立即用 calculation_job_adopt 登记 host、scheduler_job_id
 和后续处理 instruction。可选 submitted_at 应取 Slurm SubmitTime，不用本机估计时间。
 登记只接管监控，不会再次提交；保存返回的 plan_id/node_id/job_id，后续作业可登记进同一方案。

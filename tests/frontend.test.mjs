@@ -8,6 +8,16 @@ import { buildTurns, createMarkdownRenderer, escapeHtml, metricValue, splitRefer
 const require = createRequire(import.meta.url);
 const markdown = createMarkdownRenderer(require("../src/chemistry_agent/web/vendor/markdown-it.min.js"));
 
+test("background running tools and commentary remain visible without a synthetic user turn",()=>{
+  const run={id:'background',status:'running',started_at:'2026-11-12T12:00:00Z',
+    context:{automation_event:'job_completion'},answer:'正在准备结构',tool_calls:[{name:'remote_shell'}]};
+  const turns=buildTurns([], [run]);
+  assert.equal(turns.length,1);
+  assert.equal(turns[0].background,true);
+  assert.equal(turns[0].answer,run.answer);
+  assert.deepEqual(turns[0].calls,run.tool_calls);
+});
+
 test("untrusted titles and user text are escaped", () => {
   assert.equal(escapeHtml('<img src=x onerror="alert(1)">'), "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
   assert.equal(escapeHtml(null), "");

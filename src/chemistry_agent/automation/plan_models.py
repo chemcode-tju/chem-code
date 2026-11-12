@@ -60,7 +60,13 @@ class PlanNode(StrictModel):
     calculation: VaspSettings | None = None
     job: JobSettings | None = None
     files: list[FileReference] = Field(default_factory=list)
-    purpose: str = Field(default="", max_length=1000)
+    purpose: str = Field(default="", max_length=8000)
+    text_files: dict[str, str] = Field(
+        default_factory=dict,
+        description="Input text supplied for an agent-owned task. Write these exact inputs "
+        "when preparing the task; do not silently replace user edits.",
+    )
+    submission_script: str = Field(default="", max_length=200000)
     result_files: list[str] = Field(default_factory=list)
     file_source: Literal["retrieved", "remote"] = "retrieved"
 
@@ -79,6 +85,12 @@ class PlanNode(StrictModel):
     @model_validator(mode="after")
     def valid_operation(self):
         import re
+
+        from chemistry_agent.automation.job_models import artifact_path
+
+        self.text_files = {artifact_path(k): v for k, v in self.text_files.items()}
+        if (self.text_files or self.submission_script) and self.kind != "task":
+            raise ValueError("研究步骤的文本输入使用 task；普通作业使用 job.files 和 job.script。")
 
         self.executor = self.executor or ("agent" if self.kind == "task" else "platform")
         if (self.kind == "task") != (self.executor == "agent"):

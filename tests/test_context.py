@@ -178,7 +178,7 @@ async def test_failed_summary_keeps_originals_and_does_not_advance_memory(
         if failure == "upstream":
             return httpx.Response(500, json={"error": "do not expose upstream text"})
         if failure == "oversized":
-            return httpx.Response(200, json=reply("X" * 1000))
+            return httpx.Response(200, json=reply("X" * 10000))
         return httpx.Response(
             200,
             json=reply(
@@ -207,7 +207,13 @@ async def test_failed_summary_keeps_originals_and_does_not_advance_memory(
         )
         run = client.get("/runs/" + error["run_id"]).json()
         assert run["status"] == "failed"
-        assert run["usage"]["total_tokens"] == (0 if failure == "upstream" else 35)
+        assert run["usage"]["total_tokens"] == (
+            0 if failure == "upstream" else 70 if failure == "oversized" else 35
+        )
+        assert run["context"]["summary_error_code"] == {
+            "upstream": "provider_error", "oversized": "summary_oversized",
+            "unexpected_tools": "summary_unexpected_tools",
+        }[failure]
     store = await Store.open(settings.database_path)
     try:
         assert (await store.get_context_memory(session_id)).covered_messages == 0

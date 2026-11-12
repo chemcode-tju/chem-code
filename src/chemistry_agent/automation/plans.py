@@ -1360,7 +1360,9 @@ class CalculationPlans:
                 "Read current plan. For large graphs request node_id for exact code/outputs or "
                 "full=true for the complete graph only when necessary. Small plans include "
                 "step outputs. Omit plan_id to list this session's plans. Reuse completed outputs "
-                "as structure_id in a new plan instead of repeating calculations.",
+                "as structure_id in a new plan instead of repeating calculations. Before preparing "
+                "or submitting a task, read its latest purpose, text_files and submission_script: "
+                "users can edit unstarted steps in the UI. Honor those saved inputs instead of stale history.",
                 PlanQuery,
                 self.platform.handler("plan.get"),
                 True,

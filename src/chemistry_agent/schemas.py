@@ -66,6 +66,13 @@ class ContextUsage(BaseModel):
     trigger_tokens: int = 0
     tokenizer: str = ""
     summary_calls: int = 0
+    summary_attempts: int = 0
+    summary_error_code: str | None = None
+    summary_error_stage: str | None = None
+    summary_input_tokens: int = 0
+    summary_output_size: int = 0
+    summary_memory_budget: int = 0
+    summary_deferred: bool = False
     summary_usage: TokenUsage = Field(default_factory=TokenUsage)
 
 

@@ -17,6 +17,7 @@ from chemistry_agent.automation.chat import (
 from chemistry_agent.automation.plan_models import PlanConfirmation, PlanControl, PlanDraft
 from chemistry_agent.automation.recovery import RecoveryPolicy
 from chemistry_agent.automation.routes import local_service
+from chemistry_agent.automation.step_edit import StepEdit, edit_policy, edit_step
 from chemistry_agent.errors import AgentError
 from chemistry_agent.schemas import ChatResponse, ContextUsage, TokenUsage, ToolExecution
 from chemistry_agent.tools import ToolContext
@@ -438,6 +439,14 @@ async def control_workflow(
     return await chat.plans.control(str(session_id), str(plan_id), body.action)
 
 
+@router.post("/{session_id}/workflows/{plan_id}/steps/{node_id}/edit")
+async def update_step_text(
+    session_id: UUID, plan_id: UUID, node_id: str, body: StepEdit, request: Request
+) -> dict:
+    chat = await session_chat(request, session_id)
+    return await edit_step(chat.plans, str(session_id), str(plan_id), node_id, body)
+
+
 @router.get("/{session_id}/workflows/{plan_id}/steps/{node_id}/{file}")
 async def workflow_step(
     session_id: UUID,
@@ -445,6 +454,7 @@ async def workflow_step(
     node_id: str,
     file: Literal["info", "POSCAR", "CONTCAR", "XDATCAR"],
     request: Request,
+    job_id: UUID | None = None,
 ):
     import io
 
@@ -458,11 +468,28 @@ async def workflow_step(
     if not node:
         raise AgentError("step_not_found", "此方案没有该步骤。", 404)
     state = plan["runtime"][node_id]
+    if node["kind"] in {"job", "task"}:
+        from chemistry_agent.automation.generic_step import inspect_generic_step
+
+        result = await inspect_generic_step(
+            chat, str(session_id), plan, node, file, str(job_id) if job_id else None
+        )
+        if file == "info":
+            return result
+        return Response(
+            result["content"],
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Structure-Name": result["name"],
+            },
+        )
     if state.get("preview_id"):
         response = await inspect_step(
             session_id, UUID(state["preview_id"]), "single", file, request
         )
         if file == "info":
+            response["editing"] = edit_policy(plan, node)
             response["note"] = (
                 state.get("error") or state.get("sync_error") or response.get("note", "")
             )
@@ -490,6 +517,7 @@ async def workflow_step(
             "note": state.get("error")
             or ("等待上游完成后生成实际输入结构。" if not available else ""),
             "outputs": state.get("outputs", {}),
+            "editing": edit_policy(plan, node),
         }
     identifier = output_id if file == "CONTCAR" else input_id if file == "POSCAR" else None
     if not identifier:

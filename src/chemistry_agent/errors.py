@@ -28,9 +28,11 @@ class AgentError(Exception):
         status_code: int = 502,
         *,
         retry_after: float | None = None,
+        cause_code: str | None = None,
     ):
         super().__init__(message)
         self.code = code
         self.message = message
         self.status_code = status_code
         self.retry_after = retry_after
+        self.cause_code = cause_code

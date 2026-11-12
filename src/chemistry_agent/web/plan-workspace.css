@@ -91,6 +91,22 @@
 #step-title {margin:6px 0 2px;font-size:clamp(20px,2vw,24px);line-height:1.25;font-weight:550;letter-spacing:-.025em;overflow-wrap:anywhere;}
 #step-key {color:var(--muted);font:12px/1.5 var(--font-code);overflow-wrap:anywhere;}
 #step-purpose {margin:10px 0 0;color:var(--text);line-height:1.6;overflow-wrap:anywhere;}
+.step-description h3 {font-size:13px;font-weight:550;color:var(--muted);margin:14px 0 0;}
+.step-text-editor {min-width:0;}
+.step-editor-toolbar {display:flex;justify-content:flex-end;gap:3px;min-height:26px;}
+.step-editor-toolbar:has(button:not([hidden])) {margin-bottom:4px;}
+.step-editor-toolbar:not(:has(button:not([hidden]))) {display:none;}
+.step-text-editor textarea {display:block;box-sizing:border-box;width:100%;min-height:110px;max-height:460px;resize:vertical;margin:0;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--subtle);color:var(--text);font:12px/1.6 var(--font-code);tab-size:4;white-space:pre;overflow:auto;}
+.step-text-editor textarea[readonly] {border-color:transparent;}
+.step-text-editor textarea:focus {outline:1px solid var(--accent);outline-offset:1px;}
+.step-text-editor .step-prose {margin:0;white-space:pre-wrap;overflow-wrap:anywhere;}
+.step-editor-message {margin:6px 0 0;font-size:12px;color:var(--muted);}
+#step-actual-parameters > details {border-bottom:1px solid var(--border);padding:8px 0;}
+#step-actual-parameters > details:last-child {border-bottom:0;}
+#step-actual-parameters > details > summary {display:flex;align-items:center;justify-content:space-between;font:500 13px var(--font-code);cursor:pointer;padding:3px 0;}
+#step-actual-parameters > details > summary::after {content:'';width:6px;height:6px;margin-right:5px;border-right:1px solid var(--muted);border-bottom:1px solid var(--muted);transform:rotate(-45deg);}
+#step-actual-parameters > details[open] > summary::after {transform:rotate(45deg);}
+#step-code.step-text-editor {padding:0;background:transparent;max-height:none;overflow:visible;}
 .step-meta {margin-top:12px;}
 .step-status {padding:2px 8px;border-radius:20px;background:var(--subtle);font-size:13px;font-weight:560;}
 .step-status::before {content:"";}

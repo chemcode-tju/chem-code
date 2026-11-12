@@ -43,7 +43,12 @@ class SessionDispatcher:
         def finished(task: asyncio.Task) -> None:
             self.tasks.pop(key, None)
             if not task.cancelled() and task.exception():
-                logger.error("Event delivery delayed: %s", type(task.exception()).__name__)
+                error = task.exception()
+                logger.error(
+                    "Event delivery delayed: code=%s cause=%s",
+                    getattr(error, "code", type(error).__name__),
+                    getattr(error, "cause_code", None),
+                )
 
         task.add_done_callback(finished)
 
@@ -134,7 +139,7 @@ class SessionDispatcher:
                 await plans.store.fail_run(
                     session,
                     run_id,
-                    "job_event_interrupted",
+                    getattr(exc, "code", "job_event_interrupted"),
                     tool_calls=delivery.tool_calls,
                     usage=delivery.usage,
                     context=delivery.context,

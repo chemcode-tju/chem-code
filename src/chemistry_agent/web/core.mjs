@@ -127,6 +127,10 @@ export function buildTurns(messages, runs = []) {
   const chatTurns = turns.filter(item=>!item.event);
   const offset = chatTurns.length - completed.length;
   chatTurns.forEach((item, index) => { item.run = offset >= 0 ? completed[index - offset] || null : null; });
+  for (const run of runs.filter(row=>row.status==='running' && row.context?.automation_event==='job_completion')) {
+    turns.push({text:'',context:'',answer:run.answer || '后台 Agent 正在准备计算。',
+      calls:run.tool_calls || [],run,background:true});
+  }
   return turns;
 }
 

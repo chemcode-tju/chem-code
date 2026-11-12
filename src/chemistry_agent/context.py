@@ -1,6 +1,7 @@
 import copy
 import json
 import logging
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from chemistry_agent.config import Settings
@@ -8,6 +9,7 @@ from chemistry_agent.errors import AgentError
 from chemistry_agent.memory.models import MemorySearch
 from chemistry_agent.memory.service import ResearchMemory
 from chemistry_agent.provider import DeepSeekClient
+from chemistry_agent.runtime.live import current_answer
 from chemistry_agent.runtime.turn_memory import fold_tool_rounds
 from chemistry_agent.schemas import ContextMemory, ContextUsage, TokenUsage
 from chemistry_agent.store import Store
@@ -22,7 +24,9 @@ exact molecule names/SMILES, numbers with units, tool methods, citations/DOIs an
 corrections, uncertainties, failed computations and unresolved questions. Do not invent facts.
 Preserve structure/model/preview IDs, AiiDA PK/UUID, submission state, selected protocol,
 pseudopotential family/mapping, INCAR, k mesh, resources, units and pending confirmations.
+Preserve remote job IDs, work directories, completed side effects and pending waits.
 Never turn a preview or an intended action into a submitted or completed calculation.
+Respect target_characters as a hard content-length target; omit repetition, never fabricate facts.
 Do not include private reasoning. Summarize in Chinese, densely and concisely.
 The transcript may arrive in chunks; integrate fragments without pretending omitted text is known.
 """
@@ -53,6 +57,17 @@ class ContextManager:
         self.counter = counter
         self.system_prompt = system_prompt
         self.tools = tools
+
+    @property
+    def summary_memory_budget(self) -> int:
+        """Budget stored memory separately from the provider's output-token allowance.
+
+        The byte fallback is not a tokenizer. Four bytes per requested output token
+        is a bounded storage allowance, not a token conversion; the entire request
+        is still measured conservatively before inference.
+        """
+        scale = 4 if self.counter.tokenizer is None else 1
+        return self.settings.context_summary_tokens * scale
 
     async def window(self) -> int:
         resolve = getattr(self.provider, "context_window", None)
@@ -226,7 +241,10 @@ class ContextManager:
                 # New calculation results carry IDs needed by the next tool call. Retain them
                 # for this run; the whole-request budget is still enforced below.
                 if current_tools.get(message.get("tool_call_id")) in calculation_tools:
-                    data = json.loads(message["content"])
+                    try:
+                        data = json.loads(message["content"])
+                    except (ValueError, TypeError):
+                        data = None
                     if isinstance(data, dict) and data.get("diagnostics"):
                         # Keep structured results and identifiers; verbose logs remain in the
                         # authoritative tool record and can be queried again by job ID.
@@ -260,17 +278,45 @@ class ContextManager:
             rows.append(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
         return "\n".join(rows)
 
-    async def _summarize(self, previous: str, transcript: str, progress: Progress) -> str:
-        remaining = transcript
-        summary = previous
+    def _summary_failure(
+        self, progress: Progress, code: str, stage: str, cause: AgentError | None = None
+    ) -> AgentError:
+        info = progress.context
+        info.summary_error_code = code
+        info.summary_error_stage = stage
+        logger.warning(
+            "Context summary failed: stage=%s code=%s input=%s output=%s budget=%s",
+            stage,
+            code,
+            info.summary_input_tokens,
+            info.summary_output_size,
+            info.summary_memory_budget,
+        )
+        return AgentError(
+            "context_summary_failed",
+            f"历史摘要生成失败（{code}），原始记录和工具检查点已保留。",
+            cause.status_code if cause else 502,
+            retry_after=cause.retry_after if cause else None,
+            cause_code=code,
+        )
+
+    async def _summarize(
+        self,
+        previous: str,
+        transcript: str,
+        progress: Progress,
+        *,
+        fits: Callable[[str], bool] | None = None,
+    ) -> str:
+        remaining, summary = transcript, previous
         output_limit = self.settings.context_summary_tokens
-        input_limit = (
-            progress.context.input_budget_tokens + self.settings.deepseek_max_tokens
-            if progress.context.input_budget_tokens
-            else await self.window()
-        ) - output_limit
+        memory_budget = self.summary_memory_budget
+        info = progress.context
+        info.summary_memory_budget = memory_budget
+        # Resolve the actual model window, not a stale per-run input budget.
+        input_limit = await self.window() - output_limit
         while remaining:
-            chunk_budget = min(6000, input_limit // 2)
+            chunk_budget = min(24000, input_limit // 2)
             while True:
                 chunk = self.counter.prefix(remaining, chunk_budget)
                 messages = [
@@ -281,7 +327,7 @@ class ContextManager:
                             {
                                 "previous_memory": summary,
                                 "new_transcript": chunk,
-                                "target_characters": max(32, output_limit // 4),
+                                "target_characters": max(32, output_limit // 2),
                             },
                             ensure_ascii=False,
                         ),
@@ -291,36 +337,44 @@ class ContextManager:
                     break
                 chunk_budget //= 2
                 if chunk_budget < 1:
-                    raise AgentError("context_budget_exceeded", "摘要输入无法放入上下文预算。", 422)
-            try:
-                completion = await self.provider.complete(
-                    messages,
-                    [],
-                    allow_tools=False,
-                    max_tokens=output_limit,
-                    thinking=False,
-                )
-            except AgentError as exc:
-                raise AgentError(
-                    "context_summary_failed",
-                    "历史摘要生成失败，原始记录已保留，请稍后重试。",
-                    exc.status_code,
-                ) from exc
-            progress.usage = progress.usage.plus(completion.usage)
-            progress.context.summary_usage = progress.context.summary_usage.plus(completion.usage)
-            progress.context.summary_calls += 1
-            summary = completion.message.content or ""
-            if (
-                not summary.strip()
-                or completion.message.tool_calls
-                or self.counter.text_tokens(summary) > output_limit
-            ):
-                raise AgentError(
-                    "context_summary_failed",
-                    "摘要未能在预算内完成，原始记录已保留，请重试。",
-                    502,
-                )
+                    raise self._summary_failure(progress, "context_budget_exceeded", "input")
+            # One bounded repair for a completed but oversized summary. Never truncate
+            # the memory or advance its coverage after an incomplete/invalid response.
+            for attempt in range(2):
+                info.summary_input_tokens = self.counter.request_tokens(messages, [])
+                info.summary_output_size = 0
+                info.summary_attempts += 1
+                preview_token = current_answer.set(None)
+                try:
+                    completion = await self.provider.complete(
+                        messages, [], allow_tools=False, max_tokens=output_limit, thinking=False
+                    )
+                except AgentError as exc:
+                    raise self._summary_failure(progress, exc.code, "provider", exc) from exc
+                finally:
+                    current_answer.reset(preview_token)
+                progress.usage = progress.usage.plus(completion.usage)
+                info.summary_usage = info.summary_usage.plus(completion.usage)
+                info.summary_calls += 1
+                candidate = completion.message.content or ""
+                info.summary_output_size = self.counter.text_tokens(candidate)
+                if not candidate.strip() or completion.message.tool_calls:
+                    code = (
+                        "summary_unexpected_tools"
+                        if completion.message.tool_calls
+                        else "summary_empty"
+                    )
+                    raise self._summary_failure(progress, code, "validation")
+                if info.summary_output_size <= memory_budget and (fits is None or fits(candidate)):
+                    summary = candidate
+                    break
+                if attempt:
+                    raise self._summary_failure(progress, "summary_oversized", "validation")
+                payload = json.loads(messages[1]["content"])
+                payload["target_characters"] = max(16, output_limit // 8)
+                messages[1]["content"] = json.dumps(payload, ensure_ascii=False)
             remaining = remaining[len(chunk) :]
+        info.summary_error_code = info.summary_error_stage = None
         return summary
 
     async def prepare(
@@ -340,7 +394,7 @@ class ContextManager:
         memory = await self.store.get_context_memory(session_id)
         if (
             memory.covered_messages not in [0, *boundaries, len(history)]
-            or self.counter.text_tokens(memory.summary) > self.settings.context_summary_tokens
+            or self.counter.text_tokens(memory.summary) > self.summary_memory_budget
             or bool(memory.summary) != bool(memory.covered_messages)
         ):
             memory = ContextMemory()
@@ -402,13 +456,47 @@ class ContextManager:
                 422,
             )
 
-        if (force or tokens > info.trigger_tokens) and eligible_end > memory.covered_messages:
+        info.input_tokens_after = tokens
+        should_summarize = (
+            force
+            or tokens > info.input_budget_tokens
+            or (tokens > info.trigger_tokens and not info.summary_deferred)
+        )
+        if should_summarize and eligible_end > memory.covered_messages:
             transcript = self._transcript(history[memory.covered_messages : eligible_end])
-            summary = await self._summarize(memory.summary, transcript, progress)
-            memory = ContextMemory(summary=summary, covered_messages=eligible_end)
-            await self.store.save_context_memory(session_id, run_id, memory)
-            wire, compacted = fit(history, current, memory)
-            tokens = self.counter.request_tokens(wire, self.tools)
+
+            def summary_fits(summary: str) -> bool:
+                candidate, _ = fit(
+                    history, current, ContextMemory(summary=summary, covered_messages=eligible_end)
+                )
+                return (
+                    self.counter.request_tokens(candidate, self.tools) <= info.input_budget_tokens
+                )
+
+            try:
+                summary = await self._summarize(
+                    memory.summary, transcript, progress, fits=summary_fits
+                )
+            except AgentError:
+                if force or tokens > info.input_budget_tokens:
+                    raise
+                # Optional compaction must not interrupt a fitting request. Keep all
+                # history and avoid another optional attempt on every tool iteration.
+                info.summary_deferred = True
+            else:
+                candidate = ContextMemory(summary=summary, covered_messages=eligible_end)
+                candidate_wire, candidate_compacted = fit(history, current, candidate)
+                candidate_tokens = self.counter.request_tokens(candidate_wire, self.tools)
+                if candidate_tokens > info.input_budget_tokens:
+                    raise self._summary_failure(progress, "context_budget_exceeded", "final_fit")
+                await self.store.save_context_memory(session_id, run_id, candidate)
+                memory, wire, compacted, tokens = (
+                    candidate,
+                    candidate_wire,
+                    candidate_compacted,
+                    candidate_tokens,
+                )
+                info.summary_deferred = False
 
         info.input_tokens_after = tokens
         info.summary_used = bool(memory.summary)

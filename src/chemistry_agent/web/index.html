@@ -123,15 +123,18 @@
         <header class="step-heading">
           <div class="step-kicker"><span id="step-kind"></span><span id="step-index"></span></div>
           <div id="step-group-path" class="step-group-path" aria-label="所属分支" hidden></div>
-          <h2 id="step-title"></h2><code id="step-key"></code><p id="step-purpose"></p>
+          <h2 id="step-title"></h2><code id="step-key"></code>
+          <section class="step-description"><h3>步骤说明</h3><div id="step-purpose"></div></section>
           <div class="step-meta"><span class="step-status" id="step-status"></span><span id="step-progress" role="status"></span>
             <button type="button" id="step-refresh">刷新</button></div>
         </header>
         <p id="step-error" role="status"></p>
+        <label id="step-job-choice" hidden>查看计算 <select id="step-job-select"></select></label>
         <section id="step-relations" aria-label="依赖关系"></section>
         <div class="step-sections">
-          <details id="step-config"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-settings"/></svg>步骤参数</summary>
-            <div class="copy-block step-param-box"><dl id="step-parameters"></dl><button type="button" class="copy-action" data-copy-params title="复制内容" aria-label="复制内容"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-copy"/></svg></button></div><button type="button" id="step-revise">提出修改</button></details>
+          <details id="step-config"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg>参数文件</summary>
+            <div id="step-actual-parameters"></div>
+          </details>
           <details id="step-structures"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-structures"/></svg>结构文件</summary>
             <div class="step-file-options" id="step-files"></div><p id="step-file-source"></p>
             <div class="structure-viewer-shell" id="step-viewer-shell" hidden><iframe id="step-viewer-frame" title="步骤结构查看器"></iframe></div>
@@ -139,7 +142,7 @@
           <details id="step-energies"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-compare"/></svg>能量收敛曲线</summary><div id="step-chart"></div></details>
           <div id="step-figures"></div>
           <details id="step-output-section" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg>结果与下载</summary><div id="step-downloads"></div><pre id="step-output"></pre></details>
-          <details id="step-code-section" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg>执行代码</summary><pre id="step-code"></pre></details>
+          <details id="step-code-section" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg><span id="step-code-title">提交脚本</span></summary><div id="step-code"></div></details>
           <details id="step-investigation" hidden open><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-flask"/></svg>排查记录</summary><ol id="step-investigation-log"></ol></details>
           <details id="step-replies" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chat"/></svg>步骤进度与解读</summary><div id="step-reply-list"></div></details>
         </div><p id="step-note" role="status"></p>

@@ -73,7 +73,12 @@ class SlurmJobs:
         self.locks: dict[str, asyncio.Lock] = {}
 
     def hosts(self) -> list[str]:
-        return sorted(set(self.settings.allowed_ssh_hosts) | set(shell_profiles(self.root)))
+        from chemistry_agent.automation.local_ssh import enabled_aliases
+
+        return sorted(
+            set(enabled_aliases(self.root, self.settings.allowed_ssh_hosts))
+            | set(shell_profiles(self.root))
+        )
 
     def load(self, session: str, identifier: str) -> dict:
         return self.chat.load(session, "slurm_jobs", identifier)
@@ -125,7 +130,7 @@ class SlurmJobs:
                 if code:
                     raise AgentError("job_ssh_failed", stderr.decode(errors="replace")[-4000:], 503)
                 result = json.loads(stdout)
-                if "error" in result:
+                if result.get("error"):
                     raise AgentError(
                         "job_remote_error",
                         result["error"],

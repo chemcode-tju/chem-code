@@ -223,7 +223,8 @@ async def test_file_wait_observes_running_job_without_requiring_retrieval(cluste
         await store.close()
 
 
-async def test_real_agent_resumes_after_429_without_repeating_extension(cluster):
+@pytest.mark.parametrize("failure_boundary", ["inference", "summary"])
+async def test_real_agent_resumes_after_429_without_repeating_extension(cluster, failure_boundary):
     from chemistry_agent.api import create_app
 
     original, _, tmp = cluster
@@ -286,8 +287,24 @@ async def test_real_agent_resumes_after_429_without_repeating_extension(cluster)
         await tick(plans, context, plan_id)
         await tick(plans, context, plan_id)
         plans.agent = agent
-        with pytest.raises(AgentError, match="请求受限"):
+        if failure_boundary == "summary":
+            manager = agent.context_manager
+            prepare = manager.prepare
+            attempted = False
+
+            async def prepare_with_summary(messages, *args, **kwargs):
+                nonlocal attempted
+                if messages[-1]["role"] == "tool" and not attempted:
+                    attempted = True
+                    await manager._summarize("", "completed tool history", args[3])
+                return await prepare(messages, *args, **kwargs)
+
+            manager.prepare = prepare_with_summary
+        with pytest.raises(AgentError) as captured:
             await wake(plans, session, plan_id)
+        assert captured.value.code == (
+            "context_summary_failed" if failure_boundary == "summary" else "provider_rate_limited"
+        )
         await wake(plans, session, plan_id)  # No inference before backoff expires.
         assert phase == 2
         async with plans.store.transaction():
@@ -524,3 +541,35 @@ async def test_paused_and_stopped_plan_cannot_wake_agent(cluster):
         assert len(json.loads((tmp / "scheduler.json").read_text())) == 1
     finally:
         await store.close()
+
+
+@pytest.mark.parametrize("phase", ["model", "tools"])
+async def test_summary_retries_are_bounded_and_never_replay_uncertain_tools(saved, phase):
+    store, session, plan = saved
+    ledger = WaitLedger(store)
+    plan["runtime"]["a"]["status"] = "completed"
+    record_events(plan)
+    await ledger.observe(session, plan)
+    event = await ledger.pending(session, plan)
+    checkpoint = EventCheckpoint(store, event["id"])
+    saved_payload = {"tail": [{"role": "tool", "content": "job already submitted"}]}
+    await checkpoint.save(saved_payload)
+    if phase == "tools":
+        await checkpoint.mark_tools([{"id": "uncertain-submit"}])
+    error = AgentError(
+        "context_summary_failed",
+        "failed",
+        503,
+        cause_code="provider_rate_limited",
+        retry_after=7200,
+    )
+    for attempt in range(4):
+        await ledger.failure(event["id"], error)
+        row = await store._one("SELECT * FROM agent_events WHERE id=?", (event["id"],))
+        assert row["status"] == (
+            "uncertain" if phase == "tools" else "blocked" if attempt == 3 else "retry_wait"
+        )
+        assert row["retries"] == attempt + 1
+        assert row["available_at"] >= time.time() + 7190
+        assert await checkpoint.load() == saved_payload
+    assert await ledger.pending(session, plan) is None

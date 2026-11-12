@@ -332,11 +332,38 @@ def external_job(request: dict) -> dict:
     }
 
 
+def vasp_snapshot(root: Path, requested: str = "info") -> dict:
+    """Bounded read-only snapshots; never read potentials or recurse into directories."""
+    structures = ("POSCAR", "CONTCAR", "XDATCAR")
+    scripts = ("submit.sh", "run.slurm", "job.sh", "_chem_submit.sh")
+    names = (*structures, "INCAR", "KPOINTS", "OSZICAR", *scripts)
+    if requested != "info" and requested not in structures:
+        raise ValueError("Unknown structure file")
+    files, contents = {}, {}
+    for name in names:
+        path = safe_file(root, name)
+        if not path.is_file() or not path.stat().st_size:
+            continue
+        files[name] = path.stat().st_size
+        if requested == name or (requested == "info" and name not in structures):
+            limit = 32 * 1024 * 1024 if name in structures else 2 * 1024 * 1024
+            with path.open("rb") as stream:
+                if name == "OSZICAR":
+                    stream.seek(max(0, files[name] - limit))
+                data = stream.read(limit + 1)
+            if len(data) > limit:
+                raise ValueError(f"{name} exceeds online preview limit")
+            contents[name] = data.decode("utf-8", errors="replace")
+    return {"files": files, "contents": contents}
+
+
 def dispatch(request: dict) -> dict:
     root = Path(request["root"]).expanduser().resolve()
     if "archive" in root.parts:
         raise ValueError("不能在 archive 目录操作。")
     action = request["action"]
+    if action == "vasp_snapshot":
+        return vasp_snapshot(root, request.get("file", "info"))
     if action in {"observe_external", "cancel_external"}:
         observed = external_job(request)
         if action == "cancel_external":
@@ -352,7 +379,10 @@ def dispatch(request: dict) -> dict:
         return {
             "user": pwd.getpwuid(os.getuid()).pw_name,
             "queues": queues.stdout,
-            "error": queues.stderr,
+            "error": (queues.stderr or f"sinfo exited with {queues.returncode}")
+            if queues.returncode
+            else "",
+            "stderr": queues.stderr,
             "ready": queues.returncode == 0,
             "python": sys.version.split()[0],
         }

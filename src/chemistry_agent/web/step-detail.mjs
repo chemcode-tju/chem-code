@@ -2,8 +2,9 @@ import {captureMaps,mountMaps} from './plan-map.mjs';
 import {resultFigures} from './result-figures.mjs';
 import {escapeHtml as esc} from './core.mjs';
 import {createStructureBridge} from './structure-links.mjs';
-import {describeStep, planSteps, workflowGroups, stepRows} from './workflow-plan.mjs';
-import {generalRows,nodeStatus} from './general-plan.mjs';
+import {describeStep, planSteps, workflowGroups} from './workflow-plan.mjs';
+import {nodeStatus} from './general-plan.mjs';
+import {createTextEditor} from './step-editor.mjs';
 import {kindName, taskLabel} from './plan-layout.mjs';
 import {t} from './i18n.mjs';
 
@@ -27,10 +28,44 @@ export function energyCurve(points) {
     <text x="165" y="139">离子步</text></svg><p>第 ${end} 步 · E0 = ${last[1]} eV</p>`;
 }
 
-export function createStepDetail({api,reviseStep,rememberCount}) {
+export function createStepDetail({api,rememberCount}) {
   const $ = id => document.getElementById(id);
   const screen = $('step-screen'), frame = $('step-viewer-frame');
   let current = null, activeFile = '', info = null;
+  const editors=new Map();
+  function editor(field,host,options={}) {
+    if(!editors.has(field)) {
+      const view=current;
+      editors.set(field,createTextEditor(host,{label:field==='purpose'?'步骤说明':field==='script'?'提交脚本':field,...options,
+        save:async(content,revision)=>{
+          const plan=await api(view.base+'/edit',{method:'POST',body:JSON.stringify({field,content,expected_revision:revision})});
+          if(current!==view)return;
+          current.revision=plan.revision;
+          if(info?.editing)info.editing.revision=plan.revision;
+          if(field==='script' && info)info.script=content;
+          if(['INCAR','KPOINTS'].includes(field) && info)info.parameters={...info.parameters,[field]:content};
+          drawGeneral(plan,plan.nodes.find(n=>n.id===view.key));
+        },
+      }));
+    }
+    return editors.get(field);
+  }
+  function textDetails({purpose='',parameters={},script='',editing={},codeTitle='提交脚本'}) {
+    const policy={revision:current?.revision,...editing};
+    editor('purpose',$('step-purpose'),{prose:true}).update({text:purpose,editable:policy.purpose,revision:policy.revision,reason:policy.reason});
+    $('step-config').hidden=!Object.keys(parameters).length;
+    for(const [name,text] of Object.entries(parameters)) {
+      if(!editors.has(name)) {
+        const section=document.createElement('details'), summary=document.createElement('summary'), host=document.createElement('div');
+        summary.textContent=name;section.dataset.parameterFile=name;section.append(summary,host);$('step-actual-parameters').append(section);
+        editor(name,host);
+      }
+      editors.get(name).update({text,editable:policy.files,revision:policy.revision,reason:policy.reason});
+    }
+    $('step-code-title').textContent=codeTitle;
+    $('step-code-section').hidden=!script && !policy.files;
+    editor('script',$('step-code')).update({text:script,editable:policy.files,revision:policy.revision,reason:policy.reason});
+  }
   const bridge = createStructureBridge({frame,toast:message => { $('step-note').textContent=message; },selectTab() {
     $('step-viewer-shell').hidden=false;
     if (!frame.hasAttribute('src')) frame.src='/structures?embed=1';
@@ -59,6 +94,9 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   document.addEventListener('fullscreenchange',syncFull);
   dialog.addEventListener('cancel',event=>{event.preventDefault();if(fromFull) close();else expandDetail(false);});
   function resetContent() {
+    editors.clear();$('step-purpose').replaceChildren();
+    $('step-job-choice').hidden=true;$('step-job-select').replaceChildren();
+    $('step-actual-parameters').replaceChildren();
     $('step-group-path').hidden=true;
     activeFile=''; info=null; bridge.reset(); $('step-viewer-shell').hidden=true;
     for (const id of ['step-note','step-error','step-progress','step-file-source','step-downloads','step-output','step-code','step-chart','step-figures','step-investigation-log']) $(id).replaceChildren();
@@ -88,7 +126,8 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     $('step-plan-name').textContent=planName || ''; $('step-plan-name').title=planName || '';
     $('step-title').textContent=title;$('step-kind').textContent=t(kind);
     $('step-index').textContent=String(index+1).padStart(2,'0')+' / '+total;
-    $('step-key').textContent=id;$('step-purpose').textContent=purpose;
+    $('step-key').textContent=id;
+    editor('purpose',$('step-purpose'),{prose:true}).update({text:purpose,editable:false,revision:current?.revision});
   }
   function status(label,tone) {
     $('step-status').textContent=label;$('step-status').dataset.state=tone;
@@ -125,7 +164,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     bridge.reset();
     bridge.open(name,async () => {
       if (name==='POSCAR' && source==='方案预览' && view.preview) return new Blob([view.preview]);
-      const response=await fetch(view.base+'/'+name,{cache:'no-store'});
+      const response=await fetch(view.base+'/'+name+jobQuery(view),{cache:'no-store'});
       if (!response.ok) {
         const error=await response.json().catch(()=>({}));
         throw new Error(error.error?.message || '结构读取失败，请刷新重试。');
@@ -138,10 +177,17 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     if (!view || (!view.general && view.key==='energies') || view.loading) return;
     view.loading=true;
     try {
-      const next = await api(view.base+'/info');
+      const next = await api(view.base+'/info'+jobQuery(view));
       if (current!==view) return;
+      if(next.editing?.revision && next.editing.revision<view.revision)return;
       const sourceChanged=activeFile && info?.files[activeFile]!==next.files[activeFile];
       info=next;
+      if(view.genericJob) {
+        view.selectedJob=next.selected_job_id || '';
+        $('step-job-choice').hidden=!(next.jobs?.length);
+        $('step-job-select').innerHTML=(next.jobs || []).map(job=>`<option value="${esc(job.id)}" ${job.id===view.selectedJob?'selected':''}>#${esc(job.scheduler_job_id || job.id)} · ${esc(job.state || '')}</option>`).join('');
+      }
+      if(view.general && view.plan) drawGeneral(view.plan,view.plan.nodes.find(n=>n.id===view.key));
       const entries=next.investigations || [];
       $('step-investigation').hidden=!entries.length;
       $('step-investigation-log').innerHTML=entries.map(row=>{
@@ -167,6 +213,15 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
       if(current===view) $('step-note').textContent=error.message;
     } finally { view.loading=false; }
   }
+  function jobQuery(view) {return view.selectedJob?'?job_id='+encodeURIComponent(view.selectedJob):'';}
+  $('step-job-select').onchange=()=>{
+    if(!current) return;
+    current={...current,selectedJob:$('step-job-select').value,loading:false};
+    activeFile='';info=null;bridge.reset();$('step-viewer-shell').hidden=true;
+    $('step-chart').replaceChildren();$('step-actual-parameters').replaceChildren();$('step-code').replaceChildren();
+    for(const key of [...editors.keys()])if(key!=='purpose')editors.delete(key);
+    refresh();
+  };
   function open(item,job,key,sessionPath) {
     const steps=planSteps(item), step=steps.find(s=>s.stage===key);
     if (!step) return;
@@ -184,12 +239,11 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     const groups=workflowGroups(item), level=groups.findIndex(g=>g.some(n=>n.stage===key));
     const names=group=>(group || []).map(n=>({id:n.stage,title:describeStep(item,job,n).title}));
     relations(names(groups[level-1]),names(groups[level+1]));
-    $('step-config').hidden=false;delete $('step-parameters').dataset.html;
-    $('step-parameters').innerHTML=stepRows(details.rows);
-    $('step-revise').hidden=Boolean(job);
+    const prefix=key==='single'?'':key+'/';
+    textDetails({parameters:Object.fromEntries(['INCAR','KPOINTS'].filter(name=>item.files?.[prefix+name]).map(name=>[name,item.files[prefix+name]])),script:item.files?.[prefix+'_aiidasubmit.sh'] || ''});
     const aggregate=key==='energies';
     for (const id of ['step-structures','step-energies','step-refresh','step-progress']) $(id).hidden=aggregate;
-    $('step-parameters').closest('details').open=aggregate;
+    $('step-config').open=true;
     $('step-structures').open=true; $('step-energies').open=false;
     $('step-investigation').hidden=true; $('step-investigation-log').replaceChildren();
     $('step-progress').textContent='读取离子步…'; $('step-note').textContent='';
@@ -208,18 +262,18 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     const name=fileNames.find(name=>info?.files[name]);if(name) selectFile(name);
   });
   $('step-files').onclick=event=>{if(event.target.dataset.stepFile)selectFile(event.target.dataset.stepFile);};
-  $('step-revise').onclick=()=>{if(current)reviseStep(current.id,current.title,current.revision);};
   setInterval(()=>{if(current && (!info?.terminal || current.failed || info?.investigations?.some(row=>!row.terminal)) && !document.hidden && screen.getClientRects().length)refresh();},20000);
   function drawGeneral(plan,node) {
     const state=plan.runtime[node.id];
     const path=$('step-group-path');
     path.textContent=(node.group_path || []).join(' › ');path.hidden=!path.textContent;
     status(nodeStatus(plan,node),state.status);
-    const config=$('step-parameters'), html=generalRows(plan,node);
-    if (config.dataset.html!==html) {config.innerHTML=html;config.dataset.html=html;}
-    $('step-revise').hidden=plan.status!=='draft';
-    $('step-config').hidden=!html && $('step-revise').hidden;
-    $('step-code-section').hidden=!(node.code || node.job?.script); $('step-code').textContent=node.code || node.job?.script || '';
+    const editing={...info?.editing};
+    if(!['pending','blocked','ready','waiting'].includes(state.status) || state.generic_job_id || state.job_id || state.jobs?.length)editing.purpose=editing.files=false;
+    const parameters=info?.parameters || node.job?.files || node.text_files || {};
+    textDetails({purpose:node.purpose,parameters:Object.fromEntries(Object.entries(parameters).filter(([name])=>['INCAR','KPOINTS'].includes(name))),
+      script:info?.script ?? (node.code || node.job?.script || node.submission_script || ''),editing,
+      codeTitle:['model','analysis'].includes(node.kind)?'Python 代码':'提交脚本'});
     const files=state.outputs?.files || [], result=['analysis','job','task'].includes(node.kind) && state.outputs?.result;
     $('step-output-section').hidden=!result && !files.length;
     $('step-output').textContent=result?JSON.stringify(result,null,2):'';
@@ -232,7 +286,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
   }
   function openGeneral(plan,node,sessionPath) {
     enter();
-    current={id:plan.id,key:node.id,general:true,revision:plan.revision,title:node.title,sessionPath,
+    current={id:plan.id,key:node.id,general:true,genericJob:['job','task'].includes(node.kind),revision:plan.revision,title:node.title,sessionPath,
       failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar?.NSW,
       related:id=>{const p=current.plan,n=p.nodes.find(n=>n.id===id);if(n) openGeneral(p,n,sessionPath);},
       base:`${sessionPath}/workflows/${plan.id}/steps/${node.id}`};
@@ -243,13 +297,14 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     relations(node.depends_on.map(id=>index.get(id)).filter(Boolean),plan.nodes.filter(n=>n.depends_on.includes(node.id)));
     drawGeneral(plan,node);
     $('step-back').focus({preventScroll:true});
-    $('step-energies').hidden=node.kind!=='vasp'; $('step-progress').hidden=node.kind!=='vasp';$('step-refresh').hidden=false;
-    $('step-structures').hidden=['analysis','job','task'].includes(node.kind);
+    $('step-energies').hidden=!['vasp','job','task'].includes(node.kind); $('step-progress').hidden=$('step-energies').hidden;$('step-refresh').hidden=false;
+    $('step-structures').hidden=node.kind==='analysis';
     $('step-config').open=true; $('step-structures').open=node.kind==='model';
     info={files:{},points:[]}; drawFiles(); refresh();
   }
   return {open,close,openGeneral,updateGeneral(plan) {
     if(!current?.general || current.id!==plan.id) return;
+    if(plan.revision<current.revision)return;
     const node=plan.nodes.find(n=>n.id===current.key);
     if(!node) {close();return;}
     current.revision=plan.revision; drawGeneral(plan,node);
@@ -258,7 +313,6 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     const step=planSteps(item).find(s=>s.stage===current.key);
     if (!step) return;
     const details=describeStep(item,job,step);
-    status(details.status,details.tone); $('step-parameters').innerHTML=stepRows(details.rows);
-    $('step-revise').hidden=Boolean(job);
+    status(details.status,details.tone);
   }};
 }

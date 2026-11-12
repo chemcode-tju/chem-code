@@ -102,8 +102,10 @@ def create_app(
         extras.append(remote_shell_tool(ssh_hosts, ssh_root))
 
     def available_hosts() -> tuple[str, ...]:
+        from chemistry_agent.automation.local_ssh import enabled_aliases
+
         registered = shell_profiles(ssh_root) if ssh_root else {}
-        return tuple(dict.fromkeys([*ssh_hosts, *registered]))
+        return tuple(dict.fromkeys([*enabled_aliases(ssh_root, ssh_hosts), *registered]))
 
     registry = ToolRegistry(extras)
 

@@ -74,6 +74,43 @@ def test_connection_check_does_not_change_reviewed_execution(profile, monkeypatc
     assert "last_connection_test" not in after["server"]
 
 
+@pytest.mark.parametrize("action", ["test_server", "scheduler_options"])
+def test_readonly_ssh_worker_does_not_connect_to_broker(profile, monkeypatch, action):
+    from aiida.manage import get_manager
+
+    from chemistry_agent.automation.worker import dispatch
+
+    manager = get_manager()
+
+    def unavailable_broker():
+        raise ConnectionError("Broker is stopped")
+
+    def inspect_runner(payload):
+        assert manager.get_runner().communicator is None
+        return {"ok": True}
+
+    monkeypatch.setattr(manager, "get_communicator", unavailable_broker)
+    monkeypatch.setattr(backend, action, inspect_runner)
+    assert dispatch({"profile": profile.name, "action": action}) == {"ok": True}
+
+
+def test_submission_worker_keeps_broker_behavior(profile, monkeypatch):
+    from aiida.manage import get_manager
+
+    from chemistry_agent.automation.worker import dispatch
+
+    def broker_required(payload):
+        get_manager().get_communicator()
+
+    def unavailable_broker():
+        raise ConnectionError("Broker is stopped")
+
+    monkeypatch.setattr(get_manager(), "get_communicator", unavailable_broker)
+    monkeypatch.setattr(backend, "submit_preview", broker_required)
+    with pytest.raises(ConnectionError, match="Broker is stopped"):
+        dispatch({"profile": profile.name, "action": "submit"})
+
+
 def test_repeated_submit_and_config_change(profile, monkeypatch):
     result = backend.preview(make_payload())
     monkeypatch.setattr(

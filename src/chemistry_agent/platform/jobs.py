@@ -64,10 +64,17 @@ class JobOperations:
 
     async def hosts(self, args: JobHosts, context: ToolContext) -> dict:
         plans = self.plans
+        from chemistry_agent.automation.local_ssh import discover_aliases
+
         if args.host:
             return await plans.slurm.request(args.host, {"root": ".", "action": "environment"})
+        allowed = plans.slurm.hosts()
         return {
-            "hosts": plans.slurm.hosts(),
+            "hosts": allowed,
+            "local_ssh_config": [row for row in discover_aliases() if row["alias"] in allowed],
+            "discovery": "Use remote_shell(host=alias, command=...) to inspect remote shell/config "
+            "files and find executables/environment scripts/potential libraries; "
+            "no AiiDA required.",
             "backend": "slurm",
             "requires_aiida": False,
             "input": "job.host, job.script, job.resources, job.files, job.retrieve",

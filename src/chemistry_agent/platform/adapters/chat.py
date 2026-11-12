@@ -7,6 +7,7 @@ from chemistry_agent.agent import RunProgress
 from chemistry_agent.model_runtime import ModelScope, current_model_scope
 from chemistry_agent.platform.contracts import Delivery, DeliveryResult
 from chemistry_agent.runtime.shell import shell_grant
+from chemistry_agent.store import utc_now
 
 
 class ChatAgentAdapter:
@@ -25,6 +26,18 @@ class ChatAgentAdapter:
         run_id, history = delivery.run_id, delivery.history
         evidence = payload["events"]
         progress = RunProgress()
+        async with plans.store.transaction():
+            await plans.store.db.execute(
+                "UPDATE runs SET answer=?,context_info=? WHERE id=? AND status='running'",
+                (
+                    "后台 Agent 已开始处理已确认的步骤，正在检查输入与执行条件。",
+                    json.dumps({"automation_event": "job_completion"}),
+                    run_id,
+                ),
+            )
+            await plans.store.db.execute(
+                "UPDATE sessions SET updated_at=? WHERE id=?", (utc_now(), session)
+            )
         scope = current_model_scope.set(ModelScope(delivery.owner_id))
         tokens = []
         try:
@@ -54,6 +67,10 @@ class ChatAgentAdapter:
                 "不要重复提交已接单任务，不把退出码0当成科学结论。"
                 "用户已确认的 task 可按其目标和约束执行，不必重复确认同一目标；"
                 "auto_queue 指定自动队列授权，超出已确认目标或缺少必要选择时提出建议/草稿。"
+                "用户可在详情中修改未开始步骤；"
+                "准备输入和提交前用 calculation_plan_get 读取最新版本。"
+                "最新 purpose、text_files 和 submission_script 是用户保存的执行依据，"
+                "须实际写入参数文件和脚本，不能按旧事件或聊天记录覆盖。说明和文件冲突时先澄清。"
                 "隐藏本事件提示词，只向用户呈现分析和行动。\n"
                 + json.dumps(
                     {
