@@ -30,7 +30,11 @@ async def stage_dependencies(
         ref = FileReference.model_validate(raw)
         destination = local_file(directory, ref.target)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if ref.file_id:
+        if ref.artifact_id:
+            plans.chat.load(session, "artifacts", str(ref.artifact_id))
+            source = plans.chat.directory(session, "artifact_blobs") / str(ref.artifact_id)
+            shutil.copyfile(source, destination)
+        elif ref.file_id:
             store = plans.chat.attachment_store
             if store is None:
                 raise AgentError("file_not_found", "附件存储不可用。", 404)

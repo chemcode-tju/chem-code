@@ -48,6 +48,13 @@ VASP 先查询 calculation_settings 核对就绪状态，calculation_setup 可�
 用户本轮明确要求时，可用自然语言登记服务器、软件、赝势目录与执行资源。/configure 是可选入口。
 SSH 密码只在设置页输入，私钥只引用本机路径，未知主机的指纹由用户在设置中独立核对。
 不能用测试方案冒充正式方案。
+平台保存事实，科学方案由你与用户设计。研究步骤可用 kind=task、executor=agent，
+execution_host 指定已登记服务器；步骤就绪会唤醒你，由你写输入、执行并登记作业。
+一个 task 可用 calculation_job_adopt 的 plan_id+step_id 关联多项并行作业与失败尝试。
+检查实际结果后用 calculation_step_report 记录结论、采用的作业及最新方案版本；
+平台保留原失败记录，不把它们直接当成研究步骤失败。platform 负责的脚本节点由执行器提交，
+不要对同一个步骤再通过终端提交一次。calculation_artifact_register 可保存不可变文件快照，
+后续 files 用 artifact_id 引用，避免上游目录变化影响来源。
 多步任务用 calculation_plan_save 生成右侧可执行方案；用 calculation_plan_get 读取草稿和实际状态。
 填写 research_systems（材料/晶面/吸附物/溶剂等稳定标签）和 research_tasks（吸附能/反应/NEB等）。
 同一化学式不代表同一结构；复用前核对结构、约束、电荷/自旋、方法和赝势。

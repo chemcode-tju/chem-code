@@ -35,6 +35,9 @@ def evidence(plan: dict, node_id: str) -> dict:
     job = state.get("job", {})
     return {
         "node_id": node_id,
+        "parent_task": next(
+            (n.get("parent_task") for n in plan["nodes"] if n["id"] == node_id), None
+        ),
         "outcome": state["status"],
         "attempt": attempt(state),
         "state": {
@@ -52,6 +55,13 @@ def evidence(plan: dict, node_id: str) -> dict:
 
 def attempt(state: dict) -> str:
     return str(state.get("generic_job_id") or state.get("job_id") or len(state.get("attempts", [])))
+
+
+def current_event(item: dict, plan: dict) -> bool:
+    state = plan["runtime"].get(item["node_id"], {})
+    return item["attempt"] == attempt(state) and (
+        item.get("type") != "step_ready" or state.get("status") == "pending"
+    )
 
 
 def matches(condition: WaitCondition, plan: dict, observed: dict | None = None) -> bool:
@@ -250,11 +260,7 @@ class WaitLedger:
                 item = dict(row)
                 payload = json.loads(item["payload"])
                 if not payload.get("wait_id") and not item["checkpoint"]:
-                    payload["events"] = [
-                        e
-                        for e in payload["events"]
-                        if e["attempt"] == attempt(plan["runtime"].get(e["node_id"], {}))
-                    ]
+                    payload["events"] = [e for e in payload["events"] if current_event(e, plan)]
                     item["payload"] = json.dumps(payload, ensure_ascii=False)
                     await self.store.db.execute(
                         "UPDATE agent_events SET payload=? WHERE id=?",
@@ -262,10 +268,7 @@ class WaitLedger:
                     )
                 if not payload["events"] or (
                     not item["checkpoint"]
-                    and any(
-                        e["attempt"] != attempt(plan["runtime"].get(e["node_id"], {}))
-                        for e in payload["events"]
-                    )
+                    and any(not current_event(e, plan) for e in payload["events"])
                 ):
                     await self.store.db.execute(
                         "UPDATE agent_events SET status='superseded' WHERE id=?", (row["id"],)
@@ -276,10 +279,7 @@ class WaitLedger:
                         other = json.loads(sibling["payload"])
                         if other.get("wait_id") or sibling["run_id"]:
                             continue
-                        if any(
-                            e["attempt"] != attempt(plan["runtime"].get(e["node_id"], {}))
-                            for e in other["events"]
-                        ):
+                        if any(not current_event(e, plan) for e in other["events"]):
                             continue
                         payload["events"].extend(other["events"])
                         await self.store.db.execute(

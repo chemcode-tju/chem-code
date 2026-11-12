@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/automation/chat", tags=["chat calculations"])
 async def session_chat(request: Request, session_id: UUID) -> CalculationChat:
     local_service(request)
     if not request.app.state.settings.automation_enabled:
-        raise AgentError("automation_disabled", "请先启用 AiiDA 自动化。", 503)
+        raise AgentError("automation_disabled", "请先启用计算平台。", 503)
     await request.app.state.store.get_session(str(session_id), request.state.user_id)
     return request.app.state.calculation_chat
 
@@ -45,7 +45,7 @@ async def artifacts(session_id: UUID, request: Request) -> dict:
     monitor = getattr(request.app.state, "task_monitor", None)
     snapshots = monitor.events.snapshots(identifier) if monitor else {}
     return {
-        "plans": chat.plans.records(identifier),
+        "plans": request.app.state.platform.plans.records(identifier),
         "analyses": chat.list_records(identifier, "analyses"),
         "live_jobs": snapshots,
         "monitor": monitor.events.inbox(identifier, limit=1)["monitor"] if monitor else {},

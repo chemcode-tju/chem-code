@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -43,6 +43,8 @@ from chemistry_agent.memory.routes import router as memory_router
 from chemistry_agent.memory.tools import memory_tools
 from chemistry_agent.model_routes import router as model_router
 from chemistry_agent.model_runtime import ProviderRouter
+from chemistry_agent.platform.lease import RuntimeLease
+from chemistry_agent.platform.routes import router as platform_router
 from chemistry_agent.projects import router as projects_router
 from chemistry_agent.provider import ToolCall
 from chemistry_agent.runtime.search import web_search_tool
@@ -107,58 +109,63 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        store = await Store.open(settings.database_path)
-        store.research_memory_enabled = settings.research_memory_enabled
-        try:
-            provider = ProviderRouter(settings, transport=transport)
+        with RuntimeLease(settings) if calculation_enabled else nullcontext():
+            store = await Store.open(settings.database_path)
+            store.research_memory_enabled = settings.research_memory_enabled
             try:
-                app.state.title_locks = WeakValueDictionary()
-                app.state.provider = provider
-                app.state.store = store
-                calculation_chat.attachment_store = store
-                app.state.auth = AuthManager(settings, store)
-                counter = await asyncio.to_thread(TokenCounter, settings.tokenizer_path)
-                context_manager = ContextManager(
-                    settings,
-                    provider,
-                    store,
-                    counter,
-                    SYSTEM_PROMPT
-                    + (AUTOMATION_PROMPT if calculation_enabled else "")
-                    + (MEMORY_PROMPT if settings.research_memory_enabled else ""),
-                    registry.schemas(),
-                )
-                app.state.agent = ChemistryAgent(
-                    provider,
-                    registry,
-                    settings.max_tool_rounds,
-                    context_manager,
-                )
-                app.state.context_manager = context_manager
-                app.state.chat_queue = ChatQueue(store, chat, provider)
-                monitor = (
-                    TaskMonitor(calculation_chat, provider, session_store=store)
-                    if calculation_enabled and settings.automation_monitor_enabled
-                    else None
-                )
-                app.state.task_monitor = monitor
-                calculation_chat.monitor = monitor
-                if monitor:
-                    monitor.start()
-                if calculation_enabled:
-                    calculation_chat.plans.start(store, app.state.agent, provider)
-                await app.state.chat_queue.recover(app)
+                provider = ProviderRouter(settings, transport=transport)
                 try:
-                    yield
-                finally:
-                    await app.state.chat_queue.close()
-                    await calculation_chat.plans.close()
+                    app.state.title_locks = WeakValueDictionary()
+                    app.state.provider = provider
+                    app.state.store = store
+                    calculation_chat.attachment_store = store
+                    app.state.auth = AuthManager(settings, store)
+                    counter = await asyncio.to_thread(TokenCounter, settings.tokenizer_path)
+                    context_manager = ContextManager(
+                        settings,
+                        provider,
+                        store,
+                        counter,
+                        SYSTEM_PROMPT
+                        + (AUTOMATION_PROMPT if calculation_enabled else "")
+                        + (MEMORY_PROMPT if settings.research_memory_enabled else ""),
+                        registry.schemas(),
+                    )
+                    app.state.agent = ChemistryAgent(
+                        provider,
+                        registry,
+                        settings.max_tool_rounds,
+                        context_manager,
+                    )
+                    app.state.context_manager = context_manager
+                    app.state.chat_queue = ChatQueue(store, chat, provider)
+                    monitor = (
+                        TaskMonitor(calculation_chat, provider, session_store=store)
+                        if calculation_enabled and settings.automation_monitor_enabled
+                        else None
+                    )
+                    app.state.task_monitor = monitor
+                    calculation_chat.monitor = monitor
                     if monitor:
-                        await monitor.close()
+                        monitor.start()
+                    if calculation_enabled:
+                        calculation_chat.plans.start(
+                            store,
+                            app.state.agent if settings.platform_agent_enabled else None,
+                            provider if settings.platform_agent_enabled else None,
+                        )
+                    await app.state.chat_queue.recover(app)
+                    try:
+                        yield
+                    finally:
+                        await app.state.chat_queue.close()
+                        await calculation_chat.plans.close()
+                        if monitor:
+                            await monitor.close()
+                finally:
+                    await provider.close()
             finally:
-                await provider.close()
-        finally:
-            await store.close()
+                await store.close()
 
     app = FastAPI(
         title="Chem Code",
@@ -177,9 +184,11 @@ def create_app(
     app.state.settings = settings
     app.state.automation = automation
     app.state.calculation_chat = calculation_chat
+    app.state.platform = calculation_chat.plans.platform
     app.include_router(automation_router)
     app.include_router(ssh_router)
     app.include_router(calculation_chat_router)
+    app.include_router(platform_router)
     app.add_middleware(AuthenticationMiddleware, settings=settings)
 
     @app.exception_handler(RequestValidationError)

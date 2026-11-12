@@ -44,7 +44,10 @@ GroupLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=
 class PlanNode(StrictModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     title: str = Field(min_length=1, max_length=120)
-    kind: Literal["model", "vasp", "analysis", "job"]
+    kind: Literal["model", "vasp", "analysis", "job", "task"]
+    executor: Literal["platform", "agent"] | None = None
+    execution_host: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    parent_task: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,63}$")
     group_path: list[GroupLabel] | None = Field(
         default=None,
         max_length=8,
@@ -64,6 +67,8 @@ class PlanNode(StrictModel):
     def stored_record(self, previous: dict | None = None) -> dict:
         """An omitted path preserves the previous annotation during draft edits or repairs."""
         body = self.model_dump(mode="json", exclude={"group_path"})
+        if previous and previous.get("parent_task"):
+            body["parent_task"] = previous["parent_task"]
         path = self.group_path
         if path is None and previous:
             path = previous.get("group_path")
@@ -75,6 +80,11 @@ class PlanNode(StrictModel):
     def valid_operation(self):
         import re
 
+        self.executor = self.executor or ("agent" if self.kind == "task" else "platform")
+        if (self.kind == "task") != (self.executor == "agent"):
+            raise ValueError("Agent 负责的研究步骤使用 task；可执行脚本节点由 platform 负责。")
+        if self.parent_task and self.kind != "job":
+            raise ValueError("仅实际作业节点关联 parent_task。")
         if any(not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", alias) for alias in self.inputs):
             raise ValueError("输入名称须为小写字母开头的字母、数字、下划线。")
         if self.result_files and self.kind != "analysis":
@@ -84,7 +94,10 @@ class PlanNode(StrictModel):
             raise ValueError("文件依赖的目标路径重复。")
         if self.kind != "job" and self.job is not None:
             raise ValueError("job 设置仅用于 job 节点。")
-        if self.kind == "job":
+        if self.kind == "task":
+            if self.code or self.calculation or self.files:
+                raise ValueError("研究步骤保存目标与输入；执行文件由 Agent 创建并登记到该步骤。")
+        elif self.kind == "job":
             if not self.job or self.code or self.calculation:
                 raise ValueError("通用任务需要 job 设置；脚本写在 job.script。")
             if set(targets) & set(self.job.files):
@@ -129,6 +142,16 @@ class PlanDraft(StrictModel):
             raise ValueError("步骤 id 不能重复。")
         pending = {}
         for node in self.nodes:
+            if node.parent_task:
+                parent = nodes.get(node.parent_task)
+                if parent is None or parent.kind != "task":
+                    raise ValueError(f"{node.id} 的 parent_task 须引用存在的研究步骤。")
+                # Jobs may start when the research goal is ready, not before its inputs exist.
+                node.depends_on = sorted(
+                    set(node.depends_on)
+                    | set(parent.depends_on)
+                    | {ref.node for ref in parent.inputs.values() if ref.node}
+                )
             refs = {ref.node for ref in node.inputs.values() if ref.node}
             refs |= {ref.node for ref in node.files if ref.node}
             dependencies = set(node.depends_on) | refs
@@ -138,13 +161,18 @@ class PlanDraft(StrictModel):
                 if (
                     ref.node
                     and ref.output == "structure"
-                    and nodes[ref.node].kind in {"analysis", "job"}
+                    and nodes[ref.node].kind in {"analysis", "job", "task"}
                 ):
                     raise ValueError(
                         "分析/通用任务输出 result 和文件；请用建模节点读取文件生成结构。"
                     )
             node.depends_on = sorted(dependencies)
             pending[node.id] = dependencies
+        # A goal cannot finish until its jobs finish. Include this implicit dependency
+        # in cycle validation without making the scheduler execute the agent-owned goal.
+        for node in self.nodes:
+            if node.parent_task:
+                pending[node.parent_task].add(node.id)
         done = set()
         while pending:
             ready = {key for key, deps in pending.items() if deps <= done}

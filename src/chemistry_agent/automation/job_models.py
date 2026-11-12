@@ -41,16 +41,20 @@ class FileReference(StrictModel):
     node: str | None = None
     job_id: UUID | None = None
     file_id: UUID | None = None
+    artifact_id: UUID | None = None
     path: str = ""
     target: str
     source: Literal["retrieved", "remote"] = "retrieved"
 
     @model_validator(mode="after")
     def source_and_path(self):
-        if sum(v is not None for v in (self.node, self.job_id, self.file_id)) != 1:
-            raise ValueError("文件来源指定 node、job_id 或 file_id，三选一。")
+        if (
+            sum(v is not None for v in (self.node, self.job_id, self.file_id, self.artifact_id))
+            != 1
+        ):
+            raise ValueError("文件来源指定 node、job_id、file_id 或 artifact_id，四选一。")
         self.target = artifact_path(self.target)
-        if not self.file_id:
+        if not self.file_id and not self.artifact_id:
             self.path = artifact_path(self.path, reserved=False)
             if any(c in self.path for c in "*?["):
                 raise ValueError("依赖须指定实际文件路径，不使用通配符。")
@@ -95,6 +99,7 @@ class JobAdopt(StrictModel):
     remote_directory: str | None = None
     submitted_at: str | None = Field(default=None, pattern=r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$")
     plan_id: UUID | None = None
+    step_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,63}$")
     title: str = Field(default="接管已有作业", min_length=1, max_length=120)
     instruction: str = Field(default="检查实际输出，分析结果并继续已授权的任务。", max_length=12000)
     retrieve: list[str] = Field(default_factory=list)

@@ -220,7 +220,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     $('step-revise').hidden=plan.status!=='draft';
     $('step-config').hidden=!html && $('step-revise').hidden;
     $('step-code-section').hidden=!(node.code || node.job?.script); $('step-code').textContent=node.code || node.job?.script || '';
-    const files=state.outputs?.files || [], result=['analysis','job'].includes(node.kind) && state.outputs?.result;
+    const files=state.outputs?.files || [], result=['analysis','job','task'].includes(node.kind) && state.outputs?.result;
     $('step-output-section').hidden=!result && !files.length;
     $('step-output').textContent=result?JSON.stringify(result,null,2):'';
     const base = current.sessionPath + '/workflows/' + encodeURIComponent(plan.id) + '/artifacts/' + encodeURIComponent(node.id);
@@ -244,7 +244,7 @@ export function createStepDetail({api,reviseStep,rememberCount}) {
     drawGeneral(plan,node);
     $('step-back').focus({preventScroll:true});
     $('step-energies').hidden=node.kind!=='vasp'; $('step-progress').hidden=node.kind!=='vasp';$('step-refresh').hidden=false;
-    $('step-structures').hidden=['analysis','job'].includes(node.kind);
+    $('step-structures').hidden=['analysis','job','task'].includes(node.kind);
     $('step-config').open=true; $('step-structures').open=node.kind==='model';
     info={files:{},points:[]}; drawFiles(); refresh();
   }

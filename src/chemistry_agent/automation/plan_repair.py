@@ -19,6 +19,7 @@ def eligible(plan: dict) -> list[str]:
         key
         for key, state in plan["runtime"].items()
         if state["status"] == "failed"
+        and next(n for n in plan["nodes"] if n["id"] == key).get("kind") != "task"
         and not state.get("generic_job_id")
         and not state.get("diagnosis_started")
         and len(state.get("attempts", [])) < plan.get("repair_limit", 2)

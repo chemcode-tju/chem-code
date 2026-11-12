@@ -42,10 +42,10 @@ export function graphLayers(nodes) {
 }
 export function renderGeneralPlan(plan) {
   const titles=Object.fromEntries(plan.nodes.map(n=>[n.id,n.title]));
-  const compute = plan.nodes.filter(node => ['vasp','job'].includes(node.kind));
+  const compute = plan.nodes.filter(node => ['vasp','job','task'].includes(node.kind) && !node.parent_task);
   const completed = compute.filter(node=>plan.runtime[node.id].status==='completed').length;
   const layers = graphLayers(plan.nodes).map(layer => layer.map(node => ({
-    id:node.id, title:node.title, groupPath:node.group_path, dependencies:node.depends_on, auxiliary:!['vasp','job'].includes(node.kind),
+    id:node.id, title:node.title, groupPath:node.group_path, dependencies:node.depends_on, auxiliary:!['vasp','job','task'].includes(node.kind),
     description:(layer.length>1?'独立分支 · 可并行。':'')+(node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):node.title),
     state:plan.runtime[node.id].status, status:(plan.runtime[node.id].job?.scheduler_job_id?'#'+plan.runtime[node.id].job.scheduler_job_id+' · ':'')+(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
   })));
@@ -64,7 +64,8 @@ export function generalRows(plan,node) {
       ['工作目录',node.job.adopted?runtime.remote_directory:null],
       ['取回文件',node.job.retrieve.join('、')],['完成条件','调度结束、退出码为 0、要求的输出文件存在']);
   }
-  if(node.files?.length) rows.push(['文件依赖',node.files.map(f=>`${f.node || f.job_id || f.file_id}: ${f.path || '附件'} → ${f.target}`).join('\n')]);
+  if(node.kind==='task') rows.push(['执行负责人','Agent'],['关联作业',(plan.runtime[node.id]?.jobs || []).map(id=>Object.values(plan.runtime).find(s=>s.generic_job_id===id)?.job?.scheduler_job_id || id).join('、')]);
+  if(node.files?.length) rows.push(['文件依赖',node.files.map(f=>`${f.node || f.job_id || f.file_id || f.artifact_id}: ${f.path || '附件'} → ${f.target}`).join('\n')]);
   const entries=Object.entries(params?.incar || {});
   const incar=entries.length ? `<dt>INCAR</dt><dd><details class="param-list"><summary>${entries.length} 项参数</summary><div>${entries.map(([k,v])=>`<code><b>${esc(k)}</b> = ${esc(String(v))}</code>`).join('')}</div></details></dd>`:'';
   return rows.filter(([,v])=>v).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')+incar;

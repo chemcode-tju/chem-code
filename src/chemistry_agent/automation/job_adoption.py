@@ -16,6 +16,8 @@ from chemistry_agent.tools import ToolContext
 async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
     """Registration is read-only remotely; retries repair only the local binding."""
     session = context.session_id
+    if args.step_id and not args.plan_id:
+        raise AgentError("plan_required", "关联研究步骤须提供 plan_id。", 422)
     observed = await plans.slurm.request(
         args.host,
         {
@@ -64,6 +66,17 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                 )
             if args.plan_id and plan is None:
                 raise AgentError("plan_not_found", "当前会话不存在指定方案。", 404)
+            step_id = old.get("step_id") if old else args.step_id
+            parent = next((n for n in plan["nodes"] if n["id"] == step_id), None) if plan else None
+            if step_id and (
+                not parent
+                or parent["kind"] != "task"
+                or plan["runtime"][step_id]["status"] == "completed"
+                or any(
+                    plan["runtime"][dep]["status"] != "completed" for dep in parent["depends_on"]
+                )
+            ):
+                raise AgentError("step_not_ready", "研究步骤不存在、已完成或上游尚未完成。", 409)
             settings = JobSettings(
                 host=args.host,
                 workdir=directory,
@@ -82,6 +95,7 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                 "created_at": utc_now(),
                 "plan_id": plan_id,
                 "node_id": node_id,
+                "step_id": step_id,
                 "instruction": args.instruction,
             }
             if record.get("terminal"):
@@ -92,6 +106,8 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                 kind="job",
                 purpose=record["instruction"][:1000],
                 job=record["settings"],
+                parent_task=step_id,
+                group_path=[parent["title"]] if parent else None,
             ).stored_record()
             # Validate display metadata before saving; full instructions remain in the receipt.
             # Persist identity first: crash recovery always recreates the same plan/node.
@@ -116,6 +132,11 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                     "authorized_run": context.run_id,
                 }
             plan["nodes"].append(node)
+            if parent:
+                target = plan["runtime"][step_id]
+                target["status"] = "running"
+                target.setdefault("jobs", []).append(identifier)
+                target.pop("completed_at", None)
             plan["runtime"][node_id] = {
                 "status": "running",
                 "generic_job_id": identifier,
@@ -149,6 +170,7 @@ def binding(record: dict, plan_id: str, node_id: str, *, reused: bool) -> dict:
         "scheduler_job_id": record["scheduler_job_id"],
         "plan_id": plan_id,
         "node_id": node_id,
+        "step_id": record.get("step_id"),
         "remote_directory": record["remote_directory"],
         "identity": record.get("identity"),
         "reused": reused,

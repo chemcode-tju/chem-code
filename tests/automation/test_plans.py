@@ -961,8 +961,20 @@ async def test_stopped_plan_projects_all_279_nodes_without_external_work(graph, 
     assert path.read_bytes() == original
 
 
+@pytest.fixture
+async def summary_event_store(tmp_path):
+    from chemistry_agent.store import Store
+
+    store = await Store.open(tmp_path / "summary-events.sqlite3")
+    store.research_memory_enabled = False
+    yield store
+    await store.close()
+
+
 @pytest.mark.parametrize("available", [True, False])
-async def test_new_vasp_completion_queues_one_background_interpretation(graph, available):
+async def test_new_vasp_completion_queues_one_background_interpretation(
+    graph, available, summary_event_store
+):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, Mock
 
@@ -978,10 +990,9 @@ async def test_new_vasp_completion_queues_one_background_interpretation(graph, a
     await chat.plans.tick_plan(sid, pid)
     # The dependent step was submitted before the summary worker/model ran.
     assert len(engine.submits) == 2
-    store = SimpleNamespace(
-        get_session=AsyncMock(return_value={"messages": []}),
-        get_session_model=AsyncMock(return_value="test"),
-    )
+    store = summary_event_store
+    store.get_session = AsyncMock(return_value={"messages": []})
+    store.get_session_model = AsyncMock(return_value="test")
     provider = SimpleNamespace(
         configuration=lambda: (None, SimpleNamespace(provider="test", base_url="")),
         select_model=Mock(),

@@ -21,6 +21,7 @@ from chemistry_agent.automation.progress import ProgressStore
 from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.automation.settings_tools import settings_tools
 from chemistry_agent.errors import AgentError
+from chemistry_agent.platform.records import RecordRepository
 from chemistry_agent.tools import Tool, ToolContext
 
 if TYPE_CHECKING:
@@ -103,6 +104,7 @@ class CalculationChat:
         self.service = service
         self.attachment_store: Store | None = None
         self.root = service.settings.aiida_path / "chat"
+        self.records = RecordRepository(self.root)
         self.review_lock = asyncio.Lock()
         self.model_lock = asyncio.Lock()
         self.import_lock = asyncio.Lock()
@@ -114,31 +116,18 @@ class CalculationChat:
         return ProgressStore(self.service.settings.aiida_path / "task-monitor.sqlite3")
 
     def directory(self, session_id: str, kind: str) -> Path:
-        directory = self.root / str(UUID(session_id)) / kind
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        return directory
+        return self.records.directory(session_id, kind)
 
     def save(self, session_id: str, kind: str, identifier: str, data: dict) -> None:
-        path = self.directory(session_id, kind) / f"{UUID(identifier)}.json"
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-        temporary.replace(path)
+        self.records.save(session_id, kind, identifier, data)
 
     def load(self, session_id: str, kind: str, identifier: str) -> dict:
-        path = self.directory(session_id, kind) / f"{UUID(identifier)}.json"
-        if not path.is_file():
-            raise AgentError("artifact_not_found", "此对话中没有该结构或预览，请重新选择。", 404)
-        return json.loads(path.read_text())
+        return self.records.load(session_id, kind, identifier)
 
     def list_records(
         self, session_id: str, kind: str, offset: int = 0, limit: int = 100
     ) -> list[dict]:
-        paths = sorted(
-            self.directory(session_id, kind).glob("*.json"),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
-        return [json.loads(path.read_text()) for path in paths[offset : offset + limit]]
+        return self.records.list_records(session_id, kind, offset, limit)
 
     async def import_structure(self, args: ImportInput, context: ToolContext) -> dict:
         if args.file_id:

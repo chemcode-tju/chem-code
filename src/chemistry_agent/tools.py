@@ -10,14 +10,9 @@ from rdkit import Chem, DataStructs, rdBase
 from rdkit.Chem import Crippen, Descriptors, Lipinski, rdFingerprintGenerator, rdMolDescriptors
 
 from chemistry_agent.errors import AgentError
+from chemistry_agent.platform.contracts import OperationContext as ToolContext
 from chemistry_agent.provider import ToolCall
 from chemistry_agent.schemas import ToolExecution
-
-
-@dataclass(frozen=True)
-class ToolContext:
-    session_id: str
-    run_id: str
 
 
 class MoleculeInput(BaseModel):
