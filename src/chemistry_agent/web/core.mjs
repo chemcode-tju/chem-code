@@ -100,7 +100,7 @@ export function buildTurns(messages, runs = []) {
     // tool trace separate instead of replacing the preceding user's answer.
     if (message.role === "assistant" && !message.task_event &&
         (!turn || finalAnswers.has(turn.answer))) {
-      turn = {text:"",context:"",answer:"",calls:[],run:null,background:true};
+      turn = {text:"",context:"",answer:"",calls:[],steps:[],run:null,background:true};
       turns.push(turn);
       pendingCalls = new Map();
     }
@@ -108,12 +108,16 @@ export function buildTurns(messages, runs = []) {
       turns.push({event:message.task_event,text:"",context:"",calls:[],answer:message.content,run:null});
       turn = null;
     } else if (message.role === "user") {
-      turn = { ...splitReference(message.content || ""), answer: "", calls: [], run: completed[turns.length] || null };
+      turn = { ...splitReference(message.content || ""), answer: "", calls: [], steps: [], run: completed[turns.length] || null };
       turns.push(turn);
       pendingCalls = new Map();
     } else if (turn && message.role === "assistant") {
       if (message.tool_calls?.length) {
-        for (const call of message.tool_calls) pendingCalls.set(call.id, call);
+        if (message.content) turn.steps.push({type:'commentary', text:message.content});
+        for (const call of message.tool_calls) {
+          pendingCalls.set(call.id, call);
+          turn.steps.push({type:'tool',call_id:call.id,name:call.function?.name || '工具',status:'uncertain'});
+        }
       } else if (message.content) turn.answer = message.content;
     } else if (turn && message.role === "tool") {
       const call = pendingCalls.get(message.tool_call_id);
@@ -121,6 +125,8 @@ export function buildTurns(messages, runs = []) {
       turn.calls.push({ call_id: message.tool_call_id, name: call?.function?.name || "工具",
         arguments: parseJson(call?.function?.arguments || "{}", {}),
         result, success: result !== null && !result.error });
+      const step = turn.steps.find(item=>item.call_id===message.tool_call_id);
+      if (step) step.status = result !== null && !result.error ? 'completed' : 'failed';
     }
   }
   // The latest run page contains the latest completed turns, even with failed runs mixed in.
@@ -129,7 +135,7 @@ export function buildTurns(messages, runs = []) {
   chatTurns.forEach((item, index) => { item.run = offset >= 0 ? completed[index - offset] || null : null; });
   for (const run of runs.filter(row=>row.status==='running' && row.context?.automation_event==='job_completion')) {
     turns.push({text:'',context:'',answer:run.answer || '后台 Agent 正在准备计算。',
-      calls:run.tool_calls || [],run,background:true});
+      calls:run.tool_calls || [],steps:run.context?.public_steps || [],run,background:true});
   }
   return turns;
 }

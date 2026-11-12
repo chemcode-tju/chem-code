@@ -4,10 +4,10 @@ import {documentBody, resultCard, scopeDescription} from './memory-view.mjs';
 const $ = id => document.getElementById(id);
 const markdown = globalThis.markdownit ? createMarkdownRenderer(globalThis.markdownit) : {render:text=>`<pre>${escapeHtml(text)}</pre>`};
 let generation = 0, detailGeneration = 0, offset = 0, sessionOffset = 0;
-let selected = null, searchContext = null, noteSession = null;
+let selected = null, searchContext = null, noteSession = null, noteProject = null;
 const sessions = new Map();
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
-const base = session => `/api/sessions/${encodeURIComponent(session)}/memories`;
+const base = session => session ? `/api/sessions/${encodeURIComponent(session)}/memories` : "/api/research/memories";
 
 async function api(url, options = {}) {
   const response = await fetch(url, {...options, headers:{'Content-Type':'application/json'}});
@@ -24,7 +24,7 @@ function syncLocation(context) {
     if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
   }
   history.replaceState(null, '', url);
-  $('workspace-link').href = `/?session=${encodeURIComponent(context.session)}`;
+  $('workspace-link').href = context.session ? `/?session=${encodeURIComponent(context.session)}` : '/' ;
   $('scope-hint').textContent = scopeDescription(context.scope);
 }
 
@@ -34,18 +34,21 @@ async function search(event, append = false) {
   if (!append) {
     detailGeneration++;
     offset = 0; selected = null;
-    searchContext = {session:$('session').value, scope:$('scope').value, query:$('query').value.trim(), kind:$('kind').value};
+    searchContext = {session:$('session').value, project_id:$('project').value, scope:$('scope').value, query:$('query').value.trim(), kind:$('kind').value};
     syncLocation(searchContext);
     $('results').replaceChildren();
     $('detail').innerHTML = '<div class="empty-state"><p>正在检索记忆…</p></div>';
   }
   const context = {...searchContext};
-  if (!context.session) return;
+  if (!context.session && context.scope === 'session') {
+    status('请先选择来源对话，或使用项目/全部记忆范围。', true); return;
+  }
   $('more-results').hidden = true;
   $('results').setAttribute('aria-busy', 'true');
   status('正在检索…');
   const params = new URLSearchParams({scope:context.scope, query:context.query, limit:'20', offset:String(offset)});
   if (context.kind) params.set('kind',context.kind);
+  if (!context.session && context.project_id) params.set('project_id',context.project_id);
   try {
     const result = await api(`${base(context.session)}?${params}`);
     if (turn !== generation) return;
@@ -90,7 +93,7 @@ async function show(identifier, session, sourceTitle) {
   try {
     const item = await api(path);
     if (request !== detailGeneration) return;
-    $('detail').innerHTML = documentBody(item, sourceTitle || sessions.get(item.session_id)?.title || '来源对话', markdown);
+    $('detail').innerHTML = documentBody(item, sourceTitle || sessions.get(item.session_id)?.title || '研究平台', markdown);
     $('detail').scrollTop = 0;
     $('detail').querySelector('[data-download]').href=`${path}/document.md`;
     $('detail').querySelector('[data-versions]').addEventListener('click',()=>versions(path));
@@ -144,24 +147,25 @@ async function loadSessions() {
 
 $('search-form').addEventListener('submit',search);
 for (const id of ['session','scope','kind']) $(id).addEventListener('change',search);
+$('project').addEventListener('change',()=>{ $('session').value=''; $('scope').value='project'; void search(); });
 $('query').addEventListener('search',search);
 $('more-results').addEventListener('click',event=>search(event,true));
 $('more-sessions').addEventListener('click',()=>loadSessions().catch(error=>status(error.message,true)));
 for (const button of document.querySelectorAll('[data-close]')) button.addEventListener('click',()=>$(button.dataset.close).close());
 $('new-note').addEventListener('click',()=>{
   noteSession=$('session').value;
-  if (!noteSession) return status('请先在研究工作区创建对话。',true);
-  $('note-destination').textContent=`保存到：${sessions.get(noteSession)?.title || '所选对话'}`;
+  noteProject=$('project').value;
+  $('note-destination').textContent=`保存到：${noteSession ? sessions.get(noteSession)?.title : $('project').selectedOptions[0].textContent}`;
   $('save-status').textContent=''; $('note-dialog').showModal();
 });
 $('save-form').addEventListener('submit',async event=>{
   event.preventDefault(); $('save-note').disabled=true;
   const split=id=>$(id).value.split(/[,，]/).map(value=>value.trim()).filter(Boolean);
   try {
-    await api(base(noteSession), {method:'POST', body:JSON.stringify({title:$('note-title').value, content:$('note-content').value,
+    await api(base(noteSession) + (!noteSession && noteProject ? `?project_id=${encodeURIComponent(noteProject)}` : ''), {method:'POST', body:JSON.stringify({title:$('note-title').value, content:$('note-content').value,
       systems:split('note-systems'), tasks:split('note-tasks'), applicability:$('note-applicability').value})});
     $('save-form').reset(); $('note-dialog').close();
-    $('session').value=noteSession; $('scope').value='session'; $('kind').value='document'; $('query').value='';
+    $('session').value=noteSession; $('project').value=noteProject; $('scope').value=noteSession?'session':'project'; $('kind').value='document'; $('query').value='';
     await search();
   } catch(error) { $('save-status').textContent=error.message; }
   finally { $('save-note').disabled=false; }
@@ -169,6 +173,12 @@ $('save-form').addEventListener('submit',async event=>{
 
 try {
   const params=new URLSearchParams(location.search);
+  const projects=await api('/api/projects');
+  for (const project of projects) {
+    const option=document.createElement('option'); option.value=project.id; option.textContent=project.name;
+    $('project').append(option);
+  }
+  if (projects.some(project=>project.id===params.get('project_id'))) $('project').value=params.get('project_id');
   await loadSessions();
   const requested=params.get('session');
   if (requested && !sessions.has(requested)) {
@@ -180,6 +190,5 @@ try {
   if (['session','project','personal'].includes(params.get('scope'))) $('scope').value=params.get('scope');
   if (['plan','calculation','lesson','document'].includes(params.get('kind'))) $('kind').value=params.get('kind');
   $('query').value=params.get('query') || '';
-  if (sessions.size) await search();
-  else { status('还没有对话。请先在研究工作区创建对话。'); $('new-note').disabled=true; }
+  await search();
 } catch(error) { status(error.message,true); }

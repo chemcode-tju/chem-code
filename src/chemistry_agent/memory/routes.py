@@ -1,6 +1,5 @@
 """Authenticated memory management and lossless Markdown export."""
 
-import json
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -13,10 +12,12 @@ from chemistry_agent.memory.models import (
     MemorySave,
     MemorySearch,
 )
+from chemistry_agent.memory.notes import save_note
+from chemistry_agent.memory.platform_routes import router as platform_router
 from chemistry_agent.memory.service import ResearchMemory, markdown
-from chemistry_agent.memory.tools import save_note
 
 router = APIRouter(tags=["research memory"])
+router.include_router(platform_router)
 
 
 async def authorized(request: Request, session: UUID) -> ResearchMemory:
@@ -85,28 +86,13 @@ async def export_memory(session: UUID, identifier: UUID, request: Request) -> Re
 @router.get("/api/sessions/{session}/memories/{identifier}/versions")
 async def memory_versions(session: UUID, identifier: UUID, request: Request) -> list[dict]:
     memory = await authorized(request, session)
-    await memory.read(str(session), str(identifier))
-    async with memory.store.lock:
-        async with memory.store.db.execute(
-            "SELECT version,created_at FROM research_memory_versions "
-            "WHERE memory_id=? ORDER BY version DESC",
-            (str(identifier),),
-        ) as cursor:
-            return [dict(row) for row in await cursor.fetchall()]
+    return await memory.versions(str(session), str(identifier))
 
 
 @router.get("/api/sessions/{session}/memories/{identifier}/versions/{version}")
 async def memory_version(session: UUID, identifier: UUID, version: int, request: Request) -> dict:
     memory = await authorized(request, session)
-    await memory.read(str(session), str(identifier))
-    async with memory.store.lock:
-        row = await memory.store._one(
-            "SELECT document FROM research_memory_versions WHERE memory_id=? AND version=?",
-            (str(identifier), version),
-        )
-    if row is None:
-        raise AgentError("memory_not_found", "版本不存在。", 404)
-    return json.loads(row["document"]) | {"id": str(identifier), "version": version}
+    return await memory.version(str(session), str(identifier), version)
 
 
 @router.post("/api/sessions/{session}/memories/{identifier}/forget", status_code=204)

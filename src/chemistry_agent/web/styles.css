@@ -1358,6 +1358,9 @@ body.inspector-open .topbar #tools-toggle { display:none; }
 .turn-activity[open] > summary .icon { transform:rotate(180deg); }
 .activity-log { margin:4px 0 10px; padding-inline-start:12px; border-inline-start:1px solid var(--border); }
 .activity-log p { margin:0; }
+.activity-commentary { color:var(--text); white-space:pre-wrap; overflow-wrap:anywhere; font-size:var(--reading-size); line-height:1.8; margin:10px 0; }
+.activity-draft { margin:10px 0; color:var(--text); }
+.activity-item[data-status=running] small { color:var(--accent); }
 .activity-item,.activity-item > summary { font-size:14px; line-height:1.6; }
 .activity-item > summary,.activity-item:not(details) { display:flex; align-items:baseline; gap:12px; padding-block:4px; color:var(--text); }
 .activity-item > summary { cursor:pointer; list-style:none; }

@@ -19,7 +19,7 @@ class PlatformRuntime:
         self.lease.__enter__()
         try:
             self.store = await Store.open(self.settings.database_path)
-            self.store.research_memory_enabled = False
+            self.store.research_memory_enabled = self.settings.research_memory_enabled
             self.chat.attachment_store = self.store
             self.chat.plans.start(self.store)
         except BaseException:

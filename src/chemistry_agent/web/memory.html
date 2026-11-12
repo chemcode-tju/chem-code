@@ -18,9 +18,10 @@
     <nav><a id="workspace-link" href="/"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chat"/></svg>返回研究工作区</a>
       <a href="/memory" aria-current="page"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg>科研记忆</a></nav>
     <div class="source-controls">
-      <label for="session">来源对话</label><select id="session" required aria-describedby="scope-hint"></select>
+      <label for="project">研究项目</label><select id="project"><option value="">个人研究区</option></select>
+      <label for="session">来源对话（可选）</label><select id="session" aria-describedby="scope-hint"><option value="">不限定来源对话</option></select>
       <label for="scope">检索范围</label><select id="scope" aria-describedby="scope-hint">
-        <option value="session">仅此对话</option><option value="project">所属项目</option><option value="personal">我的全部记忆</option>
+        <option value="project">所选项目</option><option value="personal">我的全部记忆</option><option value="session">仅此对话</option>
       </select>
       <p id="scope-hint" class="hint"></p>
       <button id="more-sessions" type="button" hidden>加载更多对话</button>
@@ -38,7 +39,7 @@
     <p id="status" role="status" aria-live="polite"></p>
     <div class="memory-columns">
       <section class="result-pane" aria-label="记忆检索结果"><div id="results"></div><button id="more-results" type="button" hidden>加载更多记录</button></section>
-      <section id="detail" aria-label="记忆详情"><div class="empty-state"><h2>让已有经验成为下一步的参考</h2><p>选择来源对话，或搜索体系与报错关键词。</p></div></section>
+      <section id="detail" aria-label="记忆详情"><div class="empty-state"><h2>让已有经验成为下一步的参考</h2><p>选择项目，或搜索体系与报错关键词。</p></div></section>
     </div>
   </main>
   <dialog id="note-dialog" aria-labelledby="note-heading">

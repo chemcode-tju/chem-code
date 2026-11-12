@@ -12,18 +12,31 @@ export function duration(start,end) {
     : (minutes ? minutes+' 分 ' : '')+(seconds%60)+' 秒';
 }
 
-export function activity({id,start,end,calls=[],running=false}) {
-  if (!start && !calls.length) return '';
-  const clock = duration(start,end || new Date().toISOString());
-  const label = clock ? t(running?'已用时':'用时')+' '+clock : t('工具记录');
-  const rows = calls.map(call => {
-    const name = esc(t(TOOL_LABELS[call.name] || call.name || '工具'));
-    const status = t(call.success===false?'需调整输入':'已完成');
-    if (call.arguments===undefined && call.result===undefined) return `<div class="activity-item">${name}<small>${status}</small></div>`;
+export function activitySteps(steps=[], calls=[]) {
+  const byId = new Map(calls.map(call=>[call.call_id,call]));
+  const rows = steps.length ? steps : calls.map(call=>({type:'tool',...call,status:call.success===false?'failed':'completed'}));
+  return rows.map(step=>{
+    if (step.type === 'commentary') return `<div class="activity-commentary" data-no-i18n>${esc(step.text)}</div>`;
+    const call = byId.get(step.call_id) || step;
+    const name = esc(t(TOOL_LABELS[step.name] || step.name || '工具'));
+    const status = t(({running:'执行中',completed:'已完成',failed:'需调整输入',uncertain:'结果待核对'})[step.status] || '结果待核对');
+    if (call.arguments===undefined && call.result===undefined) return `<div class="activity-item" data-status="${esc(step.status)}">${name}<small>${status}</small></div>`;
     const params = JSON.stringify({arguments:call.arguments,result:call.result},null,2);
     return `<details class="activity-item"><summary>${name}<small>${status}</small></summary><pre>${esc(params)}</pre></details>`;
   }).join('');
-  return `<details class="turn-activity" data-activity="${esc(id)}"><summary><span${running?' data-clock="'+esc(start)+'"':''}>${esc(label)}</span>${icon('chevron')}</summary><div class="activity-log">${rows || '<p>'+t(running?'等待工具记录':'未调用工具')+'</p>'}</div></details>`;
+}
+
+export function activityOpen(running, previous) {
+  return previous && previous.running === running ? previous.open : running;
+}
+
+export function activity({id,start,end,calls=[],steps=[],running=false,draftRequest=null}) {
+  if (!start && !calls.length && !steps.length && !draftRequest) return '';
+  const clock = duration(start,end || new Date().toISOString());
+  const label = clock ? t(running?'已用时':'用时')+' '+clock : '';
+  const rows = activitySteps(steps,calls);
+  const draft = draftRequest ? `<div class="answer-output activity-draft" hidden>${liveCopyButton()}<div class="markdown" data-live-request="${esc(draftRequest)}"></div></div>` : '';
+  return `<details class="turn-activity" data-activity="${esc(id)}" data-running="${running}"${running?' open':''}><summary><span>${t('处理过程')}</span><span${running && start?' data-clock="'+esc(start)+'"':''}>${esc(label)}</span>${icon('chevron')}</summary><div class="activity-log"><div data-activity-steps>${rows}</div><p data-activity-placeholder${rows?' hidden':''}>${t(running?'正在生成下一步…':'未调用工具')}</p>${draft}</div></details>`;
 }
 
 export function answerBox(html,index) {

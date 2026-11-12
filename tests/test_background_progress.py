@@ -64,5 +64,35 @@ async def test_event_checkpoint_publishes_only_public_progress(tmp_path):
         assert row["answer"] == "正在生成体相结构。"
         assert row["context"]["automation_event"] == "job_completion"
         assert (await store.get_session(session))["messages"] == []
+        intent = [
+            {
+                "id": "submit-once",
+                "function": {"name": "remote_shell", "arguments": '{"command":"sbatch submit.sh"}'},
+            }
+        ]
+        await EventCheckpoint(store, event).mark_tools(
+            intent,
+            payload={
+                "tail": [
+                    {
+                        "role": "assistant",
+                        "content": "正在提交已确认的任务。",
+                        "reasoning_content": "private",
+                        "tool_calls": intent,
+                    }
+                ],
+                "calls": [],
+                "context": {},
+            },
+        )
+        checkpoint = await store._one("SELECT * FROM agent_events WHERE id=?", (event,))
+        assert checkpoint["phase"] == "tools"
+        assert json.loads(checkpoint["tool_intent"]) == intent
+        row = await store.get_run(run)
+        steps = row["context"]["public_steps"]
+        assert steps[0]["text"] == "正在提交已确认的任务。"
+        assert steps[1]["status"] == "running"
+        assert "private" not in json.dumps(steps)
+        assert "sbatch" not in json.dumps(steps)
     finally:
         await store.close()

@@ -342,12 +342,21 @@ class EventCheckpoint:
             )
         return json.loads(row["checkpoint"]) if row and row["checkpoint"] else {}
 
-    async def mark_tools(self, intent: list[dict] | None = None) -> None:
+    async def mark_tools(
+        self, intent: list[dict] | None = None, *, payload: dict | None = None
+    ) -> None:
         async with self.store.transaction():
             await self.store.db.execute(
-                "UPDATE agent_events SET phase='tools',tool_intent=? WHERE id=?",
-                (json.dumps(intent or []), self.identifier),
+                "UPDATE agent_events SET phase='tools',tool_intent=?,"
+                "checkpoint=COALESCE(?,checkpoint) WHERE id=?",
+                (
+                    json.dumps(intent or []),
+                    json.dumps(payload) if payload else None,
+                    self.identifier,
+                ),
             )
+            if payload:
+                await self._publish(payload)
 
     async def save(self, payload: dict) -> None:
         async with self.store.transaction():
@@ -355,31 +364,40 @@ class EventCheckpoint:
                 "UPDATE agent_events SET phase='model',tool_intent=NULL,checkpoint=? WHERE id=?",
                 (json.dumps(payload, ensure_ascii=False), self.identifier),
             )
-            # Publish completed tools and public commentary while the background
-            # turn is still running. Never expose the synthetic event prompt.
-            public = [
-                item["content"]
-                for item in payload.get("tail", [])
-                if item.get("role") == "assistant" and item.get("content")
-            ]
-            context = {**payload.get("context", {}), "automation_event": "job_completion"}
-            await self.store.db.execute(
-                "UPDATE runs SET tool_calls=?,answer=?,context_info=? "
-                "WHERE id=(SELECT run_id FROM agent_events WHERE id=?) AND status='running'",
-                (
-                    json.dumps(payload.get("calls", []), ensure_ascii=False),
-                    "\n\n".join(public) or "后台 Agent 正在准备计算并检查执行条件。",
-                    json.dumps(context),
-                    self.identifier,
-                ),
-            )
-            from chemistry_agent.store import utc_now
+            await self._publish(payload)
 
-            await self.store.db.execute(
-                "UPDATE sessions SET updated_at=? WHERE id="
-                "(SELECT session_id FROM agent_events WHERE id=?)",
-                (utc_now(), self.identifier),
-            )
+    async def _publish(self, payload: dict) -> None:
+        from chemistry_agent.runtime.live import public_steps
+
+        # Publish completed tools and public commentary while the background
+        # turn is still running. Never expose the synthetic event prompt.
+        public = [
+            item["content"]
+            for item in payload.get("tail", [])
+            if item.get("role") == "assistant" and item.get("content")
+        ]
+        context = {
+            **payload.get("context", {}),
+            "automation_event": "job_completion",
+            "public_steps": public_steps(payload.get("tail", []), payload.get("calls", [])),
+        }
+        await self.store.db.execute(
+            "UPDATE runs SET tool_calls=?,answer=?,context_info=? "
+            "WHERE id=(SELECT run_id FROM agent_events WHERE id=?) AND status='running'",
+            (
+                json.dumps(payload.get("calls", []), ensure_ascii=False),
+                "\n\n".join(public) or "后台 Agent 正在准备计算并检查执行条件。",
+                json.dumps(context),
+                self.identifier,
+            ),
+        )
+        from chemistry_agent.store import utc_now
+
+        await self.store.db.execute(
+            "UPDATE sessions SET updated_at=? WHERE id="
+            "(SELECT session_id FROM agent_events WHERE id=?)",
+            (utc_now(), self.identifier),
+        )
 
 
 def witnesses(condition: WaitCondition, plan: dict, observed: dict) -> set[str]:

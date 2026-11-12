@@ -10,7 +10,7 @@ from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
 from chemistry_agent.provider import DeepSeekClient, ToolCall
 from chemistry_agent.runtime.checkpoint import current_checkpoint
-from chemistry_agent.runtime.live import LiveAnswer, current_answer
+from chemistry_agent.runtime.live import LiveAnswer, current_answer, public_steps
 from chemistry_agent.schemas import ContextUsage, TokenUsage, ToolExecution
 from chemistry_agent.tools import ToolContext, ToolRegistry
 
@@ -205,6 +205,8 @@ class ChemistryAgent:
         progress.usage = progress.usage.plus(completion.usage)
         if completion.message.tool_calls and not allow_tools:
             raise AgentError("tool_round_limit", "已达到工具调用轮数上限，请缩小任务。", 422)
+        if progress.preview:
+            progress.preview.set_text(completion.message.content or "")
         return {
             "messages": [completion.message.to_wire()],
             "usage": progress.usage,
@@ -216,11 +218,33 @@ class ChemistryAgent:
     async def _tools(self, state: AgentState) -> dict[str, Any]:
         calls = [ToolCall.model_validate(call) for call in state["messages"][-1]["tool_calls"]]
         context = ToolContext(state["session_id"], state["run_id"])
+        progress = state["progress"]
+        tail = state["messages"][state["history_count"] + 1 :]
+        observed = [execution.model_dump() for execution in state["tool_calls"]]
+        if progress.preview:
+            progress.preview.set_steps(public_steps(tail, observed))
+            progress.preview.set_text("")
         checkpoint = current_checkpoint.get()
         if checkpoint:
-            await checkpoint.mark_tools([call.model_dump() for call in calls])
-        if state["progress"].preview:
-            state["progress"].preview.set_text("")
+            await checkpoint.mark_tools(
+                [call.model_dump() for call in calls],
+                payload={
+                    "tail": tail,
+                    "calls": observed.copy(),
+                    "rounds": state["tool_rounds"],
+                    "usage": progress.usage.model_dump(),
+                    "context": progress.context.model_dump(),
+                    "steps": public_steps(tail, observed, pending="uncertain"),
+                },
+            )
+
+        async def execute(call: ToolCall) -> ToolExecution:
+            execution = await self.registry.execute(call, context)
+            observed.append(execution.model_dump())
+            if progress.preview:
+                progress.preview.set_steps(public_steps(tail, observed))
+            return execution
+
         if len(calls) > 1 and any(call.function.name == "ask_user_question" for call in calls):
             # Never execute a dependent action batched with an unresolved decision.
             executions = [
@@ -234,8 +258,13 @@ class ChemistryAgent:
                 for call in calls
             ]
         else:
-            executions = await asyncio.gather(
-                *(self.registry.execute(call, context) for call in calls)
+            executions = await asyncio.gather(*(execute(call) for call in calls))
+        if progress.preview:
+            progress.preview.set_steps(
+                public_steps(
+                    tail,
+                    [execution.model_dump() for execution in [*state["tool_calls"], *executions]],
+                )
             )
         update = {
             "messages": [
@@ -259,6 +288,9 @@ class ChemistryAgent:
                     "rounds": update["tool_rounds"],
                     "usage": progress.usage.model_dump(),
                     "context": progress.context.model_dump(),
+                    "steps": public_steps(
+                        tail, [c.model_dump() for c in [*state["tool_calls"], *executions]]
+                    ),
                 }
             )
         return update
@@ -282,6 +314,8 @@ class ChemistryAgent:
             progress.usage = TokenUsage.model_validate(saved["usage"])
             progress.context = ContextUsage.model_validate(saved["context"])
             progress.tool_calls = [ToolExecution.model_validate(c) for c in saved["calls"]]
+            if progress.preview:
+                progress.preview.set_steps(public_steps(saved.get("tail", []), saved["calls"]))
         final_state = None
         async for state in self.graph.astream(
             {

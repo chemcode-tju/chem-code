@@ -1,5 +1,5 @@
 import {userQuestions} from './user-questions.mjs';
-import {activity, answerBox, initAnswerControls, liveCopyButton} from "./answer-ui.mjs";
+import {activity, activityOpen, activitySteps, answerBox, initAnswerControls} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
 import { initSettingsDialog } from "./settings-dialog.mjs";
@@ -329,7 +329,7 @@ function renderConversation(scroll = true) {
   const viewport=$("chat-scroll");
   const previousTop=viewport.scrollTop;
   const pinned=viewport.scrollHeight-viewport.clientHeight-previousTop<48;
-  const expanded = new Set([...$("conversation").querySelectorAll("[data-activity][open]")].map(el=>el.dataset.activity));
+  const expanded = new Map([...$("conversation").querySelectorAll("[data-activity]")].map(el=>[el.dataset.activity,{open:el.open,running:el.dataset.running==='true'}]));
   const hasConversation = state.turns.length > 0 || state.pending !== null || state.outbox.length > 0;
   $("welcome").hidden = hasConversation || state.loading;
   viewport.closest(".main-panel").classList.toggle("new-session", !$("welcome").hidden);
@@ -341,7 +341,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${turn.background ? '<div class="assistant-label">Chem Code · 计算更新</div>' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,running:turn.run?.status==="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}</div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${turn.background ? '<div class="assistant-label">Chem Code · 计算更新</div>' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}</div></div></article>`
 
   ).join("");
   calculations.drawReportFigures();
@@ -351,10 +351,10 @@ function renderConversation(scroll = true) {
     const failed = ["failed","uncertain"].includes(item.status);
     const label = failed ? item.error || "处理失败" : item.status==="queued" ? "等待上一条回复" : "";
     article.innerHTML = renderUser(item.body.message, item.body.context || "") +
-      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],running:item.status==='running'})}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}<div class="answer-output" hidden>${liveCopyButton()}<div class="markdown" data-live-request="${escapeHtml(item.id)}"></div></div>${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
+      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
     $("conversation").append(article);
   }
-  for (const el of $("conversation").querySelectorAll("[data-activity]")) el.open=expanded.has(el.dataset.activity);
+  for (const el of $("conversation").querySelectorAll("[data-activity]")) el.open=activityOpen(el.dataset.running==='true',expanded.get(el.dataset.activity));
   streamed.follow(state.sessionId, (state.outbox.find(item => item.status === "running") || state.outbox.find(item => item.status === "queued"))?.id);
   if (state.pending) {
     const pending = state.pending;
@@ -510,14 +510,22 @@ function restoreDraft() {
 }
 
 const streamed = liveAnswer({
-  render(request, text) {
+  render(request, text, steps) {
     const el = document.querySelector(`[data-live-request="${CSS.escape(request)}"]`);
-    if (!el || el.dataset.preview === text) return;
+    if (!el) return;
     const scroll = $("chat-scroll");
     const pinned = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 56;
-    el.dataset.preview = text;
-    el.innerHTML = text ? (markdown.renderPartial?.(text) ?? markdown.render(text)) : "";
+    const activity = el.closest('[data-activity]');
+    if (steps && activity.dataset.steps !== JSON.stringify(steps)) {
+      activity.dataset.steps = JSON.stringify(steps);
+      activity.querySelector('[data-activity-steps]').innerHTML = activitySteps(steps);
+    }
+    if (el.dataset.preview !== text) {
+      el.dataset.preview = text;
+      el.innerHTML = text ? (markdown.renderPartial?.(text) ?? markdown.render(text)) : "";
+    }
     el.parentElement.hidden = !text;
+    activity.querySelector('[data-activity-placeholder]').hidden = Boolean(text || activity.querySelector('[data-activity-steps]').childElementCount);
     if (pinned) scroll.scrollTop = scroll.scrollHeight;
   },
   settle: () => void syncChat(),
@@ -531,7 +539,7 @@ async function syncChat() {
     const receipt = await api(`/sessions/${id}/chat-requests?compact=true`);
     if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
     const signature = JSON.stringify([receipt.updated_at, receipt.active_run_id,
-      receipt.requests.map(item=>[item.id,item.status,item.error,item.tools])]);
+      receipt.requests.map(item=>[item.id,item.status,item.error,item.tools,item.steps])]);
     if (state.pending?.request && receipt.requests.some(item=>item.id===state.pending.request.request_id)) {
       if ($("message-input").value.trim() === state.pending.message) $("message-input").value = "";
       state.pending = null;

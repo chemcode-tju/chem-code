@@ -1,54 +1,20 @@
 """Model-facing memory operations derive ownership from the running session."""
 
-import hashlib
-import json
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from chemistry_agent.errors import AgentError
 from chemistry_agent.memory.models import (
     MemoryCompare,
-    MemoryDocument,
     MemoryRead,
     MemorySave,
     MemorySearch,
 )
+from chemistry_agent.memory.notes import save_note
 from chemistry_agent.memory.service import ResearchMemory
 from chemistry_agent.tools import Tool, ToolContext
 
 if TYPE_CHECKING:
     from chemistry_agent.store import Store
-
-
-async def save_note(memory: ResearchMemory, session: str, args: MemorySave) -> dict:
-    if bool(args.memory_id) != bool(args.expected_version):
-        raise AgentError("memory_revision_required", "修改需同时提供记忆 ID 和版本。", 422)
-    digest = hashlib.sha256(
-        json.dumps(
-            args.model_dump(mode="json"),
-            sort_keys=True,
-            ensure_ascii=False,
-        ).encode()
-    ).hexdigest()
-    source_session, source_key = session, f"note:{digest}"
-    if args.memory_id:
-        previous = await memory.read(session, str(args.memory_id))
-        if not previous["source_key"].startswith("note:"):
-            raise AgentError(
-                "memory_source_readonly", "自动记录保留原始证据，请另存补充文档。", 409
-            )
-        source_session, source_key = previous["session_id"], previous["source_key"]
-    return await memory.save(
-        source_session,
-        MemoryDocument.model_validate(args.model_dump(exclude={"memory_id", "expected_version"})),
-        source_key=source_key,
-        expected_version=args.expected_version,
-        evidence={
-            "level": "unverified",
-            "origin": "authored_note",
-            "scientifically_validated": False,
-        },
-    )
 
 
 def memory_tools(get_store: Callable[[], "Store"]) -> list[Tool]:
