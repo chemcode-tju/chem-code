@@ -8,6 +8,28 @@ import { buildTurns, createMarkdownRenderer, escapeHtml, metricValue, splitRefer
 const require = createRequire(import.meta.url);
 const markdown = createMarkdownRenderer(require("../src/chemistry_agent/web/vendor/markdown-it.min.js"));
 
+test('failed background turns stop the timer and replace the old running placeholder', () => {
+  const run = {id:'failed',status:'failed',started_at:'2026-11-13T16:47:33Z',
+    finished_at:'2026-11-13T16:47:38Z',answer:'后台 Agent 已开始处理',
+    error_code:'codex_session_busy',context:{automation_event:'job_completion',error_message:'会话被占用'}};
+  const [turn] = buildTurns([], [run]);
+  assert.match(turn.answer, /会话被占用/);
+  assert.doesNotMatch(turn.answer, /已开始处理/);
+  const html = activity({id:run.id,start:run.started_at,end:run.finished_at,running:run.status==='running'});
+  assert.doesNotMatch(html, /data-clock=/);
+  assert.match(html, /5 秒/);
+});
+
+test("background running tools and commentary remain visible without a synthetic user turn",()=>{
+  const run={id:'background',status:'running',started_at:'2026-11-12T12:00:00Z',
+    context:{automation_event:'job_completion'},answer:'正在准备结构',tool_calls:[{name:'remote_shell'}]};
+  const turns=buildTurns([], [run]);
+  assert.equal(turns.length,1);
+  assert.equal(turns[0].background,true);
+  assert.equal(turns[0].answer,run.answer);
+  assert.deepEqual(turns[0].calls,run.tool_calls);
+});
+
 test("untrusted titles and user text are escaped", () => {
   assert.equal(escapeHtml('<img src=x onerror="alert(1)">'), "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
   assert.equal(escapeHtml(null), "");
@@ -61,6 +83,30 @@ test("bad tool payloads are shown as failures and numerical output stays finite"
   assert.equal(metricValue(NaN), "—");
   assert.equal(metricValue(0.285714, 6), "0.285714");
   assert.equal(metricValue(46.069), "46.069");
+});
+
+test("background job replies preserve the original answer and their own tool traces", () => {
+  const messages = [
+    {role:"user",content:"优化"}, {role:"assistant",content:"方案已准备"},
+    {role:"assistant",tool_calls:[{id:"t",function:{name:"job.inspect",arguments:"{}"}}]},
+    {role:"tool",tool_call_id:"t",content:'{"state":"COMPLETED"}'},
+    {role:"assistant",content:"优化完成"},
+    {role:"assistant",content:"方案完成",task_event:"plan:test"},
+    {role:"assistant",content:"汇总完成"},
+  ];
+  const runs = ["方案已准备","优化完成","汇总完成"].map((answer,index)=>({
+    id:String(index),status:"completed",started_at:`2026-01-0${index+1}`,answer,
+    context:index ? {automation_event:"job_completion"} : {},
+  }));
+  const turns=buildTurns(messages,runs);
+  assert.equal(turns.length,4);
+  assert.equal(turns[0].answer,"方案已准备");
+  assert.equal(turns[0].calls.length,0);
+  assert.equal(turns[1].background,true);
+  assert.equal(turns[1].calls[0].name,"job.inspect");
+  assert.equal(turns[1].run.id,"1");
+  assert.equal(turns[2].event,"plan:test");
+  assert.equal(turns[3].answer,"汇总完成");
 });
 
 test("turn activity uses real run time and keeps tool parameters inside the disclosure", () => {
@@ -150,7 +196,7 @@ test('general graph shows true dependencies, independent layers and reviewed rev
   const plan={id:'id',title:'CO <test>',goal:'比较',revision:2,status:'draft',max_parallel:2,nodes,
     runtime:Object.fromEntries(nodes.map(n=>[n.id,{status:'pending'}])),changed_nodes:['bridge'],history:[{revision:2,changed_nodes:['bridge'],removed_nodes:[]}]};
   const html=renderGeneralPlan(plan);
-  assert.match(html,/独立分支 · 可并行/);assert.match(html,/依赖：洁净表面/);
+  assert.doesNotMatch(html,/独立分支 · 可并行/);assert.match(html,/依赖：洁净表面/);
   assert.match(html,/已修改 · 待确认/);assert.match(html,/data-confirm-plan/);
   assert.doesNotMatch(html,/<test>/);
   assert.match(generalRows(plan,nodes[1]),/实际输出结构/);
@@ -174,4 +220,14 @@ test("the empty research panel stays empty until a tool is chosen", () => {
   assert.deepEqual(restoreDockSelection({...oldDefault, version:2}, available), oldDefault);
   const olderLayout = {tabs:["tools", "unknown", "structure", "tools"], tab:"structure"};
   assert.deepEqual(restoreDockSelection(olderLayout, available), {tabs:["tools", "structure"], tab:"structure"});
+});
+
+test('a recovered event reply is newer than its failed attempt', () => {
+  const failed = {id:'failed',status:'failed',started_at:'2026-11-13T16:47:33Z',
+    context:{automation_event:'job_completion'},error_code:'codex_session_busy'};
+  const completed = {id:'recovered',status:'completed',started_at:'2026-11-13T17:30:00Z',
+    context:{automation_event:'job_completion'},answer:'已检查真实结果'};
+  const turns = buildTurns([{role:'assistant',content:'已检查真实结果'}],[completed,failed]);
+  assert.equal(turns[0].run.id,'failed');
+  assert.equal(turns.at(-1).run.id,'recovered');
 });

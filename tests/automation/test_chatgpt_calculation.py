@@ -60,7 +60,10 @@ def test_chatgpt_modeling_preview_preserves_confirmation_boundary(
 
     server_id, code_id = str(uuid4()), str(uuid4())
     settings = settings_factory(
-        automation_enabled=True, deepseek_api_key=None, aiida_path=tmp_path / "aiida"
+        automation_enabled=True,
+        aiida_enabled=True,
+        deepseek_api_key=None,
+        aiida_path=tmp_path / "aiida",
     )
     invocations, actions = [], []
     malicious_request = False

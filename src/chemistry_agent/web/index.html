@@ -12,10 +12,16 @@
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/plan-workspace.css">
+  <link rel="stylesheet" href="/assets/convergence-card.css">
+  <link rel="stylesheet" href="/assets/registered-results.css">
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
+  <link rel="stylesheet" href="/assets/vendor/katex/katex.min.css">
+  <script src="/assets/vendor/katex/katex.min.js" defer></script>
+  <script src="/assets/vendor/texmath/texmath.js" defer></script>
   <script type="module" src="/assets/app.mjs?v=harness-ui"></script>
 <link rel="stylesheet" href="/assets/choices.css">
   <script type="module" src="/assets/choices.mjs"></script>
+<link rel="stylesheet" href="/assets/agent-controls.css">
 </head>
 <body class="auth-checking">
 
@@ -69,7 +75,12 @@
         <div id="attachment-list" class="attachment-list" aria-live="polite" hidden></div>
         <label class="sr-only" for="message-input">输入化学问题</label>
         <textarea id="message-input" rows="1" maxlength="20000" placeholder="输入问题，或描述你的研究任务…" required></textarea>
-        <div class="composer-toolbar"><div class="composer-left"><div class="add-menu"><button type="button" class="icon-button" id="composer-add" aria-label="添加附件或工具" title="添加附件或工具" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-plus"/></svg></button><div class="upload-menu" id="composer-upload-menu" hidden><button type="button" data-upload>上传文件</button><div id="shell-options"></div></div></div></div><div class="composer-right"><button id="context-ring" type="button" data-dialog="context-panel" aria-haspopup="dialog" aria-controls="context-panel" aria-expanded="false" aria-label="上下文用量" title="上下文用量"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><circle class="context-used" cx="8" cy="8" r="5.8" pathLength="100" transform="rotate(-90 8 8)"/></svg></button><div class="chat-model-picker"><label class="sr-only" for="chat-model">对话模型</label><select id="chat-model" data-no-i18n title="对话模型"><option value="">跟随默认模型</option></select><a href="/settings#model" class="model-status" id="model-status" title="模型设置" aria-label="模型设置"><span class="status-dot"></span><span class="sr-only" id="model-label">正在连接…</span></a><div class="chat-model-manual" id="chat-model-manual" hidden><label for="chat-model-id">模型 ID</label><input id="chat-model-id" maxlength="160" autocomplete="off" placeholder="填写服务商提供的模型 ID"><button type="button" id="chat-model-apply">应用到此对话</button></div></div><button class="send-button" id="send-button" type="submit" aria-label="发送消息"><svg class="icon"><use href="/assets/ui-icons.svg#i-arrow"/></svg></button></div></div>
+        <div class="composer-toolbar"><div class="composer-left"><div class="add-menu"><button type="button" class="icon-button" id="composer-add" aria-label="添加附件或工具" title="添加附件或工具" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-plus"/></svg></button><div class="upload-menu" id="composer-upload-menu" hidden><button type="button" data-upload>上传文件</button><div id="shell-options"></div></div></div></div><div class="composer-right"><button id="context-ring" type="button" data-dialog="context-panel" aria-haspopup="dialog" aria-controls="context-panel" aria-expanded="false" aria-label="上下文用量" title="上下文用量"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><circle class="context-used" cx="8" cy="8" r="5.8" pathLength="100" transform="rotate(-90 8 8)"/></svg></button><div class="agent-composer-controls">
+          <button type="button" id="agent-picker" class="agent-picker" aria-haspopup="menu" aria-expanded="false" title="Agent、模型与推理强度"><svg class="icon agent-logo"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span id="agent-picker-label">选择模型</span><svg class="icon small-chevron"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
+          <button type="button" id="permission-picker" class="permission-picker" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-shield"/></svg><span id="permission-label">批准</span><svg class="icon small-chevron"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
+          <a href="/settings#agent" class="model-status" id="model-status" title="Agent 与模型设置" aria-label="Agent 与模型设置"><span class="status-dot"></span><span class="sr-only" id="model-label">正在连接…</span></a>
+        </div><button class="send-button" id="send-button" type="submit" aria-label="发送消息"><svg class="icon"><use href="/assets/ui-icons.svg#i-arrow"/></svg></button></div></div>
+        <section id="agent-approvals" aria-live="polite" hidden></section>
       </form>
       <input type="file" id="file-picker" multiple hidden>
     </div>
@@ -123,23 +134,29 @@
         <header class="step-heading">
           <div class="step-kicker"><span id="step-kind"></span><span id="step-index"></span></div>
           <div id="step-group-path" class="step-group-path" aria-label="所属分支" hidden></div>
-          <h2 id="step-title"></h2><code id="step-key"></code><p id="step-purpose"></p>
+          <h2 id="step-title"></h2><code id="step-key"></code>
+          <details class="step-description"><summary>步骤说明</summary><div id="step-purpose"></div></details>
           <div class="step-meta"><span class="step-status" id="step-status"></span><span id="step-progress" role="status"></span>
             <button type="button" id="step-refresh">刷新</button></div>
         </header>
         <p id="step-error" role="status"></p>
+        <button type="button" id="step-parent" hidden></button>
+        <details id="step-child-jobs" hidden><summary>关联作业 <span></span></summary><div></div></details>
+        <label id="step-job-choice" hidden>查看计算 <select id="step-job-select"></select></label>
         <section id="step-relations" aria-label="依赖关系"></section>
         <div class="step-sections">
-          <details id="step-config"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-settings"/></svg>步骤参数</summary>
-            <div class="copy-block step-param-box"><dl id="step-parameters"></dl><button type="button" class="copy-action" data-copy-params title="复制内容" aria-label="复制内容"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-copy"/></svg></button></div><button type="button" id="step-revise">提出修改</button></details>
+          <details id="step-config"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg>参数文件</summary>
+            <div id="step-actual-parameters"></div>
+          </details>
+          <details id="step-registered-results" hidden open></details>
           <details id="step-structures"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-structures"/></svg>结构文件</summary>
             <div class="step-file-options" id="step-files"></div><p id="step-file-source"></p>
             <div class="structure-viewer-shell" id="step-viewer-shell" hidden><iframe id="step-viewer-frame" title="步骤结构查看器"></iframe></div>
           </details>
-          <details id="step-energies"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-compare"/></svg>能量收敛曲线</summary><div id="step-chart"></div></details>
+          <details id="step-energies"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-compare"/></svg><span id="step-monitor-label">计算监控</span></summary><div id="step-chart"></div></details>
           <div id="step-figures"></div>
           <details id="step-output-section" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg>结果与下载</summary><div id="step-downloads"></div><pre id="step-output"></pre></details>
-          <details id="step-code-section" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg>执行代码</summary><pre id="step-code"></pre></details>
+          <details id="step-code-section" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg><span id="step-code-title">提交脚本</span></summary><div id="step-code"></div></details>
           <details id="step-investigation" hidden open><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-flask"/></svg>排查记录</summary><ol id="step-investigation-log"></ol></details>
           <details id="step-replies" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chat"/></svg>步骤进度与解读</summary><div id="step-reply-list"></div></details>
         </div><p id="step-note" role="status"></p>
@@ -147,6 +164,7 @@
       <dialog id="step-dialog" aria-labelledby="step-title"></dialog>
     </section>
     <section class="inspector-scroll" id="inspector-panel-structure" role="tabpanel" aria-labelledby="inspector-tab-structure" tabindex="0" hidden>
+      <div id="workspace-structures"></div>
       <div id="structure-list"></div>
       <div class="structure-viewer-shell"><iframe id="structure-viewer-frame" data-src="/structures?embed=1" title="结构查看器"></iframe></div>
     </section>
@@ -164,7 +182,8 @@
   </aside>
   <dialog id="notification-panel" data-workspace-dialog><header><h2 id="notification-title">通知</h2><button type="button" id="notification-read-all">全部已读</button><button data-close aria-label="关闭通知"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header><p id="monitor-status"></p><div id="notification-list"></div></dialog>
   <dialog id="context-panel" data-workspace-dialog aria-labelledby="context-status"><header><h2 id="context-status">上下文用量</h2><button data-close aria-label="关闭上下文"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header>
-      <p id="context-budget">暂无对话记录。</p><pre id="context-summary"></pre><button type="button" id="compact-context">立即压缩历史</button></dialog>
+      <p id="context-budget">暂无对话记录。</p><pre id="context-summary"></pre>
+    <dl id="native-context-details" hidden></dl><button type="button" id="compact-context">立即压缩历史</button></dialog>
   <dialog id="project-dialog" aria-labelledby="project-dialog-title"><form id="project-form"><h2 id="project-dialog-title">新建项目</h2><label for="project-name">项目名称</label><input id="project-name" maxlength="80" required autocomplete="off"><p class="hint" id="project-hint" hidden>删除文件夹会保留所有对话，并将它们移回聊天列表。</p><div class="dialog-actions"><button id="delete-project" type="button" hidden>删除文件夹</button><button id="cancel-project" type="button">取消</button><button class="primary" type="submit">保存</button></div><p id="project-error" role="alert"></p></form></dialog>
   <div class="toast" id="toast" role="status" hidden></div>
   <noscript>此页面需要启用 JavaScript 才能使用聊天和分子工具。</noscript>

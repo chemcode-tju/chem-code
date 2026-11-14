@@ -32,6 +32,14 @@ const gro=(step,precision=3)=>`time ${step}\n1\n${'1'.padStart(5)}${'SOL'.padEnd
   assert.equal(opened.store.count,1);
   await opened.store.scan(()=>{});assert.equal(opened.store.count,501);
   assert.equal((await opened.store.get(500)).frame.atoms[0].elem,'Cu');
+  assert.equal(await opened.store.findSimulationStep(0),0);
+  assert.equal(await opened.store.findSimulationStep(500),500);
+  const sparse=(await md.open(new File([dump(0),dump(20),dump(40)],'sparse.dump'),'lammps-dump-text',[{name:'in',text:'dump_modify v element Cu O'}])).store;
+  assert.equal(await sparse.findSimulationStep(20),1);
+  assert.equal(await sparse.findSimulationStep(23,{nearest:true}),1);
+  await assert.rejects(sparse.findSimulationStep(23),/尚无 MD 步/);
+  const restarted=(await md.open(new File([dump(0),dump(20),dump(0),dump(20)],'restart.dump'),'lammps-dump-text',[{name:'in',text:'dump_modify v element Cu O'}])).store;
+  assert.equal(await restarted.findSimulationStep(20),3);
   for(let i=0;i<20;i++)await opened.store.get(i);
   assert.equal(opened.store.cache.size,16);
   for(const precision of [3,5]) {

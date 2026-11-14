@@ -112,7 +112,7 @@
     return xyz(atoms,cell.map(row=>row.map(v=>v*scale)),pbc,hasIds,atoms.every(a=>Number.isFinite(a.mass)&&a.mass>0));
   }
   class MDSource {
-    constructor(file,format,metadata={}) {this.file=file;this.format=format;this.metadata=metadata;this.lines=new StructureTrajectory.ByteLines(file);this.offsets=[];this.ends=[];this.count=0;this.complete=false;}
+    constructor(file,format,metadata={}) {this.file=file;this.format=format;this.metadata=metadata;this.lines=new StructureTrajectory.ByteLines(file);this.offsets=[];this.ends=[];this.count=0;this.complete=false;if(format==='lammps-dump-text'){this.simulationSteps=[];this.segmentStart=0;}}
     async required(){const row=await this.lines.next();if(!row)throw Error('轨迹末尾存在不完整帧');return row;}
     async advance(limit=4096) {
       const initial=this.lines.offset;
@@ -122,7 +122,7 @@
         while(row&&!row.text.trim())row=await this.lines.next();
         if(!row){this.complete=true;break;}
         const start=row.start;
-        let n;
+        let n,simulationStep;
         if(this.format==='gromacs') {
           n=count((await this.required()).text);
           for(let j=0;j<n;j++)await this.required();
@@ -130,7 +130,8 @@
         } else {
           while(row.text==='ITEM: TIME'||row.text==='ITEM: UNITS'){await this.required();row=await this.required();}
           if(row.text!=='ITEM: TIMESTEP')throw Error('仅支持 LAMMPS atom/custom 文本 dump');
-          number((await this.required()).text);
+          simulationStep=number((await this.required()).text);
+          if(!Number.isSafeInteger(simulationStep) || simulationStep<0)throw Error('MD 步编号无效');
           row=await this.required();
           while(row.text==='ITEM: TIME'||row.text==='ITEM: UNITS'){await this.required();row=await this.required();}
           if(row.text!=='ITEM: NUMBER OF ATOMS')throw Error('dump 缺少 NUMBER OF ATOMS');
@@ -139,6 +140,10 @@
           for(let j=0;j<3;j++)await this.required();
           if(!(await this.required()).text.startsWith('ITEM: ATOMS '))throw Error('dump 缺少 ATOMS 列');
           for(let j=0;j<n;j++)await this.required();
+        }
+        if(this.simulationSteps) {
+          if(this.simulationSteps.length && simulationStep<=this.simulationSteps.at(-1))this.segmentStart=this.count;
+          this.simulationSteps.push(simulationStep);
         }
         this.offsets.push(start);this.ends.push(this.lines.offset);this.count++;
         this.complete=this.lines.offset>=this.file.size;

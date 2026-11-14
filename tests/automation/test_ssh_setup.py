@@ -218,7 +218,7 @@ async def test_password_endpoint_is_local_and_not_an_agent_tool(
     from chemistry_agent.automation import ssh_keychain
     from chemistry_agent.automation.ssh_profiles import profile_path, write_private
 
-    app = create_app(settings_factory(automation_enabled=True))
+    app = create_app(settings_factory(automation_enabled=True, aiida_enabled=True))
     identifier = uuid4()
     path = profile_path(app.state.settings.aiida_path, str(identifier))
     write_private(

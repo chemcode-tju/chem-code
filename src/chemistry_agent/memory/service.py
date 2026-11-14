@@ -11,6 +11,8 @@ import aiosqlite
 
 from chemistry_agent.errors import AgentError
 from chemistry_agent.memory.models import MemoryDocument, MemorySearch, parameter_diff
+from chemistry_agent.memory.schema import detach_session_ownership
+from chemistry_agent.memory.scope import MemoryScope, resolve_scope
 
 if TYPE_CHECKING:
     from chemistry_agent.store import Store
@@ -59,24 +61,16 @@ async def init_memory_schema(db: aiosqlite.Connection) -> None:
         );
     """)
 
+    await detach_session_ownership(db)
+
 
 class ResearchMemory:
     def __init__(self, store: "Store") -> None:
         self.store = store
 
-    async def _session(self, session: str) -> dict:
-        row = await self.store._one(
-            "SELECT s.owner_id, ps.project_id FROM sessions s LEFT JOIN project_sessions ps "
-            "ON ps.session_id=s.id WHERE s.id=?",
-            (session,),
-        )
-        if row is None:
-            raise AgentError("session_not_found", "会话不存在。", 404)
-        return dict(row)
-
     async def save(
         self,
-        session: str,
+        session: str | MemoryScope,
         document: MemoryDocument,
         *,
         source_key: str,
@@ -91,10 +85,10 @@ class ResearchMemory:
             raise AgentError("memory_too_large", "记忆文档过大，请拆分。", 422)
         digest = hashlib.sha256(encoded.encode()).hexdigest()
         async with self.store.transaction():
-            await self._session(session)
+            scope = await resolve_scope(self.store, session)
             old = await self.store._one(
-                "SELECT * FROM research_memories WHERE session_id=? AND source_key=?",
-                (session, source_key),
+                "SELECT * FROM research_memories WHERE namespace=? AND source_key=?",
+                (scope.namespace, source_key),
             )
             if expected_version is not None and (old is None or old["version"] != expected_version):
                 raise AgentError("memory_conflict", "记忆已更新，请重新读取。", 409)
@@ -105,18 +99,22 @@ class ResearchMemory:
             identifier, version = (old["id"], old["version"] + 1) if old else (str(uuid4()), 1)
             now = utc_now()
             await self.store.db.execute(
-                "INSERT INTO research_memories VALUES(?,?,?,?,?,?,0,?,?) "
+                "INSERT INTO research_memories VALUES(?,?,?,?,?,?,0,?,?,?,?,?,?) "
                 "ON CONFLICT(id) DO UPDATE SET version=excluded.version, "
                 "document=excluded.document,digest=excluded.digest,updated_at=excluded.updated_at",
                 (
                     identifier,
-                    session,
+                    scope.source_session_id,
                     source_key,
                     version,
                     encoded,
                     digest,
                     old["created_at"] if old else now,
                     now,
+                    scope.owner_id,
+                    scope.project_id,
+                    scope.source_title,
+                    scope.namespace,
                 ),
             )
             await self.store.db.execute(
@@ -134,13 +132,13 @@ class ResearchMemory:
             )
         return {"id": identifier, "version": version, "evidence": body["evidence"]}
 
-    async def read(self, session: str, identifier: str) -> dict:
+    async def read(self, session: str | MemoryScope, identifier: str) -> dict:
         async with self.store.lock:
-            caller = await self._session(session)
+            caller = await resolve_scope(self.store, session)
             row = await self.store._one(
-                "SELECT m.* FROM research_memories m JOIN sessions s ON s.id=m.session_id "
-                "WHERE m.id=? AND m.forgotten=0 AND s.owner_id IS ?",
-                (identifier, caller["owner_id"]),
+                "SELECT m.* FROM research_memories m "
+                "WHERE m.id=? AND m.forgotten=0 AND m.owner_id IS ?",
+                (identifier, caller.owner_id),
             )
         if row is None:
             raise AgentError("memory_not_found", "记忆不存在或无权读取。", 404)
@@ -150,30 +148,28 @@ class ResearchMemory:
             version=row["version"],
             session_id=row["session_id"],
             source_key=row["source_key"],
+            project_id=row["project_id"],
+            session_title=row["source_title"],
             updated_at=row["updated_at"],
         )
 
-    async def search(self, session: str, args: MemorySearch) -> dict:
+    async def search(self, session: str | MemoryScope, args: MemorySearch) -> dict:
         query_terms = sorted(tokens(args.query))[:80]
         facets = [term for term in query_terms if re.fullmatch(r"[a-z]{1,2}[0-9]{3}", term)]
         async with self.store.lock:
-            caller = await self._session(session)
-            sql = (
-                "SELECT m.*, s.title AS session_title, ps.project_id FROM research_memories m "
-                "JOIN sessions s ON s.id=m.session_id "
-                "LEFT JOIN project_sessions ps ON ps.session_id=s.id "
-            )
+            caller = await resolve_scope(self.store, session)
+            sql = "SELECT m.*, m.source_title AS session_title FROM research_memories m "
             params: list = []
             if query_terms:
                 sql += "JOIN research_memory_fts f ON f.memory_id=m.id "
-            sql += "WHERE m.forgotten=0 AND s.owner_id IS ? "
-            params.append(caller["owner_id"])
+            sql += "WHERE m.forgotten=0 AND m.owner_id IS ? "
+            params.append(caller.owner_id)
             if args.scope == "session":
                 sql += "AND m.session_id=? "
-                params.append(session)
+                params.append(caller.source_session_id or "")
             elif args.scope == "project":
-                sql += "AND ps.project_id IS ? "
-                params.append(caller["project_id"])
+                sql += "AND m.project_id IS ? "
+                params.append(caller.project_id)
             if args.kind:
                 sql += "AND json_extract(m.document,'$.kind')=? "
                 params.append(args.kind)
@@ -224,7 +220,28 @@ class ResearchMemory:
             )
         return {"items": hits, "scope": args.scope, "truncated": len(rows) > args.limit}
 
-    async def forget(self, session: str, identifier: str, version: int) -> None:
+    async def versions(self, session: str | MemoryScope, identifier: str) -> list[dict]:
+        await self.read(session, identifier)
+        async with self.store.lock:
+            async with self.store.db.execute(
+                "SELECT version,created_at FROM research_memory_versions "
+                "WHERE memory_id=? ORDER BY version DESC",
+                (identifier,),
+            ) as cursor:
+                return [dict(row) for row in await cursor.fetchall()]
+
+    async def version(self, session: str | MemoryScope, identifier: str, version: int) -> dict:
+        await self.read(session, identifier)
+        async with self.store.lock:
+            row = await self.store._one(
+                "SELECT document FROM research_memory_versions WHERE memory_id=? AND version=?",
+                (identifier, version),
+            )
+        if row is None:
+            raise AgentError("memory_not_found", "版本不存在。", 404)
+        return json.loads(row["document"]) | {"id": identifier, "version": version}
+
+    async def forget(self, session: str | MemoryScope, identifier: str, version: int) -> None:
         await self.read(session, identifier)
         async with self.store.transaction():
             cursor = await self.store.db.execute(
@@ -238,7 +255,7 @@ class ResearchMemory:
                 (identifier,),
             )
 
-    async def compare(self, session: str, identifier: str, parameters: dict) -> dict:
+    async def compare(self, session: str | MemoryScope, identifier: str, parameters: dict) -> dict:
         memory = await self.read(session, identifier)
         return {
             "memory_id": identifier,

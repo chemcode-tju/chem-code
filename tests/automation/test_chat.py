@@ -123,7 +123,9 @@ def test_chat_preview_user_confirmation_restart_and_query(settings_factory, tmp_
             return completion(name="calculation_job", args={"job_id": "42"})
         return completion("任务结束，能量 -1.6 eV，科学精度尚未验证。")
 
-    settings = settings_factory(automation_enabled=True, aiida_path=tmp_path / "aiida")
+    settings = settings_factory(
+        automation_enabled=True, aiida_enabled=True, aiida_path=tmp_path / "aiida"
+    )
     app = create_app(settings, transport=httpx.MockTransport(provider))
     app.state.automation.call = engine
     with local_client(app) as client:
@@ -212,7 +214,9 @@ def test_model_cannot_submit_or_invoke_contextual_tool_directly(settings_factory
         return completion("请点击确认按钮。")
 
     app = create_app(
-        settings_factory(automation_enabled=True, aiida_path=tmp_path / "aiida"),
+        settings_factory(
+            automation_enabled=True, aiida_enabled=True, aiida_path=tmp_path / "aiida"
+        ),
         transport=httpx.MockTransport(provider),
     )
     engine = FakeEngine()
@@ -258,6 +262,7 @@ def test_shared_mode_has_no_calculation_tools(settings_factory):
             "memory_read",
             "memory_save",
             "memory_compare",
+            "workspace_publish",
         }
         assert client.get("/api/automation/status").status_code in {401, 403}
 
@@ -326,7 +331,10 @@ def test_fresh_calculation_ids_survive_small_tool_compaction_budget(settings_fac
 
     app = create_app(
         settings_factory(
-            automation_enabled=True, aiida_path=tmp_path / "aiida", context_tool_result_tokens=128
+            automation_enabled=True,
+            aiida_enabled=True,
+            aiida_path=tmp_path / "aiida",
+            context_tool_result_tokens=128,
         ),
         transport=httpx.MockTransport(provider),
     )
@@ -354,7 +362,7 @@ async def test_prepare_and_recover_exact_parameters_after_summary(settings_facto
 
     engine = FakeEngine()
     service = AutomationService(
-        settings_factory(automation_enabled=True, aiida_path=tmp_path / "aiida")
+        settings_factory(automation_enabled=True, aiida_enabled=True, aiida_path=tmp_path / "aiida")
     )
 
     async def call(action, payload=None):

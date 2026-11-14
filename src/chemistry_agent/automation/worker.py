@@ -33,6 +33,13 @@ def dispatch(message: dict) -> dict:
     from chemistry_agent.automation.surface import job_structure
     from chemistry_agent.automation.task_files import stage_files, task_files
 
+    if message["action"] in {"test_server", "scheduler_options"}:
+        from aiida.manage import get_manager
+
+        # Async transports use the runner's event loop even for read-only SSH.
+        # This isolated worker must not require a broker just to probe a server.
+        get_manager().get_runner(with_persistence=False, communicator=None)
+
     actions = {
         "stop_plan_jobs": stop_jobs,
         "plan_identity": backend.plan_identity,

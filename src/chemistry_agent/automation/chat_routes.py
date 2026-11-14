@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Body, Query, Request
@@ -17,7 +18,9 @@ from chemistry_agent.automation.chat import (
 from chemistry_agent.automation.plan_models import PlanConfirmation, PlanControl, PlanDraft
 from chemistry_agent.automation.recovery import RecoveryPolicy
 from chemistry_agent.automation.routes import local_service
+from chemistry_agent.automation.step_edit import StepEdit, edit_policy, edit_step
 from chemistry_agent.errors import AgentError
+from chemistry_agent.platform.results import ResultInspect, ResultRegister
 from chemistry_agent.schemas import ChatResponse, ContextUsage, TokenUsage, ToolExecution
 from chemistry_agent.tools import ToolContext
 
@@ -27,7 +30,7 @@ router = APIRouter(prefix="/api/automation/chat", tags=["chat calculations"])
 async def session_chat(request: Request, session_id: UUID) -> CalculationChat:
     local_service(request)
     if not request.app.state.settings.automation_enabled:
-        raise AgentError("automation_disabled", "请先启用 AiiDA 自动化。", 503)
+        raise AgentError("automation_disabled", "请先启用计算平台。", 503)
     await request.app.state.store.get_session(str(session_id), request.state.user_id)
     return request.app.state.calculation_chat
 
@@ -45,7 +48,7 @@ async def artifacts(session_id: UUID, request: Request) -> dict:
     monitor = getattr(request.app.state, "task_monitor", None)
     snapshots = monitor.events.snapshots(identifier) if monitor else {}
     return {
-        "plans": chat.plans.records(identifier),
+        "plans": request.app.state.platform.plans.records(identifier),
         "analyses": chat.list_records(identifier, "analyses"),
         "live_jobs": snapshots,
         "monitor": monitor.events.inbox(identifier, limit=1)["monitor"] if monitor else {},
@@ -438,13 +441,61 @@ async def control_workflow(
     return await chat.plans.control(str(session_id), str(plan_id), body.action)
 
 
+@router.post("/{session_id}/workflows/{plan_id}/steps/{node_id}/edit")
+async def update_step_text(
+    session_id: UUID, plan_id: UUID, node_id: str, body: StepEdit, request: Request
+) -> dict:
+    chat = await session_chat(request, session_id)
+    return await edit_step(chat.plans, str(session_id), str(plan_id), node_id, body)
+
+
+@router.post("/{session_id}/results")
+async def register_display_result(session_id: UUID, body: ResultRegister, request: Request) -> dict:
+    chat = await session_chat(request, session_id)
+    return await chat.plans.platform.results.register(
+        body, ToolContext(str(session_id), str(uuid4()))
+    )
+
+
+@router.get("/{session_id}/workflows/{plan_id}/steps/{node_id}/results")
+async def inspect_display_result(
+    session_id: UUID,
+    plan_id: UUID,
+    node_id: str,
+    job_id: UUID,
+    request: Request,
+    key: str | None = None,
+    file: str | None = None,
+    path_step: int | None = None,
+):
+    chat = await session_chat(request, session_id)
+    result = await chat.plans.platform.results.inspect(
+        ResultInspect(
+            plan_id=plan_id, node_id=node_id, job_id=job_id, key=key, file=file, path_step=path_step
+        ),
+        ToolContext(str(session_id), str(uuid4())),
+    )
+    if file is not None:
+        return Response(
+            result["content"],
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Structure-Name": quote(result["name"]),
+                "X-Result-Stale": str(result.get("stale", False)).lower(),
+            },
+        )
+    return result
+
+
 @router.get("/{session_id}/workflows/{plan_id}/steps/{node_id}/{file}")
 async def workflow_step(
     session_id: UUID,
     plan_id: UUID,
     node_id: str,
-    file: Literal["info", "POSCAR", "CONTCAR", "XDATCAR"],
+    file: str,
     request: Request,
+    job_id: UUID | None = None,
 ):
     import io
 
@@ -458,11 +509,28 @@ async def workflow_step(
     if not node:
         raise AgentError("step_not_found", "此方案没有该步骤。", 404)
     state = plan["runtime"][node_id]
+    if node["kind"] in {"job", "task"}:
+        from chemistry_agent.automation.generic_step import inspect_generic_step
+
+        result = await inspect_generic_step(
+            chat, str(session_id), plan, node, file, str(job_id) if job_id else None
+        )
+        if file == "info":
+            return result
+        return Response(
+            result["content"],
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Structure-Name": result["name"],
+            },
+        )
     if state.get("preview_id"):
         response = await inspect_step(
             session_id, UUID(state["preview_id"]), "single", file, request
         )
         if file == "info":
+            response["editing"] = edit_policy(plan, node)
             response["note"] = (
                 state.get("error") or state.get("sync_error") or response.get("note", "")
             )
@@ -490,6 +558,7 @@ async def workflow_step(
             "note": state.get("error")
             or ("等待上游完成后生成实际输入结构。" if not available else ""),
             "outputs": state.get("outputs", {}),
+            "editing": edit_policy(plan, node),
         }
     identifier = output_id if file == "CONTCAR" else input_id if file == "POSCAR" else None
     if not identifier:

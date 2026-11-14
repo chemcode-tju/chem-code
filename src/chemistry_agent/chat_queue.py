@@ -169,6 +169,8 @@ class ChatQueue:
             async with self.store.db.execute(
                 "SELECT q.id,q.session_id,q.created_at,q.run_id,q.status,q.error,"
                 "r.started_at,r.finished_at,"
+                "CASE WHEN q.status!='completed' THEN json_extract(c.payload,'$.steps') "
+                "END AS steps,"
                 "(SELECT json_group_array(json_object('name', json_extract(value,'$.name'), "
                 "'success',json_extract(value,'$.success'))) FROM json_each("
                 "CASE WHEN q.status='running' THEN c.payload END,'$.calls')) AS activity,"
@@ -184,6 +186,10 @@ class ChatQueue:
                 rows = await cursor.fetchall()
         receipts = [self.public(row) for row in reversed(rows)]
         for item in receipts:
+            preview = self.live.get(item["id"])
+            item["steps"] = (
+                preview.steps if preview and preview.steps else json.loads(item["steps"] or "[]")
+            )
             item["tools"] = [
                 {"name": call["name"], "success": bool(call["success"])}
                 for call in json.loads(item.pop("activity"))
@@ -200,9 +206,10 @@ class ChatQueue:
                 user_id, config = self.provider.configuration()
                 # ChatGPT inference is serialized per account. Queue complete turns before
                 # begin_run/its timeout, rather than interleaving five turns behind that lock.
+                binding = await request.app.state.agent_backends.binding(session)
                 slot = (
                     self.account_locks.setdefault(user_id, asyncio.Lock())
-                    if config.provider == "chatgpt"
+                    if config.provider == "chatgpt" and binding["backend"] == "builtin"
                     else asyncio.Lock()
                 )
                 async with slot:

@@ -49,6 +49,16 @@ async function main(){
   const binary=host('x.traj',async args=>({text:frame(args.offset)}),{offsets:[0],text:frame(0),nextOffset:1,totalFrames:800,eof:false});
   assert.equal(binary.complete,true);assert.equal(binary.count,800);
   assert.equal((await binary.get(799)).frame.atoms[0].x,799);
+  const trajectoryHeader='Cu\n1\n2 0 0\n0 2 0\n0 0 2\nCu\n1\n';
+  const configuration=(step,x)=>`Direct configuration= ${step}\n${x} 0 0\n`;
+  const sparse=await local(new Blob([trajectoryHeader,configuration(5,.1),configuration(9,.2)]),'XDATCAR');
+  const [target]=await Promise.all([sparse.findIonicStep(9),sparse.scan(()=>{})]);
+  assert.equal(target,1);assert.equal(sparse.count,2);
+  await assert.rejects(sparse.findIonicStep(6),/尚无第 6/);
+  const restarted=await local(new Blob([trajectoryHeader,configuration(1,.1),configuration(2,.2),configuration(1,.3),configuration(2,.4)]),'XDATCAR');
+  assert.equal(await restarted.findIonicStep(2),3);
+  assert.equal((await restarted.get(3)).frame.atoms[0].x,.8);
+  await assert.rejects(store.findIonicStep(1),/对应信息/);
   console.log('Frame store: early first frame, byte offsets, bounded LRU, eviction/refetch, deduplication, VASP, binary logical offsets and partial-tail retention passed.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

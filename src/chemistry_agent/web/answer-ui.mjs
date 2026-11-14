@@ -12,18 +12,60 @@ export function duration(start,end) {
     : (minutes ? minutes+' 分 ' : '')+(seconds%60)+' 秒';
 }
 
-export function activity({id,start,end,calls=[],running=false}) {
-  if (!start && !calls.length) return '';
-  const clock = duration(start,end || new Date().toISOString());
-  const label = clock ? t(running?'已用时':'用时')+' '+clock : t('工具记录');
-  const rows = calls.map(call => {
-    const name = esc(t(TOOL_LABELS[call.name] || call.name || '工具'));
-    const status = t(call.success===false?'需调整输入':'已完成');
-    if (call.arguments===undefined && call.result===undefined) return `<div class="activity-item">${name}<small>${status}</small></div>`;
-    const params = JSON.stringify({arguments:call.arguments,result:call.result},null,2);
-    return `<details class="activity-item"><summary>${name}<small>${status}</small></summary><pre>${esc(params)}</pre></details>`;
+export function activitySteps(steps=[], calls=[], {deferDetails=false} = {}) {
+  const byId = new Map(calls.map(call=>[call.call_id,call]));
+  const rows = steps.length ? steps : calls.map(call=>({type:'tool',...call,status:call.success===false?'failed':'completed'}));
+  return rows.map((step,index)=>{
+    if (step.type === 'commentary') return `<div class="activity-commentary" data-no-i18n>${esc(step.text)}</div>`;
+    const call = step.call_id ? byId.get(step.call_id) || step : step;
+    const name = esc(t(TOOL_LABELS[step.name] || step.name || '工具'));
+    const status = t(({running:'执行中',completed:'已完成',failed:'需调整输入',uncertain:'结果待核对'})[step.status] || '结果待核对');
+    if (call.arguments===undefined && call.result===undefined) return `<div class="activity-item" data-status="${esc(step.status)}">${name}<small>${status}</small></div>`;
+    const detail = deferDetails ? '' : activityDetail(steps,calls,index);
+    return `<details class="activity-item"${deferDetails ? ` data-deferred-call="${index}"` : ''}><summary>${name}<small>${status}</small></summary>${detail}</details>`;
   }).join('');
-  return `<details class="turn-activity" data-activity="${esc(id)}"><summary><span${running?' data-clock="'+esc(start)+'"':''}>${esc(label)}</span>${icon('chevron')}</summary><div class="activity-log">${rows || '<p>'+t(running?'等待工具记录':'未调用工具')+'</p>'}</div></details>`;
+}
+
+export function activityDetail(steps, calls, index) {
+  const step = (steps.length ? steps : calls)[index];
+  if (!step) return '';
+  const call = step.call_id ? calls.find(item=>item.call_id === step.call_id) || step : step;
+  return `<pre>${esc(JSON.stringify({arguments:call.arguments,result:call.result},null,2))}</pre>`;
+}
+
+export function initDeferredActivities({root, resolve}) {
+  root.addEventListener('toggle', event => {
+    const target = event.target;
+    if (!target.open || !root.contains(target)) return;
+    const activity = target.closest('[data-activity]');
+    if (!activity) return;
+    const record = resolve(activity.dataset.activity);
+    if (!record) return;
+    const {steps=[], calls=[]} = record;
+    if (target.hasAttribute('data-deferred-activity')) {
+      target.removeAttribute('data-deferred-activity');
+      const rows = activitySteps(steps,calls,{deferDetails:true});
+      target.querySelector('[data-activity-steps]').innerHTML = rows;
+      target.querySelector('[data-activity-placeholder]').hidden = Boolean(rows);
+    } else if (target.hasAttribute('data-deferred-call')) {
+      const index = Number(target.dataset.deferredCall);
+      target.removeAttribute('data-deferred-call');
+      target.insertAdjacentHTML('beforeend',activityDetail(steps,calls,index));
+    }
+  }, true);
+}
+
+export function activityOpen(running, previous) {
+  return previous && previous.running === running ? previous.open : running;
+}
+
+export function activity({id,start,end,calls=[],steps=[],running=false,draftRequest=null,deferred=false}) {
+  if (!start && !calls.length && !steps.length && !draftRequest) return '';
+  const clock = duration(start,end || new Date().toISOString());
+  const label = clock ? t(running?'已用时':'用时')+' '+clock : '';
+  const rows = deferred ? "" : activitySteps(steps,calls);
+  const draft = draftRequest ? `<div class="answer-output activity-draft" hidden>${liveCopyButton()}<div class="markdown" data-live-request="${esc(draftRequest)}"></div></div>` : '';
+  return `<details class="turn-activity" data-activity="${esc(id)}" data-running="${running}"${deferred ? ' data-deferred-activity' : ''}${running?' open':''}><summary><span>${t('处理过程')}</span><span${running && start?' data-clock="'+esc(start)+'"':''}>${esc(label)}</span>${icon('chevron')}</summary><div class="activity-log"><div data-activity-steps>${rows}</div><p data-activity-placeholder${rows?' hidden':''}>${t(running?'正在生成下一步…':'未调用工具')}</p>${draft}</div></details>`;
 }
 
 export function answerBox(html,index) {

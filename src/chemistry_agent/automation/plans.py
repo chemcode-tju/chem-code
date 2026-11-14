@@ -11,6 +11,8 @@ import io
 import json
 import logging
 from collections import Counter
+from datetime import UTC
+from functools import cached_property
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -25,13 +27,16 @@ from chemistry_agent.automation.events import (
     utc_now,
     waiting_for_submit_quota,
 )
+from chemistry_agent.automation.job_models import JobSettings
 from chemistry_agent.automation.modeling import execute_model
 from chemistry_agent.automation.models import StructureInput
 from chemistry_agent.automation.plan_authority import auto_queue, auto_request, repair_target
+from chemistry_agent.automation.plan_files import stage_dependencies
 from chemistry_agent.automation.plan_groups import display_nodes
 from chemistry_agent.automation.plan_models import (
     NodeRepair,
     PlanDraft,
+    PlanExtension,
     PlanFigure,
     PlanNode,
     PlanProgram,
@@ -41,6 +46,7 @@ from chemistry_agent.automation.plan_models import (
 from chemistry_agent.automation.plan_repair import diagnose, eligible, replace_node
 from chemistry_agent.automation.plan_stop import PlanStop, job_ids
 from chemistry_agent.automation.reporting import job_evidence, summarize_result
+from chemistry_agent.automation.slurm_jobs import SlurmJobs
 from chemistry_agent.errors import AgentError
 from chemistry_agent.memory.capture import safely_capture_plan
 from chemistry_agent.tools import Tool, ToolContext
@@ -51,7 +57,7 @@ TERMINAL = {"completed", "failed", "blocked"}
 
 def generated_files(directory: Path, aliases: set[str]) -> list[str]:
     """Expose generated artifacts, excluding staged inputs and interpreter bookkeeping."""
-    excluded = {"inputs.json", "model.py", "sandbox.sb", "execution.log"}
+    excluded = {"inputs.json", "file_inputs.json", "model.py", "sandbox.sb", "execution.log"}
     excluded.update(f"{alias}.{suffix}" for alias in aliases for suffix in ("vasp", "extxyz"))
     files = []
     pending = [directory]
@@ -60,6 +66,7 @@ def generated_files(directory: Path, aliases: set[str]) -> list[str]:
             relative = path.relative_to(directory)
             if (
                 relative.parts[0] in aliases
+                or relative.parts[0] in {"_dependency_cache", "_job_inputs"}
                 or path.name in {"archive", ".mplconfig", ".cache", ".matplotlib"}
                 or str(relative) in excluded
                 or path.is_symlink()
@@ -75,6 +82,13 @@ def generated_files(directory: Path, aliases: set[str]) -> list[str]:
 class CalculationPlans:
     def __init__(self, chat) -> None:
         self.chat = chat
+        self.slurm = SlurmJobs(chat)
+        from chemistry_agent.platform.adapters.chat import ChatAgentAdapter
+        from chemistry_agent.platform.dispatch import SessionDispatcher
+
+        self.dispatcher = SessionDispatcher(self)
+        self.dispatcher.register("chat", ChatAgentAdapter(self))
+        self.event_tasks = self.dispatcher.tasks
         self.locks: dict[str, asyncio.Lock] = {}
         self.task: asyncio.Task | None = None
         self.summary_task: asyncio.Task | None = None
@@ -83,6 +97,12 @@ class CalculationPlans:
         self.agent = self.provider = None
         self.stop_requests: set[tuple[str, str]] = set()
         self.repair_tasks: dict[tuple[str, str], asyncio.Task] = {}
+
+    @cached_property
+    def platform(self):
+        from chemistry_agent.platform.service import ComputationPlatform
+
+        return ComputationPlatform(self)
 
     def lock(self, session: str, plan: str) -> asyncio.Lock:
         return self.locks.setdefault(f"{session}/{plan}", asyncio.Lock())
@@ -102,6 +122,14 @@ class CalculationPlans:
         return [self.public(item) for item in self.chat.list_records(session, "plans")]
 
     async def draft(self, args: PlanDraft, context: ToolContext) -> dict:
+        if not self.chat.service.settings.aiida_enabled and any(
+            n.kind == "vasp" for n in args.nodes
+        ):
+            raise AgentError(
+                "legacy_backend_disabled",
+                "请使用 task 或 job 节点写脚本执行 VASP，当前平台无需 AiiDA。",
+                422,
+            )
         session, identifier = context.session_id, str(args.plan_id or uuid4())
         if auto_queue.get() and not args.plan_id:
             identifier = str(
@@ -121,9 +149,20 @@ class CalculationPlans:
             queue = auto_queue.get()
             configuration = CalculationConfiguration(self.chat.service.settings.aiida_path)
             for node in args.nodes:
+                if node.execution_host and node.execution_host not in self.slurm.hosts():
+                    raise AgentError("job_host_unknown", "请先登记研究步骤使用的 SSH 服务器。", 422)
                 for reference in node.inputs.values():
                     if reference.structure_id:
                         self.chat.load(session, "structures", str(reference.structure_id))
+                if node.job:
+                    if node.job.adopted:
+                        raise AgentError(
+                            "use_job_adopt", "已有作业请用 calculation_job_adopt 登记。", 422
+                        )
+                    if node.job.host not in self.slurm.hosts():
+                        raise AgentError("job_host_unknown", "请先登记 SSH 服务器。", 422)
+                    if queue and node.job.resources.queue != queue:
+                        raise AgentError("wrong_queue", f"本轮只授权 {queue} 队列。", 422)
                 if node.calculation:
                     settings = node.calculation
                     protocol = configuration.resolve(
@@ -169,14 +208,13 @@ class CalculationPlans:
                 "revision": revision,
                 "title": args.title,
                 "goal": args.goal,
-                "research_systems": args.research_systems or (
-                    old.get("research_systems", []) if old else []
-                ),
-                "research_tasks": args.research_tasks or (
-                    old.get("research_tasks", []) if old else []
-                ),
+                "research_systems": args.research_systems
+                or (old.get("research_systems", []) if old else []),
+                "research_tasks": args.research_tasks
+                or (old.get("research_tasks", []) if old else []),
                 "status": "running" if queue else "draft",
                 "max_parallel": None if queue else args.max_parallel,
+                "repair_limit": args.repair_limit,
                 **(
                     {
                         "auto_queue": queue,
@@ -209,6 +247,108 @@ class CalculationPlans:
             self.save(session, plan)
             await safely_capture_plan(self.store, session, plan)
             return self.public(plan)
+
+    async def extend(self, args: PlanExtension, context: ToolContext) -> dict:
+        from chemistry_agent.automation.job_events import job_event_target
+
+        session, identifier = context.session_id, str(args.plan_id)
+        requested = args.parsed_nodes()
+        for node in requested:
+            node.depends_on = sorted(
+                set(node.depends_on)
+                | {ref.node for ref in node.inputs.values() if ref.node}
+                | {ref.node for ref in node.files if ref.node}
+            )
+        if job_event_target.get() != (session, identifier):
+            raise AgentError("extension_scope", "请在此方案的任务结束回合追加步骤。", 403)
+        async with self.lock(session, identifier):
+            plan = self.chat.load(session, "plans", identifier)
+            if not plan.get("auto_queue") or plan["status"] in {"paused", "stopping", "stopped"}:
+                raise AgentError(
+                    "extension_not_authorized", "未授权自动后续计算，请提出草稿。", 403
+                )
+            existing = {node["id"] for node in plan["nodes"]}
+            if existing & {node.id for node in requested}:
+                # Stable node IDs make repeated tool calls idempotent.
+                proposed = {node.id: node.stored_record() for node in requested}
+                old = {
+                    node["id"]: PlanNode.model_validate(
+                        {k: v for k, v in node.items() if k in PlanNode.model_fields}
+                    ).stored_record()
+                    for node in plan["nodes"]
+                    if node["id"] in proposed
+                }
+                if old == proposed:
+                    return {
+                        "id": identifier,
+                        "revision": plan["revision"],
+                        "status": plan["status"],
+                        "added_nodes": [node.id for node in requested],
+                    }
+                raise AgentError("node_id_conflict", "已有节点保持不变，请使用新节点 ID。", 409)
+            previous = [
+                PlanNode.model_validate(
+                    {k: v for k, v in node.items() if k in PlanNode.model_fields}
+                )
+                for node in plan["nodes"]
+            ]
+            validated = PlanDraft(
+                title=plan["title"], goal=plan["goal"], nodes=previous + requested
+            )
+            additions = validated.nodes[len(previous) :]
+            snapshots = {}
+            configuration = CalculationConfiguration(self.chat.service.settings.aiida_path)
+            for node in additions:
+                if node.execution_host and node.execution_host not in self.slurm.hosts():
+                    raise AgentError("job_host_unknown", "未登记此服务器。", 422)
+                if node.job and node.job.adopted:
+                    raise AgentError(
+                        "use_job_adopt", "已有作业请用 calculation_job_adopt 登记。", 422
+                    )
+                if node.job and node.job.resources.queue != plan["auto_queue"]:
+                    raise AgentError("wrong_queue", "后续任务沿用已授权队列。", 422)
+                if node.job and node.job.host not in self.slurm.hosts():
+                    raise AgentError("job_host_unknown", "未登记此服务器。", 422)
+                if node.calculation:
+                    c = node.calculation
+                    protocol = configuration.resolve(c.protocol_id, c.incar, c.kmesh).model_dump(
+                        mode="json"
+                    )
+                    if c.resources:
+                        protocol["resources"].update(
+                            c.resources.model_dump(mode="json", exclude_unset=True)
+                        )
+                    if protocol["resources"]["queue"] != plan["auto_queue"]:
+                        raise AgentError("wrong_queue", "后续任务沿用已授权队列。", 422)
+                    snapshots[node.id] = {
+                        "protocol": protocol,
+                        "source": configuration.get("sources", protocol["potential_source_id"]),
+                        **await self.chat.service.call("plan_identity", protocol),
+                    }
+            self.chat.save(session, "plan_versions", str(uuid4()), plan)
+            plan["snapshots"].update(snapshots)
+            plan["nodes"].extend(node.stored_record() for node in additions)
+            plan["runtime"].update({node.id: {"status": "pending"} for node in additions})
+            plan["revision"] += 1
+            plan["changed_nodes"] = [node.id for node in additions]
+            plan["history"].append(
+                {
+                    "revision": plan["revision"],
+                    "changed_nodes": plan["changed_nodes"],
+                    "removed_nodes": [],
+                    "reason": args.reason,
+                    "at": utc_now(),
+                }
+            )
+            plan.update(status="running", reported=False)
+            plan.pop("completed_at", None)
+            self.save(session, plan)
+            return {
+                "id": identifier,
+                "revision": plan["revision"],
+                "status": plan["status"],
+                "added_nodes": [node.id for node in requested],
+            }
 
     async def repair_node(self, args: NodeRepair, context: ToolContext) -> dict:
         return await replace_node(self, args, context)
@@ -324,14 +464,57 @@ class CalculationPlans:
         session, identifier = context.session_id, str(args.plan_id)
         self.chat.load(session, "plans", identifier)
         self.stop_requests.add((session, identifier))
+        event_task = self.event_tasks.get((session, identifier))
+        if event_task:
+            event_task.cancel()
+            await asyncio.gather(event_task, return_exceptions=True)
         async with self.lock(session, identifier):
             self.stop_requests.discard((session, identifier))
             plan = self.chat.load(session, "plans", identifier)
-            if plan["status"] == "completed":
-                return {"status": "completed"}
+            if self.store:
+                async with self.store.transaction():
+                    await self.store.db.execute(
+                        "UPDATE agent_waits SET status='cancelled' "
+                        "WHERE session_id=? AND plan_id=?",
+                        (session, identifier),
+                    )
+                    await self.store.db.execute(
+                        "UPDATE agent_events SET status='cancelled' "
+                        "WHERE session_id=? AND plan_id=? "
+                        "AND status NOT IN ('completed','superseded')",
+                        (session, identifier),
+                    )
             plan["status"] = "stopping"
             self.save(session, plan)
-            result = await self.chat.service.call("stop_plan_jobs", {"job_ids": job_ids(plan)})
+            ids = job_ids(plan)
+            result = (
+                await self.chat.service.call("stop_plan_jobs", {"job_ids": ids})
+                if ids
+                else {"verified_stopped": True, "active_aiida": [], "active_scheduler": []}
+            )
+            for state in plan["runtime"].values():
+                for attempt in [
+                    state,
+                    *(a["state"] for a in state.get("attempts", []) if "state" in a),
+                ]:
+                    if not attempt.get("generic_job_id"):
+                        continue
+                    receipt = (
+                        self.chat.directory(session, "slurm_jobs")
+                        / f"{attempt['generic_job_id']}.json"
+                    )
+                    if not receipt.exists():
+                        continue
+                    record = self.slurm.load(session, attempt["generic_job_id"])
+                    if record.get("scheduler_job_id") and not record.get("terminal"):
+                        await self.slurm.remote(record, "cancel")
+                        record = await self.slurm.inspect(session, record["id"])
+                        if not record.get("terminal"):
+                            result["verified_stopped"] = False
+                            result["active_scheduler"].append(record["scheduler_job_id"])
+                    elif record["status"] == "uncertain":
+                        result["verified_stopped"] = False
+
             if result["verified_stopped"]:
                 plan["status"] = "stopped"
                 for state in plan["runtime"].values():
@@ -379,19 +562,46 @@ class CalculationPlans:
             if action == "rediagnose":
                 if not plan.get("auto_queue") or plan["status"] not in {"failed", "running"}:
                     raise AgentError("plan_state_conflict", "仅可重新诊断自动方案的失败节点。", 409)
-                if (session, identifier) in self.repair_tasks:
+                if (session, identifier) in self.repair_tasks or (
+                    session,
+                    identifier,
+                ) in self.event_tasks:
                     raise AgentError("session_busy", "已有故障诊断正在运行。", 409)
+                for event in plan.get("job_events", {}).values():
+                    if (
+                        event["status"] in {"uncertain", "completed"}
+                        and event["outcome"] == "failed"
+                    ):
+                        event["status"] = "pending"
                 for state in plan["runtime"].values():
                     if state["status"] == "failed":
                         state.pop("diagnosis_started", None)
                 self.save(session, plan)
                 return self.public(plan)
             expected = "running" if action == "pause" else "paused"
-            if plan["status"] != expected:
+            if plan["status"] != expected and not (
+                action == "pause" and plan["status"] == "paused"
+            ):
                 raise AgentError("plan_state_conflict", "当前状态不能执行此操作。", 409)
             plan["status"] = "paused" if action == "pause" else "running"
             self.save(session, plan)
-            return self.public(plan)
+            result = self.public(plan)
+        # Cancellation cleanup needs the plan lock too. Persist pause first, then
+        # stop the in-flight interpreter outside the lock; scheduler jobs continue.
+        if action == "pause":
+            tasks = {
+                task
+                for task in (
+                    self.event_tasks.get((session, identifier)),
+                    self.repair_tasks.get((session, identifier)),
+                )
+                if task and task is not asyncio.current_task()
+            }
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        return result
 
     def resolved_inputs(self, session: str, plan: dict, node: dict) -> dict:
         result = {}
@@ -417,6 +627,7 @@ class CalculationPlans:
         output = directory / ("structure.vasp" if node["kind"] == "model" else "result.json")
         output.unlink(missing_ok=True)
         inputs = self.resolved_inputs(session, plan, node)
+        await stage_dependencies(self, session, plan, node, directory)
         for alias, value in inputs.items():
             if "structure_id" in value:
                 data = self.chat.load(session, "structures", value["structure_id"])
@@ -458,7 +669,11 @@ class CalculationPlans:
                 ),
                 ToolContext(session, plan["id"]),
             )
-            return {"structure_id": imported["id"], "result": self.chat.structure_summary(imported)}
+            return {
+                "structure_id": imported["id"],
+                "result": self.chat.structure_summary(imported),
+                "files": generated_files(directory, set(inputs)),
+            }
         result = json.loads(
             content,
             parse_constant=lambda value: (_ for _ in ()).throw(
@@ -479,6 +694,115 @@ class CalculationPlans:
         ):
             raise AgentError("missing_figure", "绘图代码未生成图像，请使用 savefig 保存图片。", 422)
         return {"result": result, "files": files}
+
+    async def start_job(self, session: str, plan: dict, node: dict, state: dict) -> None:
+        if node["job"].get("adopted"):
+            raise AgentError("adopted_not_submittable", "接管节点只监控已有作业，不重新提交。", 409)
+        identifier = state.setdefault("generic_job_id", str(uuid4()))
+        self.save(session, plan)
+        directory = self.chat.directory(session, "plan_runs") / plan["id"] / node["id"]
+        # A fresh per-attempt input tree prevents an old restart/output becoming a new input.
+        inputs_dir = directory / "_job_inputs" / identifier
+        receipt = self.chat.directory(session, "slurm_jobs") / f"{identifier}.json"
+        settings = JobSettings.model_validate(node["job"])
+        if not receipt.exists():
+            inputs_dir.mkdir(parents=True, exist_ok=True)
+            await stage_dependencies(
+                self,
+                session,
+                plan,
+                node,
+                inputs_dir,
+                remote_destination={
+                    "host": settings.host,
+                    "remote_directory": settings.workdir.rstrip("/") + "/" + identifier,
+                },
+            )
+            resolved = self.resolved_inputs(session, plan, node)
+            for alias, value in resolved.items():
+                if "structure_id" in value:
+                    structure = self.chat.load(session, "structures", value["structure_id"])
+                    (inputs_dir / f"{alias}.extxyz").write_text(structure["extxyz"])
+                    value["file"] = f"{alias}.extxyz"
+            for name, text in settings.files.items():
+                path = inputs_dir / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+            (inputs_dir / "inputs.json").write_text(json.dumps(resolved, ensure_ascii=False))
+        record = await self.slurm.submit(session, identifier, settings, inputs_dir)
+        if node.get("parent_task"):
+            target = plan["runtime"][node["parent_task"]]
+            if identifier not in target.setdefault("jobs", []):
+                target["jobs"].append(identifier)
+            target["status"] = "running"
+            record.update(step_id=node["parent_task"], plan_id=plan["id"], node_id=node["id"])
+            self.slurm.save(session, record)
+        state.update(status="running", job=self.generic_snapshot(record))
+        self.save(session, plan)
+        await self.platform.results.ensure_job(
+            session, plan["id"], node["id"], identifier, settings.results,
+            node.get("parent_task"),
+        )
+        if record["status"] == "rejected":
+            raise AgentError("job_rejected", record.get("error", "Slurm 拒绝提交。"), 422)
+
+    @staticmethod
+    def generic_snapshot(record: dict) -> dict:
+        status = record.get("scheduler_state", "").lower()
+        return {
+            **record,
+            "backend": "slurm",
+            "process_state": "finished" if record.get("terminal") else "waiting",
+            "scheduler_state": status,
+            "submission_state": "rejected_by_scheduler"
+            if record["status"] == "quota_wait"
+            else "accepted_by_scheduler"
+            if record.get("scheduler_job_id")
+            else "not_submitted",
+            "paused": record["status"] == "quota_wait",
+            "process_status": record.get("error"),
+            "pk": None,
+        }
+
+    async def inspect_job(self, session: str, plan: dict, node: dict, state: dict) -> None:
+        from datetime import datetime
+
+        checked = state.get("polled_at")
+        if checked and (datetime.now(UTC) - datetime.fromisoformat(checked)).total_seconds() < 30:
+            return
+        state["polled_at"] = utc_now()
+        record = await self.slurm.inspect(session, state["generic_job_id"], release_waiter=True)
+        state["job"] = self.generic_snapshot(record)
+        if record["status"] == "rejected":
+            raise AgentError("job_rejected", record.get("error", "Slurm 拒绝提交。"), 422)
+        if not record.get("terminal"):
+            return
+        directory = self.chat.directory(session, "plan_runs") / plan["id"] / node["id"]
+        # Retrieval failures keep the node tracked, and never resubmit the calculation.
+        files = await self.slurm.retrieve(record, directory / "attempts" / record["id"])
+        files["files"] = [f"attempts/{record['id']}/{name}" for name in files["files"]]
+        state["outputs"] = {
+            **files,
+            "result": {
+                "job_id": record["id"],
+                "backend": "slurm",
+                "scheduler_job_id": record.get("scheduler_job_id"),
+                "scheduler_state": record.get("scheduler_state"),
+                "exit_code": record.get("exit_code"),
+                "script_exit_code": record.get("script_exit_code"),
+            },
+        }
+        state["completed_at"] = record["completed_at"]
+        if not record.get("finished_ok") or files["missing_outputs"]:
+            raise AgentError(
+                "job_failed",
+                "作业结束："
+                + str(record.get("scheduler_state"))
+                + "；缺失输出："
+                + ", ".join(files["missing_outputs"]),
+                422,
+            )
+        state.update(status="completed")
 
     async def start_vasp(self, session: str, plan: dict, node: dict, state: dict) -> None:
         from chemistry_agent.automation.chat import ChatPreviewInput
@@ -508,7 +832,8 @@ class CalculationPlans:
                 ToolContext(session, plan["id"]),
             )
             state.update(
-                preview_id=preview["preview_id"], input_structure_id=structure_id,
+                preview_id=preview["preview_id"],
+                input_structure_id=structure_id,
                 input_structure_fingerprint=hashlib.sha256(
                     json.dumps(structure["structure"], sort_keys=True).encode()
                 ).hexdigest(),
@@ -706,6 +1031,10 @@ class CalculationPlans:
     async def tick_plan(self, session: str, identifier: str) -> None:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
+            if not self.chat.service.settings.aiida_enabled and any(
+                n["kind"] == "vasp" for n in plan["nodes"]
+            ):
+                return  # Historical AiiDA plans remain readable; do not advance or resubmit them.
             stopped = plan["status"] in {"stopping", "stopped"}
             projection_key = (session, identifier, plan["revision"], plan["status"] == "stopped")
             if projection_key not in self.projected:
@@ -721,6 +1050,8 @@ class CalculationPlans:
                     state = plan["runtime"][node["id"]]
                     before = (state["status"], self.step_status(state))
                     try:
+                        if state.get("generic_job_id") and state["status"] == "running":
+                            await self.inspect_job(session, plan, node, state)
                         if state.get("job_id") and state["status"] == "running":
                             await self.inspect_vasp(session, plan, node, state)
                             await self.resume_quota_waiter(session, plan, node, state)
@@ -734,14 +1065,19 @@ class CalculationPlans:
                             continue
                         if not all(status == "completed" for status in dependencies):
                             continue
-                        if state.get("job_id"):
+                        if node.get("executor") == "agent" or node["kind"] == "task":
+                            continue  # Readiness becomes an event; only the agent owns execution.
+                        if state.get("job_id") or (
+                            state.get("generic_job_id") and state["status"] == "running"
+                        ):
                             continue
                         active = sum(
-                            bool(s.get("job_id")) and s["status"] == "running"
+                            bool(s.get("job_id") or s.get("generic_job_id"))
+                            and s["status"] == "running"
                             for s in plan["runtime"].values()
                         )
                         if (
-                            node["kind"] == "vasp"
+                            node["kind"] in {"vasp", "job"}
                             and plan.get("max_parallel")
                             and active >= plan["max_parallel"]
                         ):
@@ -750,7 +1086,9 @@ class CalculationPlans:
                             status="preparing", started_at=state.get("started_at", utc_now())
                         )
                         self.save(session, plan)
-                        if node["kind"] == "vasp":
+                        if node["kind"] == "job":
+                            await self.start_job(session, plan, node, state)
+                        elif node["kind"] == "vasp":
                             await self.start_vasp(session, plan, node, state)
                         else:
                             outputs = await self.run_code(session, plan, node, state)
@@ -760,7 +1098,9 @@ class CalculationPlans:
                         state.pop("sync_error", None)
                     except AgentError as exc:
                         # Query/network outages are not calculation failures. Keep tracking the job.
-                        if state.get("job_id") and exc.status_code >= 500:
+                        if (
+                            state.get("job_id") or state.get("generic_job_id")
+                        ) and exc.status_code >= 500:
                             state["sync_error"] = exc.message
                         else:
                             state.update(status="failed", error=exc.message, error_code=exc.code)
@@ -771,7 +1111,11 @@ class CalculationPlans:
                             self.save(session, plan)
                             self.record_steps(session, plan, [node])
                     # The graph-level checkpoint below also retains unchanged-phase job snapshots.
-                states = [state["status"] for state in plan["runtime"].values()]
+                states = [
+                    plan["runtime"][n["id"]]["status"]
+                    for n in plan["nodes"]
+                    if not n.get("parent_task")
+                ]
                 if all(status in TERMINAL for status in states):
                     plan["status"] = (
                         "completed" if all(s == "completed" for s in states) else "failed"
@@ -829,7 +1173,17 @@ class CalculationPlans:
                     plan["reported"] = True
                     self.save(session, plan)
 
+            from chemistry_agent.automation.job_events import record_events
+            from chemistry_agent.automation.wait_ledger import WaitLedger
+
+            record_events(plan)
+            self.save(session, plan)
             key = (session, identifier)
+            if self.store:
+                ledger = WaitLedger(self.store)
+                await ledger.probe_files(self, session, plan)
+                await ledger.observe(session, plan)
+            await self.dispatcher.offer(session, plan)
             if (
                 self.agent
                 and plan.get("auto_queue")
@@ -879,43 +1233,111 @@ class CalculationPlans:
     def start(self, store, agent=None, provider=None) -> None:
         self.store, self.agent, self.provider = store, agent, provider
         self.task = asyncio.create_task(self.watch())
+        self.dispatcher.start()
         if provider is not None and store is not None:
             self.summary_task = asyncio.create_task(self.watch_summaries())
 
     async def close(self) -> None:
-        if self.summary_task:
-            self.summary_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.summary_task
-        for task in self.repair_tasks.values():
-            task.cancel()
-        await asyncio.gather(*self.repair_tasks.values(), return_exceptions=True)
         if self.task:
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
+        if self.summary_task:
+            self.summary_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.summary_task
+        await self.dispatcher.close()
+        for task in self.repair_tasks.values():
+            task.cancel()
+        await asyncio.gather(*self.repair_tasks.values(), return_exceptions=True)
 
     def tools(self) -> list[Tool]:
+        from chemistry_agent.automation.job_tools import tools as job_tools
+        from chemistry_agent.automation.wait_tools import tools as wait_tools
+        from chemistry_agent.platform.artifacts import ArtifactRead, ArtifactRegister
+        from chemistry_agent.platform.results import ResultInspect, ResultRegister
+        from chemistry_agent.platform.steps import StepReport
+
         return [
+            *job_tools(self),
+            *wait_tools(self),
+            Tool(
+                "calculation_result_register",
+                "Advanced sidebar mapping only. Jobs auto-register results; prefer their "
+                "results hint. For custom layouts use source inline/manifest/json_paths. "
+                "Idempotent key per step/job; no file moves or submission side effects.",
+                ResultRegister,
+                self.platform.handler("result.register"),
+                True,
+            ),
+            Tool(
+                "calculation_result_inspect",
+                "List registered results (omit key), read display data (key), or read a "
+                "registered structure (key,file). Read-only; includes source freshness. "
+                "Use this to verify the sidebar can read your produced results.",
+                ResultInspect,
+                self.platform.handler("result.inspect"),
+                True,
+            ),
+            Tool(
+                "calculation_step_report",
+                "Report an agent-owned task conclusion with expected_revision, result, reason "
+                "and accepted_jobs. One task can own many adopted jobs and failed attempts. "
+                "Does not change scheduler outcomes. Finish/cancel active linked jobs first.",
+                StepReport,
+                self.platform.handler("plan.report"),
+                True,
+            ),
+            Tool(
+                "calculation_artifact_register",
+                "Snapshot a raw job file into immutable platform storage. A stable key makes "
+                "registration idempotent. Use returned artifact_id as a file dependency.",
+                ArtifactRegister,
+                self.platform.handler("artifact.register"),
+                True,
+            ),
+            Tool(
+                "calculation_artifact_read",
+                "List, inspect or read immutable file snapshots.",
+                ArtifactRead,
+                self.platform.handler("artifact.read"),
+                True,
+            ),
+            Tool(
+                "calculation_plan_extend",
+                "Append agent-designed steps to this auto-authorized "
+                "plan during a job completion turn. Existing nodes and results remain unchanged. "
+                "Stable node IDs deduplicate repeated requests. File dependencies may reference "
+                "earlier nodes.",
+                PlanExtension,
+                self.platform.handler("plan.extend"),
+                True,
+            ),
             Tool(
                 "calculation_plan_stop",
                 "Stop this session plan and its submitted jobs on explicit user request. "
                 "Repeat to verify remaining jobs. Preserve results.",
                 PlanStop,
-                self.stop,
+                self.platform.handler("plan.stop"),
                 True,
             ),
             Tool(
                 "calculation_plan_save",
                 "Create or revise a general executable calculation DAG. "
                 "An explicit /auto QUEUE user header starts it immediately. Otherwise draft. "
-                "Nodes: model (ASE Python writes structure.vasp), vasp (registered "
-                "protocol plus overrides), analysis (Python writes result.json; passed=false "
+                "Nodes: task (agent-owned research goal; execution_host; no fixed script), "
+                "job (arbitrary Slurm job.script, host, resources, text files, retrieve, "
+                "required_outputs; no AiiDA needed), model (ASE Python writes structure.vasp), "
+                "analysis (Python writes result.json; passed=false "
                 "blocks descendants). inputs map aliases to structure_id OR upstream node/output. "
                 "Code reads alias.vasp and inputs.json (alias: {result} or {structure_id,file}). "
                 'analysis.result_files stages any relative file paths (or ["*"] for all). '
                 "file_source selects retrieved or remote. inputs.json alias.files maps names "
                 "to local paths; no file-type whitelist. "
+                "files accepts {node OR job_id OR file_id, path, target, source}; files are staged "
+                "at target and described in file_inputs.json. File references imply dependencies. "
+                "For job nodes use srun/mpirun in script as needed, never sbatch a detached child. "
+                "Job completion wakes the agent with tools in the original conversation. "
                 "Dependencies include all input references. Branches execute concurrently after "
                 "authorization (auto mode or panel confirmation). Revisions require plan_id and "
                 "expected_revision; confirmed plans are immutable. Use this for new multi-step "
@@ -924,7 +1346,7 @@ class CalculationPlans:
                 "and cross-branch results belong at their common level. Only depends_on and "
                 "input references determine execution.",
                 PlanDraft,
-                self.draft,
+                self.platform.handler("plan.save"),
                 True,
             ),
             Tool(
@@ -936,9 +1358,9 @@ class CalculationPlans:
                 "Avoid nested code strings: import runpy; "
                 "W=runpy.run_path('plan_writer.py')['PlanWriter']; "
                 "p=W(title,goal); define standalone normal functions with imports inside. "
-                "p.model(id,fn,inputs={},arguments={}); p.vasp(id,source_id,protocol_id,incar=...,"
-                "resources=...,kmesh=...,require_ionic=...); p.analysis(id,fn,inputs=...,"
-                "result_files=['OUTCAR']); all three accept group_path=[outer_label, inner_label]. "
+                "p.model(id,fn,inputs={},arguments={}); p.analysis(id,fn,inputs=...,"
+                "result_files=['OUTCAR']); both accept group_path=[outer_label, inner_label]. "
+                "For agent-owned task and Slurm job nodes write the plan JSON directly. "
                 "Group repeated candidates by their meaningful dimensions, such as adsorbate then "
                 "initial site. Single-source descendants inherit the path for display. "
                 "p.ref(id,'structure' or 'result'); p.write(). "
@@ -972,7 +1394,7 @@ class CalculationPlans:
                 "Clones that completed input chain with the original queue and resources; "
                 "only this analysis consumes the retries. Original jobs remain intact.",
                 NodeRepair,
-                self.repair_node,
+                self.platform.handler("plan.repair"),
                 True,
             ),
             Tool(
@@ -991,9 +1413,12 @@ class CalculationPlans:
                 "Read current plan. For large graphs request node_id for exact code/outputs or "
                 "full=true for the complete graph only when necessary. Small plans include "
                 "step outputs. Omit plan_id to list this session's plans. Reuse completed outputs "
-                "as structure_id in a new plan instead of repeating calculations.",
+                "as structure_id in a new plan instead of repeating calculations. Before preparing "
+                "or submitting a task, read its latest purpose, text_files and submission_script: "
+                "users can edit unstarted steps in the UI. "
+                "Honor those saved inputs instead of stale history.",
                 PlanQuery,
-                self.query,
+                self.platform.handler("plan.get"),
                 True,
             ),
         ]

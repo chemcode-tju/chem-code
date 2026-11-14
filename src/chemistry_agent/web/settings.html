@@ -12,11 +12,12 @@
   <script type="module" src="/assets/settings.mjs"></script>
 <link rel="stylesheet" href="/assets/choices.css">
   <script type="module" src="/assets/choices.mjs"></script>
+<link rel="stylesheet" href="/assets/agent-controls.css">
 </head>
 <body>
   <div class="settings-sheet">
   <header class="settings-header"><h1>设置</h1><a class="close-settings icon-button" href="/" aria-label="关闭设置" title="关闭设置"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></a></header>
-  <aside class="settings-sidebar"><nav role="tablist" aria-label="设置分类" aria-orientation="vertical"><button id="tab-general" role="tab" aria-controls="general" aria-selected="true" data-tab="general"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-general"/></svg>常规</button><button id="tab-appearance" role="tab" aria-controls="appearance" aria-selected="false" tabindex="-1" data-tab="appearance"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-appearance"/></svg>外观</button><button id="tab-model" role="tab" aria-controls="model-form" aria-selected="false" tabindex="-1" data-tab="model"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-model"/></svg>模型</button>
+  <aside class="settings-sidebar"><nav role="tablist" aria-label="设置分类" aria-orientation="vertical"><button id="tab-general" role="tab" aria-controls="general" aria-selected="true" data-tab="general"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-general"/></svg>常规</button><button id="tab-appearance" role="tab" aria-controls="appearance" aria-selected="false" tabindex="-1" data-tab="appearance"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-appearance"/></svg>外观</button><button id="tab-agent" role="tab" aria-controls="agent-settings" aria-selected="false" tabindex="-1" data-tab="agent"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-model"/></svg>Agent 与模型</button>
     <span class="settings-group-title">计算工作区</span>
     <button id="tab-automation" role="tab" aria-controls="automation" aria-selected="false" tabindex="-1" data-tab="automation"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-automation"/></svg>配置概览</button>
     <button id="tab-servers" role="tab" aria-controls="servers" aria-selected="false" tabindex="-1" data-tab="servers"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-servers"/></svg>服务器连接</button>
@@ -28,7 +29,11 @@
   <main>
     <section class="settings-panel" id="general" data-panel="general" role="tabpanel" aria-labelledby="tab-general"><h2>常规</h2><div class="setting-row"><div><label for="language">语言</label></div><select id="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></div><div class="account-section"><h3>工作空间账户</h3><div class="account-row"><span class="account-avatar" id="settings-avatar">C</span><div><strong id="settings-username">正在读取…</strong><p id="settings-account-note" class="hint"></p></div><button class="secondary" id="settings-logout" type="button" hidden>退出登录</button></div></div></section>
     <section class="settings-panel" id="appearance" data-panel="appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden><h2>外观</h2><h3 id="mode-label">显示模式</h3><div class="theme-options" role="group" aria-labelledby="mode-label"><button type="button" data-mode="system" aria-pressed="false"><span class="theme-mini theme-system" aria-hidden="true"><i></i><b></b></span><span>跟随系统</span></button><button type="button" data-mode="light" aria-pressed="false"><span class="theme-mini theme-light" aria-hidden="true"><i></i><b></b></span><span>白色</span></button><button type="button" data-mode="dark" aria-pressed="false"><span class="theme-mini theme-dark" aria-hidden="true"><i></i><b></b></span><span>深夜</span></button></div><div class="setting-row"><label for="chat-font-size">对话字号</label><select id="chat-font-size"><option value="14">14 px</option><option value="16">16 px</option><option value="18">18 px</option><option value="20">20 px</option></select></div><p id="appearance-notice" class="hint" role="status"></p></section>
-    <form id="model-form" class="settings-panel" data-panel="model" role="tabpanel" aria-labelledby="tab-model" hidden><h2>模型</h2>
+    <section id="agent-settings" class="settings-panel" data-panel="agent" role="tabpanel" aria-labelledby="tab-agent" hidden>
+      <h2>Agent 与模型</h2>
+      <details class="agent-row" id="chem-agent-settings">
+        <summary><svg class="icon"><use href="/assets/ui-icons.svg#i-flask"/></svg><span>Chem Agent</span><span class="agent-default" data-default-for="builtin"></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <form id="model-form" class="agent-fields">
       <label for="provider">登录方式</label>
       <select id="provider">
         <option value="chatgpt">ChatGPT 账号授权登录</option>
@@ -36,7 +41,7 @@
         <option value="openai-compatible">OpenAI 兼容 API / 本地模型</option>
       </select>
       <section id="chatgpt-panel">
-        <h2>使用 ChatGPT 订阅</h2>
+
         <p id="chatgpt-status" role="status">正在检查登录状态…</p>
         <div class="actions">
           <button id="browser-login" type="button">使用 ChatGPT 登录</button>
@@ -54,7 +59,7 @@
         <details><summary>兼容旧 Codex 登录</summary><button id="device-login" class="secondary" type="button">使用设备码登录</button></details>
       </section>
       <section id="api-panel" hidden>
-        <h2>使用自己的 API</h2>
+
         <label for="base-url">服务地址（Base URL）</label>
         <input id="base-url" type="url" placeholder="https://api.example.com/v1" maxlength="2048" autocomplete="off">
 
@@ -74,9 +79,30 @@
 
       <div class="actions footer">
         <button id="test-model" type="button" class="secondary">保存并测试连接</button>
-        <button type="submit">保存设置</button>
+        <button type="submit">保存 API 配置</button>
       </div>
-    </form>
+        </form>
+      </details>
+      <details class="agent-row" id="codex-settings">
+        <summary><svg class="icon"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span>Codex</span><span class="agent-default" data-default-for="codex"></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <div class="agent-fields">
+          <label for="codex-executable">程序路径</label><input id="codex-executable" value="codex" autocomplete="off" spellcheck="false">
+          <label for="codex-model">默认模型</label><div class="model-choice-row"><select id="codex-model" data-no-i18n><option value="">跟随 Codex</option></select><button id="codex-probe" type="button" class="secondary">检测连接</button></div>
+          <label for="codex-effort">推理强度</label><select id="codex-effort" data-no-i18n><option value="">跟随模型</option></select>
+        </div>
+      </details>
+      <details class="agent-row" id="antigravity-settings">
+        <summary><svg class="icon"><use href="/assets/ui-icons.svg#i-automation"/></svg><span>Antigravity</span><span class="agent-default" data-default-for="antigravity"></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <div class="agent-fields">
+          <label for="antigravity-executable">程序路径</label><input id="antigravity-executable" value="agy" autocomplete="off" spellcheck="false">
+          <label for="antigravity-model">默认模型</label><div class="model-choice-row"><select id="antigravity-model" data-no-i18n><option value="">跟随 Antigravity</option></select><button id="antigravity-probe" type="button" class="secondary">检测连接</button></div>
+          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort" data-no-i18n><option value="">跟随模型</option></select>
+        </div>
+      </details>
+      <div class="setting-row"><label for="agent-backend">默认 Agent</label><select id="agent-backend"><option value="builtin">Chem Agent</option><option value="codex">Codex</option><option value="antigravity">Antigravity</option></select></div>
+      <div class="actions footer"><button id="agent-save" type="button">保存</button></div>
+      <p id="agent-notice" role="status" aria-live="polite"></p>
+    </section>
     <div id="compute-scope" class="compute-scope" hidden>
       <label for="active-server">当前服务器</label><select id="active-server" data-no-i18n></select>
       <button id="compute-refresh" type="button" class="secondary">刷新配置</button>
@@ -91,6 +117,10 @@
     </section>
     <section class="settings-panel compute-panel" id="servers" data-panel="servers" role="tabpanel" aria-labelledby="tab-servers" hidden>
       <h2>服务器连接</h2>
+      <p>选择这台电脑已配置的 SSH 服务器。Agent 可通过终端查找计算软件、环境脚本和赝势目录。</p>
+      <div class="compute-actions"><button type="button" id="local-ssh-refresh">读取本机 SSH 配置</button><button type="button" id="local-ssh-save">保存启用的服务器</button></div>
+      <div id="local-ssh-list"></div><p id="local-ssh-status" role="status"></p>
+      <details id="legacy-aiida-connection" class="config-editor" hidden><summary>AiiDA 连接配置（可选）</summary>
       <div id="server-record"></div>
       <div id="server-actions" class="compute-actions" hidden>
         <button type="button" id="server-test">测试连接</button><button type="button" id="existing-probe">检查主机指纹</button>
@@ -112,6 +142,7 @@
           <div id="new-trust" class="trust-result" hidden></div>
           <div class="compute-actions"><button type="button" class="primary" id="server-save" disabled>保存服务器</button></div>
         </fieldset></form>
+      </details>
       </details>
     </section>
     <section class="settings-panel compute-panel" id="software" data-panel="software" role="tabpanel" aria-labelledby="tab-software" hidden>

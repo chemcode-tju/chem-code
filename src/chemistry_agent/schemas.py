@@ -53,7 +53,8 @@ class ToolExecution(BaseModel):
 
 
 class ContextUsage(BaseModel):
-    automation_event: Literal["diagnosis", "submission"] | None = None
+    automation_event: Literal["diagnosis", "submission", "job_completion"] | None = None
+    error_message: str | None = None
     manual_compaction: bool = False
     compressed: bool = False
     summary_used: bool = False
@@ -66,6 +67,13 @@ class ContextUsage(BaseModel):
     trigger_tokens: int = 0
     tokenizer: str = ""
     summary_calls: int = 0
+    summary_attempts: int = 0
+    summary_error_code: str | None = None
+    summary_error_stage: str | None = None
+    summary_input_tokens: int = 0
+    summary_output_size: int = 0
+    summary_memory_budget: int = 0
+    summary_deferred: bool = False
     summary_usage: TokenUsage = Field(default_factory=TokenUsage)
 
 

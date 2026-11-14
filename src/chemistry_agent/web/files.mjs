@@ -81,6 +81,10 @@ export function createFileUploads({ state, toast, updateControls, onChange, onUn
   return {
     get files() { return [...(active?.files || [])]; }, get uploading() { return Boolean(active?.loading); },
     select(session) { select(session);render(); },
+    add(file) { if(!active) select(state.sessionId); if(!active.files.some(item=>item.id===file.id)) {
+      active.files.push({id:file.id,name:file.name,size:file.size,text_available:file.text_available});
+      persist(active);render();
+    } },
     clear() { if(active) {active.files=[];persist(active);} closeMenus();render(); },
     reset() { for(const draft of drafts.values()) draft.controller?.abort();drafts.clear();active=null;closeMenus();render(); },
     render,

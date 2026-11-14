@@ -400,6 +400,27 @@ async def test_account_isolation_all_routes_and_model_tools(settings_factory):
         b = (await bob.post("/sessions", json={"title": "b"})).json()["id"]
         path = f"/api/sessions/{a}/memories"
         item = (await alice.post(path, json=document().model_dump())).json()
+        # The session-free platform API must enforce the same authenticated owner.
+        platform_path = f"/api/research/memories/{item['id']}"
+        assert (await alice.get(platform_path)).status_code == 200
+        for suffix in ("", "/document.md", "/versions", "/versions/1"):
+            assert (await bob.get(platform_path + suffix)).status_code == 404
+        assert not (await bob.get("/api/research/memories?scope=personal")).json()["items"]
+        assert (
+            await bob.post(platform_path + "/forget", json={"expected_version": 1})
+        ).status_code == 404
+        assert (
+            await bob.post(
+                "/api/research/memories",
+                json=document().model_dump()
+                | {
+                    "memory_id": item["id"],
+                    "expected_version": 1,
+                },
+            )
+        ).status_code == 404
+        project = (await alice.post("/api/projects", json={"name": "private"})).json()["id"]
+        assert (await bob.get(f"/api/research/memories?project_id={project}")).status_code == 404
         assert (await bob.get(path)).status_code == 404
         assert (await bob.get(path + "?scope=session")).status_code == 404
         other = f"/api/sessions/{b}/memories/{item['id']}"

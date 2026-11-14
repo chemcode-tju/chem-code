@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from chemistry_agent.automation.local_ssh import discover_aliases, enabled_aliases, save_aliases
 from chemistry_agent.automation.models import ServerCreate, StrictModel
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.service import AutomationService
@@ -15,6 +16,46 @@ from chemistry_agent.errors import AgentError
 
 router = APIRouter(prefix="/api/automation", tags=["SSH"])
 Local = Annotated[AutomationService, Depends(local_service)]
+
+
+class AliasSelection(StrictModel):
+    hosts: list[str] = Field(max_length=100)
+
+
+@router.get("/ssh/local-aliases")
+async def local_aliases(service: Local) -> dict:
+    require_automation(service)
+    selected = enabled_aliases(service.settings.aiida_path, service.settings.allowed_ssh_hosts)
+    rows = await asyncio.to_thread(discover_aliases)
+    known = {row["alias"] for row in rows}
+    rows.extend(
+        {"alias": host, "source": "service configuration"} for host in selected if host not in known
+    )
+    return {"servers": [{**row, "enabled": row["alias"] in selected} for row in rows]}
+
+
+@router.put("/ssh/local-aliases")
+async def select_aliases(body: AliasSelection, service: Local) -> dict:
+    require_automation(service)
+    known = {row["alias"] for row in await asyncio.to_thread(discover_aliases)}
+    known.update(service.settings.allowed_ssh_hosts)
+    if set(body.hosts) - known:
+        raise AgentError("ssh_alias_unknown", "请选择本机 SSH 配置中已有的服务器。", 422)
+    save_aliases(service.settings.aiida_path, body.hosts)
+    return await local_aliases(service)
+
+
+@router.post("/ssh/local-aliases/{host}/test")
+async def test_alias(host: str, service: Local) -> dict:
+    require_automation(service)
+    from chemistry_agent.runtime.shell import ShellInput, remote_shell_tool
+    from chemistry_agent.tools import ToolContext
+
+    tool = remote_shell_tool(service.settings.allowed_ssh_hosts, service.settings.aiida_path)
+    return await tool.handler(
+        ShellInput(host=host, command="hostname; command -v sbatch; command -v squeue"),
+        ToolContext("connection-test", "connection-test"),
+    )
 
 
 class TrustHost(StrictModel):

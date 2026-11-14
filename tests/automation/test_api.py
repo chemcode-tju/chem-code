@@ -8,7 +8,7 @@ from chemistry_agent.api import create_app
 
 @pytest.mark.asyncio
 async def test_automation_is_opt_in(settings_factory):
-    app = create_app(settings_factory())
+    app = create_app(settings_factory(aiida_enabled=True))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
     ) as client:
@@ -70,7 +70,7 @@ async def test_settings_before_profile_and_mutations_require_local_intent(
     from chemistry_agent.tools import ToolContext
 
     root = tmp_path / "uninitialized"
-    app = create_app(settings_factory(automation_enabled=True, aiida_path=root))
+    app = create_app(settings_factory(automation_enabled=True, aiida_enabled=True, aiida_path=root))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
     ) as client:

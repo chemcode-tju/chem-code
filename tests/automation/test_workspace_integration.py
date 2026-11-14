@@ -33,9 +33,9 @@ def test_workspace_preserves_attachments_structures_models_and_routes(settings_f
         tools = client.get("/tools").json()
         names = {tool["function"]["name"] for tool in tools}
         assert {
-            "calculation_prepare",
-            "calculation_job",
-            "calculation_events",
+            "calculation_plan_save",
+            "calculation_job_adopt",
+            "workspace_publish",
             "molecular_properties",
         } <= names
         for path in ("/", "/settings", "/structures", "/automation", "/api/projects"):
@@ -44,12 +44,12 @@ def test_workspace_preserves_attachments_structures_models_and_routes(settings_f
         assert client.get("/settings").text == html
         assert 'id="structure-upload"' not in html and 'id="sidebar-add"' not in html
         settings_sheet = client.get("/settings?embed=1").text
-        assert 'id="tab-model"' in settings_sheet
+        assert 'id="tab-agent"' in settings_sheet
         assert 'id="workspace-settings"' not in settings_sheet
         assert client.get("/assets/calculations.mjs").headers["cache-control"] == "no-cache"
         for identifier in (
             "project-list",
-            "chat-model",
+            "agent-picker",
             "composer-add",
             "file-picker",
             "calculation-cards",

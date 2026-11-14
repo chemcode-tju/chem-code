@@ -132,6 +132,7 @@ async function go(index) {
         let driftStopped=false;
         if(drift&&StructureSelection.remap(drift.referenceFrame,frameData,drift.indices).length!==drift.indices.length){clearFollow();driftStopped=true;}
         render();
+        window.dispatchEvent(new CustomEvent('structure-frame-change',{detail:{generation,frameIndex,frameCount:doc.count,ionicStep:doc.source.ionicSteps?.[frameIndex] ?? null,simulationStep:doc.source.simulationSteps?.[frameIndex] ?? null}}));
         if(driftStopped)status('当前帧的原子无法与参考帧对应，已停用质心校正',true);
       }
     }catch(error){if(doc===currentDoc){stop();status(error.message,true);}}
@@ -144,20 +145,25 @@ function discardDocument() {
   document.body.classList.remove("has-structure");
   $("drift-settings").disabled = true;
 }
-async function showDocument(store,generation) {
+async function showDocument(store,generation,selection=null) {
   if(generation!==readGeneration){store.dispose();return;}
-  doc=store;const record=await store.get(0);
+  doc=store;
+  const target=selection?await resolveStructureSelection(store,selection):0;
+  const record=await store.get(target);
   if(generation!==readGeneration)return;
   activeRecord=record;
   document.body.classList.add("has-structure");
   $("drift-settings").disabled = false;
-  frameIndex=0;streamComplete=store.complete;render(true,true);status('');loading=false;
+  frameIndex=target;streamComplete=store.complete;render(true,true);status('');loading=false;
   // Render the first frame before starting any background index batch.
   afterPaint(()=>store.scan(()=>{if(doc===store){streamComplete=store.complete;updateTimeline();}})
     .catch(error=>{if(doc===store)status(`加载停止：${error.message}（保留已加载的 ${store.count} 帧）`,true);}));
 }
 $("timeline").addEventListener("input", e => { stop(); go(e.target.value); });
 $("frame-number").addEventListener("change", e => { stop(); go(Number(e.target.value) - 1); });
+$("frame-number").addEventListener("keydown", e => {
+  if(e.key==='Enter'){e.preventDefault();stop();go(Number(e.target.value)-1);}
+});
 $("previous").onclick = () => { stop(); go(frameIndex - 1); };
 $("next").onclick = () => { stop(); go(frameIndex + 1); };
 $("play").onclick = () => {
@@ -237,7 +243,7 @@ $("drift-apply").onclick=async()=>{
   }catch(error){$("drift-error").textContent=error.message;}finally{$("drift-apply").disabled=false;}
 };
 $("source-toggle").onclick = () => { stop(); $("source-panel").hidden = !$("source-panel").hidden; if(doc)$("source").value=activeRecord.text; };
-async function openStructure(files, format = $("import-format").value) {
+async function openStructure(files, format = $("import-format").value, selection=null, options={}) {
   const file = files[0];
   const generation = ++readGeneration;
   stop(); clearFollow(); resetDisplayState(); discardDocument();
@@ -258,14 +264,15 @@ async function openStructure(files, format = $("import-format").value) {
   $("filename").textContent = file.name; status("");
   $("import-note").textContent = "正在读取…";
   try {
-    const imported = await StructureImport.open(files, {format});
+    const imported = await StructureImport.open(files, {format,...options});
     if (generation !== readGeneration) { imported.store.dispose(); return; }
     $("filename").textContent = imported.name;
     $("source-toggle").hidden = /\.traj$/i.test(imported.name);
-    await showDocument(imported.store, generation);
+    await showDocument(imported.store, generation, selection);
     if (generation !== readGeneration) return;
     $("import-note").textContent = imported.note;
-    return {name: imported.name};
+    if(options.sequence)$("timeline").closest("details").open=true;
+    return {name: imported.name,generation,frameIndex,frameCount:doc.count,ionicStep:doc.source.ionicSteps?.[frameIndex] ?? null,simulationStep:doc.source.simulationSteps?.[frameIndex] ?? null};
   } catch (error) {
     if (generation !== readGeneration) return;
     discardDocument();
@@ -273,6 +280,31 @@ async function openStructure(files, format = $("import-format").value) {
     $("import-note").textContent = "读取失败，请检查文件或导入选项后重新选择。";
     return {name: file.name, error: error.message};
   } finally { if (generation === readGeneration) loading = false; }
+}
+async function resolveStructureSelection(store,selection) {
+  let index;
+  if(Number.isSafeInteger(selection?.simulationStep)) {
+    index=await store.findSimulationStep(selection.simulationStep,{nearest:true});
+  } else if(Number.isSafeInteger(selection?.ionicStep)) {
+    if(selection.stride && selection.stride!==1)throw Error('该轨迹不是逐离子步保存，无法确认所选步对应的结构');
+    index=await store.findIonicStep(selection.ionicStep);
+  } else if(Number.isSafeInteger(selection?.frameIndex)) {
+    while(store.count<=selection.frameIndex && !store.complete)await store.advance();
+    index=selection.frameIndex;
+  } else throw Error('请选择有效的轨迹帧');
+  if(index<0 || index>=store.count)throw Error('所选帧尚未写入轨迹');
+  return index;
+}
+async function seekStructure(selection, generation=readGeneration) {
+  const currentDoc=doc;
+  if(!currentDoc || generation!==readGeneration)throw Error('结构已切换，请重新打开该步骤的轨迹');
+  stop();
+  const index=await resolveStructureSelection(currentDoc,selection);
+  if(doc!==currentDoc || generation!==readGeneration)return;
+  await go(index);
+  if(doc!==currentDoc || generation!==readGeneration)return;
+  if(frameIndex!==index)throw Error('轨迹帧读取未完成，请重试');
+  return {frameIndex,frameCount:doc.count,ionicStep:currentDoc.source.ionicSteps?.[frameIndex] ?? null,simulationStep:currentDoc.source.simulationSteps?.[frameIndex] ?? null};
 }
 $("open-empty").onclick = $("open-file").onclick = () => $("file-picker").click();
 $("file-picker").onchange = () => {

@@ -8,13 +8,13 @@ const dateText = value => new Date(value).toLocaleString('zh-CN', {hour12:false}
 
 export function scopeDescription(scope) {
   if (scope === 'session') return '仅检索所选对话沉淀的文档。切换对话后自动更新结果。';
-  if (scope === 'project') return '检索所选对话的整个项目；未分组对话共用个人区。同一项目内切换对话，结果可能相同。';
+  if (scope === 'project') return '检索所选项目的研究记录；选择来源对话时采用其项目。同一项目内切换对话，结果可能相同。';
   return '检索本人全部项目和对话。切换来源对话不会缩小此范围。';
 }
 
 export function resultCard(item) {
   return `<span class="card-meta"><span>${esc(kinds[item.kind] || item.kind)}</span><span>v${esc(item.version)}</span><span class="evidence-tag ${item.evidence?.level === 'converged' ? 'converged' : ''}">${esc(levels[item.evidence?.level] || '未核验')}</span></span>
-    <span class="card-title">${esc(item.title)}</span><span class="card-source">${esc(item.session_title || '来源对话')}</span>`;
+    <span class="card-title">${esc(item.title)}</span><span class="card-source">${esc(item.session_title || '研究平台')}</span>`;
 }
 
 function section(title, html) {
@@ -55,7 +55,7 @@ export function documentBody(item, sourceTitle, markdown) {
   const raw = JSON.stringify({parameters:item.parameters, applicability:item.applicability, evidence, source_key:item.source_key}, null, 2);
   return `<header class="document-header"><div class="card-meta"><span>${esc(kinds[item.kind] || item.kind)}</span><span class="evidence-tag ${evidence.level === 'converged' ? 'converged' : ''}">${esc(levels[evidence.level] || '未核验')}</span><span>v${esc(item.version)}</span></div>
     <h2>${esc(item.title)}</h2><p class="document-meta">${esc(sourceTitle)} · ${esc(dateText(item.updated_at))}</p></header>
-    <div class="actions"><a data-download>下载 Markdown</a><a href="/?session=${encodeURIComponent(item.session_id)}">来源对话</a><button type="button" data-versions>版本记录</button><button class="forget" type="button" data-forget>移出检索</button></div>
+    <div class="actions"><a data-download>下载 Markdown</a>${item.session_id ? `<a href="/?session=${encodeURIComponent(item.session_id)}">来源对话</a>` : ''}<button type="button" data-versions>版本记录</button><button class="forget" type="button" data-forget>移出检索</button></div>
     ${tags.length ? `<p class="document-meta">${tags.map(esc).join(' · ')}</p>` : ''}
     ${lesson ?? `<div class="markdown">${markdown.render(item.content)}</div>`}
     ${section('证据与适用性', table(['检查项','记录'], evidenceRows))}

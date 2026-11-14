@@ -19,6 +19,8 @@ def eligible(plan: dict) -> list[str]:
         key
         for key, state in plan["runtime"].items()
         if state["status"] == "failed"
+        and next(n for n in plan["nodes"] if n["id"] == key).get("kind") != "task"
+        and not state.get("generic_job_id")
         and not state.get("diagnosis_started")
         and len(state.get("attempts", [])) < plan.get("repair_limit", 2)
     ]
@@ -86,6 +88,7 @@ async def replace_node(plans, args: NodeRepair, context: ToolContext) -> dict:
             raise AgentError("repair_state", "当前节点不可重试、已暂停或已用完重试次数。", 409)
         node = args.node.stored_record(old) if args.node else copy.deepcopy(old)
         deps = set(node["depends_on"]) | {r["node"] for r in node["inputs"].values() if r["node"]}
+        deps |= {r["node"] for r in node.get("files", []) if r.get("node")}
         if old["kind"] != node["kind"] or sorted(deps) != sorted(old["depends_on"]):
             raise AgentError(
                 "repair_dependencies", "保留节点类型和上游依赖；请用这些输入修复。", 422
@@ -98,6 +101,36 @@ async def replace_node(plans, args: NodeRepair, context: ToolContext) -> dict:
             raise AgentError("repair_job_active", "原作业未明确退出，不能重复提交。", 409)
         if state.get("preview_id") and not state.get("job_id"):
             raise AgentError("repair_submit_unknown", "提交结果不确定，先核对原预览避免重复。", 409)
+        if (
+            state.get("generic_job_id")
+            and (
+                plans.chat.directory(session, "slurm_jobs") / f"{state['generic_job_id']}.json"
+            ).exists()
+        ):
+            record = plans.slurm.load(session, state["generic_job_id"])
+            if not record.get("terminal") and record["status"] != "rejected":
+                raise AgentError("repair_job_active", "Slurm 原作业尚未明确结束。", 409)
+            if record.get("origin") == "adopted":
+                if (
+                    node["job"].get("adopted")
+                    or not node["job"].get("script")
+                    or not node["job"].get("resources")
+                ):
+                    raise AgentError(
+                        "adopted_retry_needs_inputs",
+                        "请提供新尝试的脚本和资源，接管记录不会重投。",
+                        422,
+                    )
+                if (
+                    node["job"]["host"] != old["job"]["host"]
+                    or node["job"]["resources"]["queue"] != plan["auto_queue"]
+                ):
+                    raise AgentError("repair_resources", "新尝试须使用原服务器和已授权队列。", 422)
+            elif (
+                node["job"]["host"] != old["job"]["host"]
+                or node["job"]["resources"] != old["job"]["resources"]
+            ):
+                raise AgentError("repair_resources", "修复沿用已授权服务器与资源。", 422)
         if args.restart_from_last_structure:
             from chemistry_agent.automation.chat import JobInput
 
@@ -302,7 +335,7 @@ async def diagnose(plans, session: str, identifier: str) -> None:
                 run_id,
                 "plan_diagnosis_failed",
                 tool_calls=progress.tool_calls,
-                usage=progress.usage,
+                usage=progress.current_usage,
                 context=progress.context,
             )
             repaired = [

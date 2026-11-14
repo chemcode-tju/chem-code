@@ -1,5 +1,49 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "等待 MD 记录":"Waiting for MD samples", "准备中":"Preparing",
+  "分子动力学":"Molecular dynamics", "计算监控":"Calculation monitor", "MD 步":"MD step",
+  "势能":"Potential", "总能量":"Total", "动能":"Kinetic", "压力":"Pressure",
+  "所选 MD 步":"Selected MD step", "最近保存的轨迹步":"Nearest saved step",
+  "等待首个完整 MD 记录":"Waiting for the first complete MD sample",
+  "正在准备：能量最小化":"Preparing: energy minimization",
+  "尚无完整 MD 记录":"No complete MD samples yet", "计划 MD 步数":"Planned MD steps",
+  "数据读取失败，请刷新重试":"Could not read data. Refresh to retry.",
+  "正在读取计算数据…":"Reading calculation data…",
+  "显示日志尾部的完整记录":"Complete samples from the log tail",
+  "MD 视图":"MD view", "MD 图：点击选择时间步，滚轮缩放，方向键查看数据":"MD plot: click to select a timestep, scroll to zoom, arrow keys to inspect",
+
+  "收敛图：点击选择离子步，滚轮缩放，方向键查看数据":"Convergence plot: click to select a step, scroll to zoom, arrow keys to inspect",
+  "收敛数据读取失败，请刷新重试":"Could not read convergence data. Refresh to retry.",
+  "正在读取离子步…":"Reading ionic steps…",
+  "VASP 离子步收敛":"VASP ionic convergence",
+  "离子步收敛":"Ionic convergence",
+  "收敛视图":"Convergence view",
+  "绝对能量 E0":"Absolute energy E0",
+  "步间能量差 · log10":"Step energy change \u00b7 log10",
+  "最大受力 Fmax":"Maximum force Fmax",
+  "重置缩放":"Reset zoom",
+  "导出 SVG":"Export SVG",
+  "查看结构轨迹":"View structure trajectory",
+  "收敛图：滚轮缩放，方向键查看数据":"Convergence plot: scroll to zoom, arrow keys to inspect",
+  "起始离子步":"First ionic step",
+  "结束离子步":"Last ionic step",
+  "最近 20 步":"Last 20 steps",
+  "NSW 为最大离子步数":"NSW is the maximum ionic step count",
+  "等待两个相邻离子步记录":"Waiting for two consecutive ionic steps",
+  "尚无完整离子步记录":"No complete ionic steps yet",
+  "虚线为能量差参考值":"Dashed lines: energy-change references",
+  "空心点为 0，不参与对数轴":"Hollow markers: zero, outside the log scale",
+  "Fmax：活动原子的最大力范数":"Fmax: maximum force norm on movable atoms",
+  "Fmax：全部原子的最大力范数":"Fmax: maximum force norm on all atoms",
+  "原始 Fmax，未投影方向约束":"Raw Fmax; directional constraints not projected",
+  "原始 Fmax，约束信息不可用":"Raw Fmax; constraints unavailable",
+  "受力历史来自 OUTCAR 尾部":"Force history from the OUTCAR tail",
+  "等待数据":"Waiting for data",
+  "已收敛":"Converged",
+  "已结束":"Ended",
+  "离子步":"Ionic step",
+
+  "处理过程":"Activity", "执行中":"Running", "结果待核对":"Outcome needs checking", "正在生成下一步…":"Preparing the next step…",
   "全部已读":"Mark all as read", "异常结束":"Ended with issues", "正常结束":"Completed normally", "暂无通知":"No notifications",
   "复制内容":"Copy contents", "已复制":"Copied", "工具记录":"Tool activity",
   "已用时":"Working for", "用时":"Worked for", "等待工具记录":"Waiting for tools", "未调用工具":"No tools used",
@@ -207,6 +251,8 @@ const messages = {
   "归位":"Reset", "所属分支":"Branch", "恢复这张卡片原位":"Reset this card’s position", "并行分支":"Parallel branches", "步":"steps", "项计算":"calculations",
   "步骤失败":"Step failed", "全屏缩略导航":"Minimap in full screen", "缩略图导航":"Minimap navigation", "点击或拖动缩略图定位":"Click or drag to navigate", "可见节点 / 总节点":"Visible / total nodes", "拖动卡片移动，拖动空白平移":"Drag a card to move it, or drag the paper to pan",
   "方案画布":"Plan canvas", "全屏方案画布":"Full-screen plan canvas", "计算依赖图":"Dependency map",
+  "关联作业":"Linked jobs", "研究步骤":"Research step", "Slurm 任务":"Slurm job", "步骤说明":"Step instructions",
+  "排队中":"Queued", "切换布局方向":"Change layout direction", "从上到下 ↓":"Top to bottom ↓", "从左到右 →":"Left to right →",
   "查找步骤":"Find step", "查找名称或步骤 ID":"Find by name or step ID", "没有匹配的步骤":"No matching steps",
   "画布选项":"Canvas options", "全屏画布":"Expand canvas", "退出全屏":"Exit full screen", "适应画布":"Fit to view",
   "按分支查看":"Focus a branch", "全部分支":"All branches", "显示建模与分析步骤":"Include modeling and analysis",
@@ -335,11 +381,13 @@ function translateNode(node) {
   originals.set(node, record);
 }
 const attributeOriginals = new WeakMap();
-export function translateUI() {
-  document.documentElement.lang = language;
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+function translateSubtree(root) {
+  if (root.nodeType === 3) { translateNode(root); return; }
+  if (root.nodeType !== 1 || root.closest(ignored)) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) translateNode(walker.currentNode);
-  for (const element of document.querySelectorAll('[placeholder],[aria-label],[title]')) {
+  const attributes = '[placeholder],[aria-label],[title]';
+  for (const element of [...(root.matches(attributes) ? [root] : []), ...root.querySelectorAll(attributes)]) {
     if (element.closest('[data-no-i18n],.session-button,.project-folder>summary>span,.markdown')) continue;
     const records = attributeOriginals.get(element) || {};
     for (const attribute of ['placeholder','aria-label','title']) {
@@ -353,6 +401,13 @@ export function translateUI() {
     }
     attributeOriginals.set(element, records);
   }
+}
+export function translateUI() {
+  document.documentElement.lang = language;
+  translateSubtree(document.body);
+  updateDocumentTitle();
+}
+function updateDocumentTitle() {
   document.title = document.querySelector('[data-panel],#workspace-settings[open]') ? `${t('设置')} · Chem Code` : 'Chem Code';
 }
 export function setLanguage(value) {
@@ -361,7 +416,20 @@ export function setLanguage(value) {
   translateUI(); window.dispatchEvent(new Event('languagechange'));
 }
 if (typeof document !== 'undefined') {
-  const observer = new MutationObserver(() => translateUI());
+  const observer = new MutationObserver(records => {
+    // A progress tick should translate its changed nodes, not walk the entire transcript.
+    const roots = new Set();
+    for (const record of records) {
+      if (record.type === 'childList') for (const node of record.addedNodes) roots.add(node);
+      else roots.add(record.target);
+    }
+    for (const root of roots) {
+      if (!root.isConnected) continue;
+      if ([...roots].some(parent=>parent!==root && parent.contains?.(root))) continue;
+      translateSubtree(root);
+    }
+    updateDocumentTitle();
+  });
   translateUI();
   observer.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['placeholder','aria-label','title']});
   window.addEventListener('storage',(event) => { if (event.key === 'chemistry.language') { language=event.newValue==='en'?'en':'zh-CN'; translateUI(); window.dispatchEvent(new Event('languagechange')); } });

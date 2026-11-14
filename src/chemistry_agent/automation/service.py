@@ -21,6 +21,16 @@ class AutomationService:
         self.step_readers = asyncio.Semaphore(2)
 
     async def call(self, action: str, payload: dict | None = None) -> dict[str, Any]:
+        if action in {"validate_structure", "validate_structure_file"}:
+            from chemistry_agent import structure_inputs
+
+            return await asyncio.to_thread(getattr(structure_inputs, action), payload or {})
+        if not self.settings.aiida_enabled:
+            raise AgentError(
+                "legacy_backend_disabled",
+                "当前使用通用计算平台，请通过 SSH/Slurm 工具执行。旧 AiiDA 后端未启用。",
+                409,
+            )
         if not self.settings.automation_enabled:
             raise AgentError("automation_disabled", "请先配置并启用 AiiDA 自动化。", 503)
         async with (

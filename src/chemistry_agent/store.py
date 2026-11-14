@@ -117,6 +117,9 @@ class Store:
             await init_memory_schema(db)
             await init_attachment_schema(db)
             await init_title_schema(db)
+            from chemistry_agent.automation.wait_ledger import init_wait_schema
+
+            await init_wait_schema(db)
             # End old run leases but preserve replayable request checkpoints.
             await db.execute(
                 "UPDATE runs SET status='interrupted', error_code='service_restarted', "
@@ -124,6 +127,16 @@ class Store:
                 (utc_now(),),
             )
             await db.execute("UPDATE sessions SET active_run_id=NULL")
+            # Reconcile orphaned deliveries at startup even for paused plans, whose
+            # dispatcher intentionally never polls pending events. Unknown tool
+            # effects remain uncertain; no side effect is replayed here.
+            await db.execute(
+                "UPDATE agent_events SET status=CASE "
+                "WHEN EXISTS(SELECT 1 FROM runs WHERE id=run_id AND status='completed') "
+                "THEN 'completed' WHEN phase='model' THEN 'pending' ELSE 'uncertain' END, "
+                "error='service_restarted' WHERE status='running' AND NOT EXISTS "
+                "(SELECT 1 FROM runs WHERE id=run_id AND status='running')"
+            )
             await db.execute(
                 "UPDATE chat_requests SET status='uncertain',error=? WHERE status='running' AND "
                 "NOT EXISTS(SELECT 1 FROM chat_checkpoints c WHERE c.request_id=chat_requests.id "
@@ -157,12 +170,18 @@ class Store:
     @asynccontextmanager
     async def transaction(self):
         async with self.lock:
-            await self.db.execute("BEGIN IMMEDIATE")
             try:
+                # Cancellation can arrive after SQLite executed BEGIN but before
+                # aiosqlite delivered its result. BEGIN must be covered by rollback.
+                await self.db.execute("BEGIN IMMEDIATE")
                 yield
                 await self.db.commit()
             except BaseException:
-                await self.db.rollback()
+                rollback = asyncio.create_task(self.db.rollback())
+                try:
+                    await asyncio.shield(rollback)
+                except asyncio.CancelledError:
+                    await rollback
                 raise
 
     async def _one(self, sql: str, parameters: tuple = ()) -> aiosqlite.Row | None:
@@ -232,6 +251,15 @@ class Store:
         ):
             return [dict(row) for row in await cursor.fetchall()]
 
+    async def require_session(self, session_id: str, owner_id: str | None = None) -> None:
+        """Check ownership without parsing the entire conversation for a metadata request."""
+        async with self.lock:
+            row = await self._one(
+                "SELECT id FROM sessions WHERE id=? AND owner_id IS ?", (session_id, owner_id)
+            )
+        if row is None:
+            raise AgentError("session_not_found", "会话不存在。", 404)
+
     async def get_session(self, session_id: str, owner_id: str | None = None) -> dict[str, Any]:
         async with self.lock:
             row = await self._one(
@@ -297,6 +325,7 @@ class Store:
         *,
         request_id: str | None = None,
         file_ids: tuple[UUID, ...] = (),
+        event_id: str | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         run_id = str(uuid4())
         async with self.transaction():
@@ -308,6 +337,24 @@ class Store:
                 raise AgentError("session_not_found", "会话不存在。", 404)
             if row["active_run_id"] is not None:
                 raise AgentError("session_busy", "上一条对话仍在生成回答，请等待处理完成。", 409)
+            if event_id:
+                queued = await self._one(
+                    "SELECT id FROM chat_requests WHERE session_id=? AND status='queued' LIMIT 1",
+                    (session_id,),
+                )
+                if queued:
+                    raise AgentError("session_busy", "先处理已经排队的用户消息。", 409)
+                cursor = await self.db.execute(
+                    "UPDATE agent_events SET status='running',run_id=? "
+                    "WHERE id=? AND session_id=? AND status IN ('pending','retry_wait')",
+                    (run_id, event_id, session_id),
+                )
+                if cursor.rowcount != 1:
+                    raise AgentError("event_already_claimed", "事件已被处理或取消。", 409)
+                await self.db.execute(
+                    "UPDATE agent_events SET run_id=? WHERE batch_parent=? AND status='bundled'",
+                    (run_id, event_id),
+                )
             await self.db.execute(
                 "INSERT INTO runs(id, session_id, status, started_at) VALUES (?, ?, 'running', ?)",
                 (run_id, session_id, utc_now()),
@@ -338,6 +385,8 @@ class Store:
         tool_calls: list[ToolExecution],
         usage: TokenUsage,
         context: ContextUsage | None = None,
+        *,
+        touch_session: bool = True,
     ) -> None:
         now = utc_now()
         async with self.transaction():
@@ -367,9 +416,13 @@ class Store:
                 (run_id,),
             )
             await self.db.execute(
-                "UPDATE sessions SET updated_at=?, active_run_id=NULL "
-                "WHERE id=? AND active_run_id=?",
-                (now, session_id, run_id),
+                "UPDATE agent_events SET status='completed',error=NULL WHERE run_id=?",
+                (run_id,),
+            )
+            await self.db.execute(
+                "UPDATE sessions SET updated_at=CASE WHEN ? THEN ? ELSE updated_at END, "
+                "active_run_id=NULL WHERE id=? AND active_run_id=?",
+                (touch_session, now, session_id, run_id),
             )
 
     async def fail_run(
@@ -382,18 +435,27 @@ class Store:
         usage: TokenUsage,
         cancelled=False,
         context: ContextUsage | None = None,
+        error_message: str | None = None,
     ) -> None:
         async with self.transaction():
+            old = await self._one("SELECT context_info FROM runs WHERE id=?", (run_id,))
+            prior = json.loads(old["context_info"]) if old else {}
+            details = (context or ContextUsage()).model_dump()
+            details["automation_event"] = details.get("automation_event") or prior.get(
+                "automation_event"
+            )
+            if error_message:
+                details["error_message"] = error_message[:1000]
             await self.db.execute(
                 "UPDATE runs SET status=?, finished_at=?, error_code=?, tool_calls=?, usage=?, "
-                "context_info=? WHERE id=?",
+                "context_info=? WHERE id=? AND status='running'",
                 (
                     "cancelled" if cancelled else "failed",
                     utc_now(),
                     code,
                     json.dumps([call.model_dump() for call in tool_calls], ensure_ascii=False),
                     usage.model_dump_json(),
-                    (context or ContextUsage()).model_dump_json(),
+                    json.dumps(details),
                     run_id,
                 ),
             )
@@ -401,6 +463,10 @@ class Store:
                 "UPDATE sessions SET active_run_id=NULL WHERE id=? AND active_run_id=?",
                 (session_id, run_id),
             )
+            if not details.get("manual_compaction"):
+                await self.db.execute(
+                    "UPDATE sessions SET updated_at=? WHERE id=?", (utc_now(), session_id)
+                )
 
     async def get_run(self, run_id: str, owner_id: str | None = None) -> dict[str, Any]:
         async with self.lock:
@@ -414,7 +480,13 @@ class Store:
         return self._run_data(row)
 
     async def list_runs(
-        self, session_id: str, limit: int, offset: int, owner_id: str | None = None
+        self,
+        session_id: str,
+        limit: int,
+        offset: int,
+        owner_id: str | None = None,
+        *,
+        compact: bool = False,
     ) -> list[dict[str, Any]]:
         async with self.lock:
             if (
@@ -424,8 +496,14 @@ class Store:
                 is None
             ):
                 raise AgentError("session_not_found", "会话不存在。", 404)
+            columns = (
+                "id,session_id,status,started_at,finished_at,answer,error_code,usage,context_info,"
+                "CASE WHEN status='running' THEN tool_calls ELSE '[]' END AS tool_calls"
+                if compact
+                else "*"
+            )
             async with self.db.execute(
-                "SELECT * FROM runs WHERE session_id=? ORDER BY started_at DESC, id "
+                f"SELECT {columns} FROM runs WHERE session_id=? ORDER BY started_at DESC, id "
                 "LIMIT ? OFFSET ?",
                 (session_id, limit, offset),
             ) as cursor:

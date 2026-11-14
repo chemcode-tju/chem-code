@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints, model_validator
 
+from chemistry_agent.automation.job_models import FileReference, JobSettings
 from chemistry_agent.automation.models import Resources, StrictModel
 
 
@@ -43,7 +44,10 @@ GroupLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=
 class PlanNode(StrictModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     title: str = Field(min_length=1, max_length=120)
-    kind: Literal["model", "vasp", "analysis"]
+    kind: Literal["model", "vasp", "analysis", "job", "task"]
+    executor: Literal["platform", "agent"] | None = None
+    execution_host: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    parent_task: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,63}$")
     group_path: list[GroupLabel] | None = Field(
         default=None,
         max_length=8,
@@ -54,13 +58,23 @@ class PlanNode(StrictModel):
     inputs: dict[str, InputReference] = Field(default_factory=dict)
     code: str = Field(default="", max_length=50000)
     calculation: VaspSettings | None = None
-    purpose: str = Field(default="", max_length=1000)
+    job: JobSettings | None = None
+    files: list[FileReference] = Field(default_factory=list)
+    purpose: str = Field(default="", max_length=8000)
+    text_files: dict[str, str] = Field(
+        default_factory=dict,
+        description="Input text supplied for an agent-owned task. Write these exact inputs "
+        "when preparing the task; do not silently replace user edits.",
+    )
+    submission_script: str = Field(default="", max_length=200000)
     result_files: list[str] = Field(default_factory=list)
     file_source: Literal["retrieved", "remote"] = "retrieved"
 
     def stored_record(self, previous: dict | None = None) -> dict:
         """An omitted path preserves the previous annotation during draft edits or repairs."""
         body = self.model_dump(mode="json", exclude={"group_path"})
+        if previous and previous.get("parent_task"):
+            body["parent_task"] = previous["parent_task"]
         path = self.group_path
         if path is None and previous:
             path = previous.get("group_path")
@@ -72,11 +86,37 @@ class PlanNode(StrictModel):
     def valid_operation(self):
         import re
 
+        from chemistry_agent.automation.job_models import artifact_path
+
+        self.text_files = {artifact_path(k): v for k, v in self.text_files.items()}
+        if (self.text_files or self.submission_script) and self.kind != "task":
+            raise ValueError("研究步骤的文本输入使用 task；普通作业使用 job.files 和 job.script。")
+
+        self.executor = self.executor or ("agent" if self.kind == "task" else "platform")
+        if (self.kind == "task") != (self.executor == "agent"):
+            raise ValueError("Agent 负责的研究步骤使用 task；可执行脚本节点由 platform 负责。")
+        if self.parent_task and self.kind != "job":
+            raise ValueError("仅实际作业节点关联 parent_task。")
         if any(not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", alias) for alias in self.inputs):
             raise ValueError("输入名称须为小写字母开头的字母、数字、下划线。")
         if self.result_files and self.kind != "analysis":
             raise ValueError("result_files 仅用于分析步骤。")
-        if self.kind == "vasp":
+        targets = [ref.target for ref in self.files]
+        if len(targets) != len(set(targets)):
+            raise ValueError("文件依赖的目标路径重复。")
+        if self.kind != "job" and self.job is not None:
+            raise ValueError("job 设置仅用于 job 节点。")
+        if self.kind == "task":
+            if self.code or self.calculation or self.files:
+                raise ValueError("研究步骤保存目标与输入；执行文件由 Agent 创建并登记到该步骤。")
+        elif self.kind == "job":
+            if not self.job or self.code or self.calculation:
+                raise ValueError("通用任务需要 job 设置；脚本写在 job.script。")
+            if set(targets) & set(self.job.files):
+                raise ValueError("文本输入文件与依赖文件目标重复。")
+        elif self.kind == "vasp":
+            if self.files:
+                raise ValueError("VASP 专用节点使用结构/参数接口；任意文件脚本任务请用 job。")
             if not self.calculation or self.code or len(self.inputs) != 1:
                 raise ValueError("VASP 步骤需要 calculation 和唯一的 structure 输入，不执行代码。")
             source = next(iter(self.inputs.values()))
@@ -103,6 +143,7 @@ class PlanDraft(StrictModel):
     goal: str = Field(min_length=1, max_length=2000)
     nodes: list[PlanNode] = Field(min_length=1)
     max_parallel: int | None = Field(default=None, ge=1)
+    repair_limit: int = Field(default=2, ge=0)
 
     @model_validator(mode="after")
     def valid_graph(self):
@@ -113,15 +154,37 @@ class PlanDraft(StrictModel):
             raise ValueError("步骤 id 不能重复。")
         pending = {}
         for node in self.nodes:
+            if node.parent_task:
+                parent = nodes.get(node.parent_task)
+                if parent is None or parent.kind != "task":
+                    raise ValueError(f"{node.id} 的 parent_task 须引用存在的研究步骤。")
+                # Jobs may start when the research goal is ready, not before its inputs exist.
+                node.depends_on = sorted(
+                    set(node.depends_on)
+                    | set(parent.depends_on)
+                    | {ref.node for ref in parent.inputs.values() if ref.node}
+                )
             refs = {ref.node for ref in node.inputs.values() if ref.node}
+            refs |= {ref.node for ref in node.files if ref.node}
             dependencies = set(node.depends_on) | refs
             if not dependencies <= nodes.keys() or node.id in dependencies:
                 raise ValueError(f"{node.id} 引用了不存在的步骤或自身。")
             for ref in node.inputs.values():
-                if ref.node and ref.output == "structure" and nodes[ref.node].kind == "analysis":
-                    raise ValueError("分析步骤输出 result，不能当作结构。")
+                if (
+                    ref.node
+                    and ref.output == "structure"
+                    and nodes[ref.node].kind in {"analysis", "job", "task"}
+                ):
+                    raise ValueError(
+                        "分析/通用任务输出 result 和文件；请用建模节点读取文件生成结构。"
+                    )
             node.depends_on = sorted(dependencies)
             pending[node.id] = dependencies
+        # A goal cannot finish until its jobs finish. Include this implicit dependency
+        # in cycle validation without making the scheduler execute the agent-owned goal.
+        for node in self.nodes:
+            if node.parent_task:
+                pending[node.parent_task].add(node.id)
         done = set()
         while pending:
             ready = {key for key, deps in pending.items() if deps <= done}
@@ -186,3 +249,18 @@ class PlanFigure(StrictModel):
     source_node: str
     title: str = Field(min_length=1, max_length=120)
     code: str = Field(min_length=1, max_length=50000)
+
+
+class PlanExtension(StrictModel):
+    plan_id: UUID
+    nodes: list[dict] = Field(min_length=1, description="Nodes using calculation_plan_save schema")
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def valid_nodes(self):
+        for node in self.nodes:
+            PlanNode.model_validate(node)
+        return self
+
+    def parsed_nodes(self) -> list[PlanNode]:
+        return [PlanNode.model_validate(node) for node in self.nodes]

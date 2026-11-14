@@ -1,0 +1,41 @@
+.convergence-card {container-type:inline-size;padding:12px 0 6px;color:var(--text);}
+.conv-heading,.conv-toolbar,.conv-actions,.conv-range-labels {display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.conv-heading h3 {margin:0;font-size:13px;font-weight:600;}
+.conv-status {font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px;}
+.conv-status::before {content:'';width:5px;height:5px;border-radius:50%;background:currentColor;}
+.conv-status[data-converged="true"] {color:var(--accent);}
+.conv-progress {font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.conv-metrics {display:flex;flex-wrap:wrap;gap:14px 20px;margin:16px 0;}
+.conv-metrics div {flex:1;min-width:78px;}
+.conv-metrics dt {font-size:11px;color:var(--muted);margin-bottom:5px;}
+.conv-metrics dd {margin:0;font-size:15px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.025em;white-space:nowrap;}
+.conv-metrics small {font-size:10px;color:var(--muted);font-weight:400;margin-left:3px;letter-spacing:0;}
+.conv-toolbar {margin:2px 0 8px;flex-wrap:wrap;}
+.conv-modes {display:flex;flex-wrap:wrap;gap:2px;background:var(--subtle);border-radius:7px;padding:3px;}
+.conv-modes button {border:0;border-radius:5px;padding:4px 9px;font-size:12px;background:transparent;color:var(--muted);line-height:1.4;}
+.conv-modes button[aria-pressed="true"] {background:var(--surface);color:var(--text);box-shadow:0 0 0 1px var(--border);}
+.conv-actions {gap:2px;margin-left:auto;}
+.conv-selected-step {font-size:11px;color:var(--muted);margin-right:5px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.conv-actions button {display:grid;place-items:center;width:28px;height:28px;padding:5px;border:0;border-radius:6px;background:transparent;color:var(--muted);}
+.conv-actions button:hover {background:var(--hover);color:var(--text);}
+.conv-actions .icon {width:16px;height:16px;}
+.conv-plot {position:relative;touch-action:pan-y;outline-offset:3px;border-radius:5px;}
+.conv-plot svg {display:block;width:100%;height:232px;overflow:visible;}
+.conv-tooltip {position:absolute;z-index:2;pointer-events:none;min-width:155px;padding:9px 11px;background:var(--panel);border:1px solid var(--strong-border);border-radius:8px;box-shadow:var(--floating-shadow);font-size:12px;line-height:1.7;}
+.conv-tooltip strong {display:block;font-size:11px;margin-bottom:3px;}
+.conv-tooltip div {display:flex;justify-content:space-between;gap:18px;color:var(--muted);}
+.conv-tooltip b {color:var(--text);font-variant-numeric:tabular-nums;font-weight:500;}
+.conv-range {margin:4px 10px 4px;}
+.conv-overview {height:30px;position:relative;}
+.conv-overview svg {width:100%;height:26px;display:block;}
+.conv-overview input[type="range"] {position:absolute;inset:0;top:1px;width:100%;height:26px;padding:0;margin:0;background:transparent;appearance:none;pointer-events:none;border:0;box-shadow:none;}
+.conv-overview input[type="range"]::-webkit-slider-thumb {appearance:none;pointer-events:auto;width:8px;height:26px;border:1px solid var(--strong-border);background:var(--surface);border-radius:3px;cursor:ew-resize;}
+.conv-overview input[type="range"]::-moz-range-thumb {pointer-events:auto;width:8px;height:24px;border:1px solid var(--strong-border);background:var(--surface);border-radius:3px;cursor:ew-resize;}
+.conv-overview input[type="range"]:focus-visible::-webkit-slider-thumb {outline:2px solid var(--accent);outline-offset:2px;}
+.conv-range-labels {color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;margin-top:3px;}
+.conv-range-labels button {font-size:11px;padding:2px 5px;background:transparent;border:0;color:var(--muted);}
+.conv-note,.conv-empty {font-size:12px!important;color:var(--muted);line-height:1.6;margin:8px 0 0;}
+.conv-empty {padding:30px 8px;text-align:center;}
+.conv-note:empty {display:none;}
+@container (max-width:310px) {.conv-metrics {gap:10px;}.conv-metrics dd {font-size:14px;}.conv-modes button {padding:4px 7px;}.conv-actions button {width:26px;}.conv-heading h3 {font-size:12px;}}
+@media (prefers-reduced-motion:reduce) {.convergence-card * {transition:none!important;}}

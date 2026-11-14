@@ -20,7 +20,7 @@ def settings_factory(tmp_path):
         if overrides.get("automation_enabled"):
             # These integration tests use the byte-per-token fallback, not a tokenizer.
             # Leave room for the growing automation tool schemas; context tests set their own limit.
-            values["context_window_tokens"] = 81920
+            values["context_window_tokens"] = 131072
         return Settings(**(values | overrides))
 
     return create

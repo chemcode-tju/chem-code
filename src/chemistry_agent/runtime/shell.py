@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from chemistry_agent.automation.local_ssh import enabled_aliases
 from chemistry_agent.automation.ssh_profiles import load_profile, shell_profiles
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import Tool, ToolContext
@@ -19,6 +20,7 @@ OUTPUT_BYTES = 16_384
 class ShellInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     command: str = Field(min_length=1, max_length=16_384)
+    host: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def authorized_host(message: str, hosts: tuple[str, ...]) -> str | None:
@@ -65,7 +67,9 @@ async def profiled_command(root: Path, identifier: str, host: str, command: str)
 
 def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
     async def execute(args: ShellInput, context: ToolContext) -> dict:
-        host = shell_grant.get()
+        # The local settings selection is a durable grant, shared by new conversations.
+        available = enabled_aliases(root, hosts) if root else hosts
+        host = args.host or shell_grant.get()
         profiles = shell_profiles(root) if root and host else {}
         if host in profiles:
             try:
@@ -75,9 +79,9 @@ def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
                 raise AgentError(
                     "ssh_timeout", "SSH 已超时，远端操作状态未知；请先检查结果。", 504
                 ) from exc
-        if not host or host not in hosts:
+        if not host or host not in available or (root is None and host != shell_grant.get()):
             raise AgentError(
-                "ssh_authorization_required", "请在本轮消息首行输入 /shell 服务器别名。", 403
+                "ssh_authorization_required", "请在服务器设置中启用该 SSH 别名，并指定 host。", 403
             )
         # No local shell, no inherited forwards, no interactive/password fallback.
         command = [
@@ -142,10 +146,12 @@ def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
 
     return Tool(
         "remote_shell",
-        "Run a non-interactive shell command on the server selected by "
-        "the user's /shell HOST header. Configured hosts: "
+        "Run a shell command on a locally enabled server using host. "
+        "Use calculation_job_hosts for the current list. Inspect shell/config files and "
+        "discover software and potential libraries yourself before asking the user for paths. "
+        "Do not read private key contents. Configured hosts: "
         + ", ".join(hosts)
-        + ". For VASP submissions use calculation tools.",
+        + ". After sbatch, register the job with calculation_job_adopt for durable monitoring.",
         ShellInput,
         execute,
         contextual=True,

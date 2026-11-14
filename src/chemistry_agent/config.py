@@ -34,6 +34,10 @@ class Settings(BaseSettings):
         return () if self.auth_enabled else hosts
 
     automation_enabled: bool = Field(default=False, validation_alias="CHEMISTRY_AUTOMATION_ENABLED")
+    aiida_enabled: bool = Field(default=False, validation_alias="CHEMISTRY_AIIDA_ENABLED")
+    platform_agent_enabled: bool = Field(
+        default=True, validation_alias="CHEMISTRY_PLATFORM_AGENT_ENABLED"
+    )
     automation_monitor_enabled: bool = Field(
         default=True, validation_alias="CHEMISTRY_AUTOMATION_MONITOR_ENABLED"
     )

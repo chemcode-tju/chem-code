@@ -10,14 +10,9 @@ from rdkit import Chem, DataStructs, rdBase
 from rdkit.Chem import Crippen, Descriptors, Lipinski, rdFingerprintGenerator, rdMolDescriptors
 
 from chemistry_agent.errors import AgentError
+from chemistry_agent.platform.contracts import OperationContext as ToolContext
 from chemistry_agent.provider import ToolCall
 from chemistry_agent.schemas import ToolExecution
-
-
-@dataclass(frozen=True)
-class ToolContext:
-    session_id: str
-    run_id: str
 
 
 class MoleculeInput(BaseModel):
@@ -132,7 +127,9 @@ class ToolRegistry:
     async def execute(self, call: ToolCall, context: ToolContext | None = None) -> ToolExecution:
         arguments: Any = call.function.arguments
         try:
-            arguments = json.loads(arguments)
+            # Some providers return literal newlines inside a tool string (e.g. a
+            # Python heredoc). Preserve those bytes instead of rejecting valid code.
+            arguments = json.loads(arguments, strict=False)
             tool = self.tools.get(call.function.name)
             if tool is None:
                 raise ValueError("未知工具，请选择已注册的工具。")
@@ -140,6 +137,22 @@ class ToolRegistry:
             if tool.contextual and context is None:
                 raise AgentError("chat_context_required", "请在对话中使用此工具。", 422)
             values = (args, context) if tool.contextual else (args,)
+            from chemistry_agent.backends.approvals import current_tool_approval
+
+            broker = current_tool_approval.get()
+            if broker and tool.contextual and tool.name != "ask_user_question":
+                approved = await broker.ask(
+                    context.session_id,
+                    context.run_id,
+                    {
+                        "title": f"批准工具 · {tool.name}",
+                        "details": arguments,
+                    },
+                )
+                if not approved:
+                    raise AgentError(
+                        "tool_declined", "用户拒绝了此次工具执行，请等待新的指示。", 403
+                    )
             if inspect.iscoroutinefunction(tool.handler):
                 result = await tool.handler(*values)
             else:
@@ -156,6 +169,13 @@ class ToolRegistry:
                     {"field": ".".join(map(str, issue["loc"])), "reason": issue["msg"]}
                     for issue in exc.errors(include_input=False, include_context=False)[:12]
                 ],
+            }
+            success = False
+        except json.JSONDecodeError as exc:
+            result = {
+                "error": "invalid_tool_input",
+                "message": f"工具参数 JSON 语法错误：{exc.msg}"
+                f"（行 {exc.lineno}，列 {exc.colno}）。",
             }
             success = False
         except ValueError:

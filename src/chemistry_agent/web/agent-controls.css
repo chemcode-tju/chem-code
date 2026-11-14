@@ -1,0 +1,48 @@
+/* Agent controls share the settings palette and adapt without truncating models. */
+.agent-row { border:0; border-bottom:1px solid var(--border); padding:0; margin:0; }
+.agent-row > summary { display:flex; gap:12px; align-items:center; min-height:48px; list-style:none; font-size:15px; font-weight:400; padding:0 2px; }
+.agent-row > summary::-webkit-details-marker { display:none; }
+.agent-row .agent-default { margin-left:auto; color:var(--muted); font-size:13px; }
+.agent-row .disclosure { width:14px; height:14px; transform:rotate(0deg); }
+.agent-row[open] .disclosure { transform:rotate(90deg); }
+.agent-fields { padding:8px 0 24px; }
+.agent-fields > label { display:block; margin-top:16px; margin-bottom:6px; }
+.agent-fields input:not([type=checkbox]), .agent-fields select { min-height:36px; }
+.agent-fields > input, .agent-fields > select { width:100%; }
+.agent-fields > .actions.footer { margin-top:20px; }
+#agent-notice:empty { display:none; }
+.agent-composer-controls { display:flex; align-items:center; flex-wrap:wrap; gap:6px; min-width:0; }
+.agent-composer-controls .model-status:not(.unavailable) { display:none; }
+.composer-toolbar, .composer-right { flex-wrap:wrap; }
+.composer-right { min-width:0; }
+.agent-picker, .permission-picker { display:inline-flex; align-items:center; gap:7px; width:max-content; flex:0 0 auto; max-width:none; border:0; border-radius:7px; background:transparent; color:var(--muted); padding:6px 8px; white-space:nowrap; font-size:14px; font-weight:400; }
+.agent-picker:hover, .permission-picker:hover, .agent-picker[aria-expanded=true], .permission-picker[aria-expanded=true] { background:var(--hover); color:var(--text); }
+.agent-picker .icon, .permission-picker .icon { width:16px; height:16px; flex:none; }
+.agent-picker .small-chevron, .permission-picker .small-chevron { width:10px; height:10px; transform:rotate(90deg); }
+.agent-menu { position:fixed; inset:auto; margin:0; z-index:2000; background:var(--raised); color:var(--text); border:1px solid var(--border); border-radius:10px; box-shadow:var(--floating-shadow); padding:5px; display:flex; max-width:calc(100vw - 16px); overflow:hidden; font:14px var(--font-ui); }
+.agent-menu[hidden] { display:none; }
+.agent-menu-column { min-width:166px; max-width:280px; overflow-y:auto; max-height:min(420px,65vh); padding:3px; }
+.agent-menu-column + .agent-menu-column { border-left:1px solid var(--border); }
+.agent-menu-title { padding:7px 10px; color:var(--muted); font-size:12px; }
+.agent-menu button { border:0; border-radius:6px; background:transparent; display:flex; gap:10px; align-items:center; width:100%; padding:8px 10px; text-align:left; font:inherit; color:inherit; white-space:nowrap; }
+.agent-menu button:hover, .agent-menu button:focus-visible, .agent-menu button[data-active=true] { background:var(--hover); outline:none; }
+.agent-menu button:disabled { opacity:.45; cursor:default; }
+.agent-menu .menu-trailing { margin-left:auto; min-width:12px; color:var(--muted); }
+.agent-menu .menu-message { white-space:normal; max-width:260px; padding:8px 10px; color:var(--muted); line-height:1.5; }
+.agent-menu .menu-manual { display:flex; gap:6px; padding:6px; }
+.agent-menu input { width:180px; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:5px; padding:6px; }
+.agent-menu .menu-manual button { width:auto; }
+.agent-approval { border:1px solid var(--border); border-radius:8px; padding:12px; margin-top:10px; }
+.agent-approval header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.agent-approval pre { max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:12px var(--font-code); }
+.agent-approval .approval-actions { display:flex; gap:8px; margin-top:10px; }
+.agent-approval button { padding:5px 12px; border:1px solid var(--border); border-radius:6px; background:var(--raised); color:var(--text); }
+@media (max-width:640px) {
+  .agent-menu { max-width:calc(100vw - 16px); }
+  .agent-menu-column { width:min(300px,calc(100vw - 30px)); max-width:none; }
+  .agent-menu-column:not(:last-child) { display:none; }
+  .agent-menu-column + .agent-menu-column { border:0; }
+  .composer-right { gap:4px; }
+  .agent-picker { white-space:normal; text-align:left; flex-shrink:1; }
+  #agent-picker-label { overflow-wrap:anywhere; }
+}

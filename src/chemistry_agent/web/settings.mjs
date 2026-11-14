@@ -1,3 +1,4 @@
+import { createAgentSettings } from "./agent-settings.mjs";
 import { t, getLanguage, setLanguage, translateUI } from "./i18n.mjs";
 import { fillModelOptions } from "./models.mjs";
 import { createComputeSettings } from "./compute-settings.mjs";
@@ -238,8 +239,9 @@ $("settings-logout").addEventListener("click", () => action(async () => {
 }));
 
 const computeSettings = createComputeSettings(selectTab);
+const agentSettings = createAgentSettings(api);
 function showSettingsPanel() {
-  const aliases = { account: "general", "model-form": "model" };
+  const aliases = { account: "general", "model-form": "agent", model: "agent" };
   const hash = embedded ? new URLSearchParams(location.search).get("tab") : location.hash.slice(1);
   const selected = aliases[hash] || (tabs.some(tab => tab.dataset.tab === hash) ? hash : "general");
   document.querySelectorAll("[data-panel]").forEach((panel) => { panel.hidden = panel.dataset.panel !== selected; });
@@ -247,12 +249,13 @@ function showSettingsPanel() {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === selected));
     tab.tabIndex = tab.dataset.tab === selected ? 0 : -1;
   });
-  $("notice").hidden = selected !== "model";
+  $("notice").hidden = selected !== "agent";
   document.querySelector("main").scrollTop = 0;
   if (compactLayout.matches) document.querySelector('[data-tab][aria-selected="true"]').scrollIntoView({block:"nearest", inline:"nearest"});
   if (embedded) parent.postMessage({type:"chem:settings-tab", tab:selected}, location.origin);
   computeSettings.activate(selected);
-  if (selected === "model" && !modelLoaded) {
+  if (selected === "agent") void agentSettings.load();
+  if (selected === "agent" && !modelLoaded) {
     modelLoaded = true;
     action(async () => {
       try { displaySettings(await api("/api/model/settings")); await refreshLogin(); await refreshModels(); }

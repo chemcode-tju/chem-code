@@ -12,6 +12,9 @@ export const TOOL_LABELS = {
   calculation_prepare: "匹配方案与赝势",
   calculation_preview: "生成计算预览",
   calculation_submit_confirmed: "用户确认提交",
+  calculation_job_hosts: "查询任务服务器",
+  calculation_job_files: "检查作业与文件",
+  calculation_plan_extend: "追加后续步骤",
   calculation_jobs: "查询计算任务",
   calculation_job: "读取状态与结果",
 };
@@ -22,8 +25,40 @@ export function escapeHtml(value) {
   })[character]);
 }
 
-export function createMarkdownRenderer(factory) {
+export function localFilePath(href) {
+  try {
+    const url = new URL(href);
+    if (url.protocol === 'file:' && (!url.hostname || url.hostname === 'localhost'))
+      return decodeURIComponent(url.pathname);
+  } catch { /* Not a local file URI. */ }
+  return null;
+}
+
+export function createMarkdownRenderer(factory, {katex = globalThis.katex, texmath = globalThis.texmath} = {}) {
   const renderer = factory({ html: false, breaks: true, linkify: false });
+  if (katex && texmath) renderer.use(texmath, {
+    // Each equation gets its own macros; no cross-message state or trusted HTML/URLs.
+    engine: {renderToString: (source, options) => katex.renderToString(source, {...options, macros:{}})},
+    delimiters: ['dollars', 'brackets'],
+    katexOptions: {trust:false, throwOnError:false, strict:'ignore', maxExpand:1000, maxSize:20},
+  });
+  const validLink = renderer.validateLink.bind(renderer);
+  renderer.validateLink = href => localFilePath(href) !== null || validLink(href);
+  renderer.core.ruler.after('inline', 'local_file_references', state => {
+    for (const token of state.tokens) {
+      const stack = [];
+      for (const child of token.children || []) {
+        if (child.type === 'link_open') {
+          const path = localFilePath(child.attrGet('href'));
+          stack.push(path);
+          if (path !== null) child.meta = {...child.meta, localFilePath:path};
+        } else if (child.type === 'link_close') {
+          const path = stack.pop();
+          if (path !== null && path !== undefined) child.meta = {...child.meta, localFilePath:path};
+        }
+      }
+    }
+  });
   // CommonMark treats punctuation beside a Chinese character as intraword.
   // Relax that boundary for double asterisks, while the parser still owns
   // escaping, code spans, links, and matching nested emphasis.
@@ -58,10 +93,17 @@ export function createMarkdownRenderer(factory) {
     return renderer.render(source);
   };
   const original = renderer.renderer.rules.link_open;
+  const originalClose = renderer.renderer.rules.link_close;
   renderer.renderer.rules.link_open = (tokens, index, options, env, self) => {
+    const path = tokens[index].meta?.localFilePath;
+    if (path !== undefined) return `<span class="local-file-reference" data-local-file-path="${escapeHtml(path)}" title="${escapeHtml(path)}">`;
     tokens[index].attrSet("target", "_blank");
     tokens[index].attrSet("rel", "noopener noreferrer");
     return original ? original(tokens, index, options, env, self) : self.renderToken(tokens, index, options);
+  };
+  renderer.renderer.rules.link_close = (tokens, index, options, env, self) => {
+    if (tokens[index].meta?.localFilePath !== undefined) return '</span>';
+    return originalClose ? originalClose(tokens, index, options, env, self) : self.renderToken(tokens, index, options);
   };
   // Remote images can send a user's IP or browsing metadata. Show the alt text instead.
   renderer.renderer.rules.image = (tokens, index) => escapeHtml(tokens[index].content);
@@ -91,17 +133,30 @@ export function buildTurns(messages, runs = []) {
     .sort((a, b) => a.started_at.localeCompare(b.started_at));
   let turn = null;
   let pendingCalls = new Map();
+  const finalAnswers = new Set(completed.map(run=>run.answer).filter(Boolean));
   for (const message of messages) {
+    // A persisted background run has no synthetic user message. Keep its reply and
+    // tool trace separate instead of replacing the preceding user's answer.
+    if (message.role === "assistant" && !message.task_event &&
+        (!turn || finalAnswers.has(turn.answer))) {
+      turn = {text:"",context:"",answer:"",calls:[],steps:[],run:null,background:true};
+      turns.push(turn);
+      pendingCalls = new Map();
+    }
     if (message.role === "assistant" && message.task_event) {
       turns.push({event:message.task_event,text:"",context:"",calls:[],answer:message.content,run:null});
       turn = null;
     } else if (message.role === "user") {
-      turn = { ...splitReference(message.content || ""), answer: "", calls: [], run: completed[turns.length] || null };
+      turn = { ...splitReference(message.content || ""), answer: "", calls: [], steps: [], run: completed[turns.length] || null };
       turns.push(turn);
       pendingCalls = new Map();
     } else if (turn && message.role === "assistant") {
       if (message.tool_calls?.length) {
-        for (const call of message.tool_calls) pendingCalls.set(call.id, call);
+        if (message.content) turn.steps.push({type:'commentary', text:message.content});
+        for (const call of message.tool_calls) {
+          pendingCalls.set(call.id, call);
+          turn.steps.push({type:'tool',call_id:call.id,name:call.function?.name || '工具',status:'uncertain'});
+        }
       } else if (message.content) turn.answer = message.content;
     } else if (turn && message.role === "tool") {
       const call = pendingCalls.get(message.tool_call_id);
@@ -109,12 +164,23 @@ export function buildTurns(messages, runs = []) {
       turn.calls.push({ call_id: message.tool_call_id, name: call?.function?.name || "工具",
         arguments: parseJson(call?.function?.arguments || "{}", {}),
         result, success: result !== null && !result.error });
+      const step = turn.steps.find(item=>item.call_id===message.tool_call_id);
+      if (step) step.status = result !== null && !result.error ? 'completed' : 'failed';
     }
   }
   // The latest run page contains the latest completed turns, even with failed runs mixed in.
   const chatTurns = turns.filter(item=>!item.event);
   const offset = chatTurns.length - completed.length;
   chatTurns.forEach((item, index) => { item.run = offset >= 0 ? completed[index - offset] || null : null; });
+  for (const run of runs.filter(row=>['running','failed','cancelled'].includes(row.status) && row.context?.automation_event==='job_completion')) {
+    const answer = run.status === 'running' ? run.answer || '后台 Agent 正在准备计算。'
+      : run.status === 'cancelled' ? '后台 Agent 处理已中断。'
+      : `后台 Agent 未完成处理：${String(run.context?.error_message || run.error_code || '连接失败').replace(/[。.!！]+$/u,'')}。计算记录已保留。`;
+    const background = {text:'',context:'',answer,
+      calls:run.tool_calls || [],steps:run.context?.public_steps || [],run,background:true};
+    const next = turns.findIndex(turn=>turn.run?.started_at > run.started_at);
+    if (next < 0) turns.push(background); else turns.splice(next,0,background);
+  }
   return turns;
 }
 

@@ -178,7 +178,7 @@ async def test_failed_summary_keeps_originals_and_does_not_advance_memory(
         if failure == "upstream":
             return httpx.Response(500, json={"error": "do not expose upstream text"})
         if failure == "oversized":
-            return httpx.Response(200, json=reply("X" * 1000))
+            return httpx.Response(200, json=reply("X" * 10000))
         return httpx.Response(
             200,
             json=reply(
@@ -207,7 +207,13 @@ async def test_failed_summary_keeps_originals_and_does_not_advance_memory(
         )
         run = client.get("/runs/" + error["run_id"]).json()
         assert run["status"] == "failed"
-        assert run["usage"]["total_tokens"] == (0 if failure == "upstream" else 35)
+        assert run["usage"]["total_tokens"] == (
+            0 if failure == "upstream" else 70 if failure == "oversized" else 35
+        )
+        assert run["context"]["summary_error_code"] == {
+            "upstream": "provider_error", "oversized": "summary_oversized",
+            "unexpected_tools": "summary_unexpected_tools",
+        }[failure]
     store = await Store.open(settings.database_path)
     try:
         assert (await store.get_context_memory(session_id)).covered_messages == 0
@@ -495,6 +501,21 @@ async def test_tool_compaction_does_not_mutate_source_and_remains_valid_json(set
         assert json.loads(wire[-1]["content"])["_context_compacted"]
         assert wire[-1]["tool_call_id"] == "pair"
         assert original == before
+        manager.settings.context_tool_result_tokens = 512
+        artifact = {
+            "id": "artifact",
+            "job_id": "job",
+            "source_path": "long/" * 2000,
+            "immutable": True,
+            "source_state_at_capture": "terminal",
+            "snapshot": False,
+            "sha256": "a" * 64,
+        }
+        reduced, changed = manager.compact_tool_content(json.dumps(artifact))
+        assert changed
+        metadata = json.loads(reduced)["data"]
+        for key in ("immutable", "source_state_at_capture", "snapshot", "sha256"):
+            assert metadata[key] == artifact[key]
     finally:
         await provider.close()
         await store.close()
@@ -596,7 +617,8 @@ async def test_manual_compaction_failure_keeps_history_and_releases_lock(setting
 
 
 async def test_large_recent_history_is_summarized_without_losing_tool_pairs(settings_factory):
-    settings = budget_settings(settings_factory, context_recent_turns=4)
+    # Include the workspace publication tool schema while keeping fewer than four turns affordable.
+    settings = budget_settings(settings_factory, context_recent_turns=4, context_window_tokens=9216)
     session_id, originals = await seed(settings, turns=6, padding=180)
 
     def provider(request):
