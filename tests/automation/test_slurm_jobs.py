@@ -311,7 +311,7 @@ async def test_event_wakes_tool_agent_once_without_visible_prompt(cluster):
             from chemistry_agent.automation.job_tools import JobFileQuery, tools
 
             evidence = json.loads(messages[-1]["content"].split("\n", 1)[1])
-            identifier = evidence["events"][0]["state"]["generic_job_id"]
+            identifier = evidence["events"][0]["job_id"]
             tool = tools(plans)[0]
             result = await tool.handler(
                 JobFileQuery(job_id=identifier, mode="read", path="result.dat"), context
@@ -428,7 +428,7 @@ async def test_real_agent_loop_reads_output_then_extends_workflow(cluster):
             name, arguments = (
                 "calculation_job_files",
                 {
-                    "job_id": event["events"][0]["state"]["generic_job_id"],
+                    "job_id": event["events"][0]["job_id"],
                     "mode": "read",
                     "path": "result.dat",
                 },

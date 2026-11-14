@@ -617,7 +617,8 @@ async def test_manual_compaction_failure_keeps_history_and_releases_lock(setting
 
 
 async def test_large_recent_history_is_summarized_without_losing_tool_pairs(settings_factory):
-    settings = budget_settings(settings_factory, context_recent_turns=4)
+    # Include the workspace publication tool schema while keeping fewer than four turns affordable.
+    settings = budget_settings(settings_factory, context_recent_turns=4, context_window_tokens=9216)
     session_id, originals = await seed(settings, turns=6, padding=180)
 
     def provider(request):

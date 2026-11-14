@@ -50,6 +50,7 @@ export function createComputeSettings(selectTab) {
   const envForm=$('environment-form'), queues=new Map();
   let all=null, config=null, selected='', active='', generation=0, loading=false, busy=false, editing=null;
   let attempted=false, modelReady=null;
+  const engine=fetch('/health',{cache:'no-store'}).then(r=>r.json());
   const server=()=>all?.servers.find(row=>row.id===selected);
   const localReady=()=>Boolean(config?.aiida?.profile_ready);
   const usableCodes=()=>config?.codes.filter(c=>c.server_id===selected && isVasp(c)) || [];
@@ -249,7 +250,26 @@ export function createComputeSettings(selectTab) {
     resetEnvironment();$('environment-editor').open=false;await afterSave('执行环境已保存。');
   });};
   window.addEventListener('languagechange',()=>{if(config) render();ssh.translate();});
-  return {activate(panel) {
+  return {async activate(panel) {
+    active=panel;
+    const health=await engine.catch(()=>null);
+    if(active!==panel) return;
+    const legacy=Boolean(health?.aiida_enabled);
+    $('legacy-aiida-connection').hidden=!legacy;
+    for(const key of ['software','potentials','queues','environments']) $('tab-'+key).hidden=!legacy;
+    if(!legacy) {
+      $('compute-scope').hidden=true;notify();
+      $('setup-local').hidden=true;$('setup-default').replaceChildren();
+      if(panel==='servers') localSSH.activate();
+      if(panel==='automation') $('compute-steps').innerHTML=[
+        ['Agent',health?.model_configured?'已配置':'未配置','agent'],
+        ['服务器','本机 SSH 配置','servers'],
+        ['计算平台',health?.automation_enabled?'已启用 · Slurm 作业监控与持久等待':'未启用','servers'],
+      ].map(([name,state,target])=>`<li><button type="button" data-generic-setting="${target}">${esc(t(name))}</button><span>${esc(t(state))}</span></li>`).join('');
+      $('compute-steps').onclick=event=>{const button=event.target.closest('[data-generic-setting]');if(button) selectTab(button.dataset.genericSetting);};
+      if(['software','potentials','queues','environments'].includes(panel)) selectTab('servers');
+      return;
+    }
     if(panel==='servers') localSSH.activate();
     if(active!==panel) {ssh.closeSecret();notify();}
     active=panel;$('compute-scope').hidden=!panels.has(panel) || panel==='servers';

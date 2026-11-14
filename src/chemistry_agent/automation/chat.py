@@ -470,7 +470,7 @@ class CalculationChat:
         return result
 
     def tools(self) -> list[Tool]:
-        return (
+        tools = (
             self.plans.tools()
             + self.analysis.tools()
             + settings_tools(self.service)
@@ -584,3 +584,19 @@ class CalculationChat:
                 ),
             ]
         )
+
+        if self.service.settings.aiida_enabled:
+            return tools
+        legacy = {
+            "calculation_setup",
+            "calculation_prepare",
+            "calculation_preview",
+            "calculation_import_result",
+            "calculation_jobs",
+            "calculation_job",
+            "calculation_record_investigation",
+            "calculation_events",
+        }
+        legacy.update(tool.name for tool in settings_tools(self.service))
+        legacy.update(tool.name for tool in self.analysis.tools())
+        return [tool for tool in tools if tool.name not in legacy]

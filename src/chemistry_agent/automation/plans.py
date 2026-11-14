@@ -122,6 +122,14 @@ class CalculationPlans:
         return [self.public(item) for item in self.chat.list_records(session, "plans")]
 
     async def draft(self, args: PlanDraft, context: ToolContext) -> dict:
+        if not self.chat.service.settings.aiida_enabled and any(
+            n.kind == "vasp" for n in args.nodes
+        ):
+            raise AgentError(
+                "legacy_backend_disabled",
+                "请使用 task 或 job 节点写脚本执行 VASP，当前平台无需 AiiDA。",
+                422,
+            )
         session, identifier = context.session_id, str(args.plan_id or uuid4())
         if auto_queue.get() and not args.plan_id:
             identifier = str(
@@ -571,11 +579,29 @@ class CalculationPlans:
                 self.save(session, plan)
                 return self.public(plan)
             expected = "running" if action == "pause" else "paused"
-            if plan["status"] != expected:
+            if plan["status"] != expected and not (
+                action == "pause" and plan["status"] == "paused"
+            ):
                 raise AgentError("plan_state_conflict", "当前状态不能执行此操作。", 409)
             plan["status"] = "paused" if action == "pause" else "running"
             self.save(session, plan)
-            return self.public(plan)
+            result = self.public(plan)
+        # Cancellation cleanup needs the plan lock too. Persist pause first, then
+        # stop the in-flight interpreter outside the lock; scheduler jobs continue.
+        if action == "pause":
+            tasks = {
+                task
+                for task in (
+                    self.event_tasks.get((session, identifier)),
+                    self.repair_tasks.get((session, identifier)),
+                )
+                if task and task is not asyncio.current_task()
+            }
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        return result
 
     def resolved_inputs(self, session: str, plan: dict, node: dict) -> dict:
         result = {}
@@ -712,6 +738,11 @@ class CalculationPlans:
             record.update(step_id=node["parent_task"], plan_id=plan["id"], node_id=node["id"])
             self.slurm.save(session, record)
         state.update(status="running", job=self.generic_snapshot(record))
+        self.save(session, plan)
+        await self.platform.results.ensure_job(
+            session, plan["id"], node["id"], identifier, settings.results,
+            node.get("parent_task"),
+        )
         if record["status"] == "rejected":
             raise AgentError("job_rejected", record.get("error", "Slurm 拒绝提交。"), 422)
 
@@ -1000,6 +1031,10 @@ class CalculationPlans:
     async def tick_plan(self, session: str, identifier: str) -> None:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
+            if not self.chat.service.settings.aiida_enabled and any(
+                n["kind"] == "vasp" for n in plan["nodes"]
+            ):
+                return  # Historical AiiDA plans remain readable; do not advance or resubmit them.
             stopped = plan["status"] in {"stopping", "stopped"}
             projection_key = (session, identifier, plan["revision"], plan["status"] == "stopped")
             if projection_key not in self.projected:
@@ -1220,11 +1255,30 @@ class CalculationPlans:
         from chemistry_agent.automation.job_tools import tools as job_tools
         from chemistry_agent.automation.wait_tools import tools as wait_tools
         from chemistry_agent.platform.artifacts import ArtifactRead, ArtifactRegister
+        from chemistry_agent.platform.results import ResultInspect, ResultRegister
         from chemistry_agent.platform.steps import StepReport
 
         return [
             *job_tools(self),
             *wait_tools(self),
+            Tool(
+                "calculation_result_register",
+                "Advanced sidebar mapping only. Jobs auto-register results; prefer their "
+                "results hint. For custom layouts use source inline/manifest/json_paths. "
+                "Idempotent key per step/job; no file moves or submission side effects.",
+                ResultRegister,
+                self.platform.handler("result.register"),
+                True,
+            ),
+            Tool(
+                "calculation_result_inspect",
+                "List registered results (omit key), read display data (key), or read a "
+                "registered structure (key,file). Read-only; includes source freshness. "
+                "Use this to verify the sidebar can read your produced results.",
+                ResultInspect,
+                self.platform.handler("result.inspect"),
+                True,
+            ),
             Tool(
                 "calculation_step_report",
                 "Report an agent-owned task conclusion with expected_revision, result, reason "
@@ -1274,8 +1328,7 @@ class CalculationPlans:
                 "Nodes: task (agent-owned research goal; execution_host; no fixed script), "
                 "job (arbitrary Slurm job.script, host, resources, text files, retrieve, "
                 "required_outputs; no AiiDA needed), model (ASE Python writes structure.vasp), "
-                "vasp (registered "
-                "protocol plus overrides), analysis (Python writes result.json; passed=false "
+                "analysis (Python writes result.json; passed=false "
                 "blocks descendants). inputs map aliases to structure_id OR upstream node/output. "
                 "Code reads alias.vasp and inputs.json (alias: {result} or {structure_id,file}). "
                 'analysis.result_files stages any relative file paths (or ["*"] for all). '
@@ -1305,9 +1358,9 @@ class CalculationPlans:
                 "Avoid nested code strings: import runpy; "
                 "W=runpy.run_path('plan_writer.py')['PlanWriter']; "
                 "p=W(title,goal); define standalone normal functions with imports inside. "
-                "p.model(id,fn,inputs={},arguments={}); p.vasp(id,source_id,protocol_id,incar=...,"
-                "resources=...,kmesh=...,require_ionic=...); p.analysis(id,fn,inputs=...,"
-                "result_files=['OUTCAR']); all three accept group_path=[outer_label, inner_label]. "
+                "p.model(id,fn,inputs={},arguments={}); p.analysis(id,fn,inputs=...,"
+                "result_files=['OUTCAR']); both accept group_path=[outer_label, inner_label]. "
+                "For agent-owned task and Slurm job nodes write the plan JSON directly. "
                 "Group repeated candidates by their meaningful dimensions, such as adsorbate then "
                 "initial site. Single-source descendants inherit the path for display. "
                 "p.ref(id,'structure' or 'result'); p.write(). "
@@ -1362,7 +1415,8 @@ class CalculationPlans:
                 "step outputs. Omit plan_id to list this session's plans. Reuse completed outputs "
                 "as structure_id in a new plan instead of repeating calculations. Before preparing "
                 "or submitting a task, read its latest purpose, text_files and submission_script: "
-                "users can edit unstarted steps in the UI. Honor those saved inputs instead of stale history.",
+                "users can edit unstarted steps in the UI. "
+                "Honor those saved inputs instead of stale history.",
                 PlanQuery,
                 self.platform.handler("plan.get"),
                 True,

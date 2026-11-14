@@ -44,6 +44,18 @@ class PlanResponses:
                 {
                     "id": item["slug"],
                     "name": item.get("display_name") or item["slug"],
+                    **(
+                        {
+                            "efforts": [
+                                e.get("effort", e.get("reasoningEffort"))
+                                for e in item["supported_reasoning_levels"]
+                                if isinstance(e, dict)
+                            ]
+                        }
+                        if isinstance(item.get("supported_reasoning_levels"), list)
+                        and item["supported_reasoning_levels"]
+                        else {}
+                    ),
                     **({"window": window} if (window := model_window(item)) else {}),
                 }
                 for item in response.json()["models"]
@@ -63,6 +75,7 @@ class PlanResponses:
         *,
         allow_tools: bool,
         max_tokens: int | None = None,
+        effort: str = "",
         **_: Any,
     ) -> Completion:
         from chemistry_agent.chatgpt import response_schema
@@ -110,6 +123,8 @@ class PlanResponses:
                 }
             },
         }
+        if effort:
+            body["reasoning"] = {"effort": effort}
         try:
             async with asyncio.timeout(self.authorization.store.settings.codex_timeout_seconds):
                 async with httpx.AsyncClient(

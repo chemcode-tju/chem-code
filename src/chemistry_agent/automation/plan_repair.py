@@ -335,7 +335,7 @@ async def diagnose(plans, session: str, identifier: str) -> None:
                 run_id,
                 "plan_diagnosis_failed",
                 tool_calls=progress.tool_calls,
-                usage=progress.usage,
+                usage=progress.current_usage,
                 context=progress.context,
             )
             repaired = [

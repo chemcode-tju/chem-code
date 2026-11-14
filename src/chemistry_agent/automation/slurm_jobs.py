@@ -9,14 +9,17 @@ import sqlite3
 from pathlib import Path
 from uuid import UUID
 
-from chemistry_agent.automation import slurm_remote
+from chemistry_agent.automation import result_reader, slurm_remote
 from chemistry_agent.automation.job_models import JobSettings, artifact_path
 from chemistry_agent.automation.ssh_profiles import load_profile, shell_profiles, write_private
 from chemistry_agent.errors import AgentError
 from chemistry_agent.store import utc_now
 
 CHUNK_BYTES = 1024 * 1024
-REMOTE_HELPER = Path(slurm_remote.__file__).read_text()
+REMOTE_HELPER = Path(slurm_remote.__file__).read_text().replace(
+    "from chemistry_agent.automation.result_reader import result_snapshot",
+    Path(result_reader.__file__).read_text(),
+)
 
 
 def input_files(directory: Path) -> list[Path]:

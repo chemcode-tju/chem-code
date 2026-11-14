@@ -51,6 +51,49 @@ class PythonConsumer:
         return DeliveryResult(answer="Python consumer inspected the persisted completion")
 
 
+async def test_pause_cancels_live_delivery_without_cancelling_scheduler_job(cluster):
+    plans, context, tmp = cluster
+    store = await Store.open(tmp / "pause.sqlite3")
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class WaitingConsumer(PythonConsumer):
+        async def handle(self, delivery: Delivery) -> DeliveryResult:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+    session = (await store.create_session("pause"))["id"]
+    context = OperationContext(session, str(uuid4()))
+    plans.store = store
+    try:
+        plan = await plans.platform.execute(
+            "plan.save", {"title": "pause", "goal": "pause", "nodes": [job(tmp)]}, context
+        )
+        await plans.confirm(session, plan["id"], plan["revision"])
+        await tick(plans, context, plan["id"])
+        current = await tick(plans, context, plan["id"])
+        current.update(status="running", delivery_adapter="waiting")
+        plans.save(session, current)
+        plans.dispatcher.register("waiting", WaitingConsumer())
+        await plans.dispatcher.offer(session, current)
+        await asyncio.wait_for(started.wait(), 3)
+        await asyncio.wait_for(plans.control(session, plan["id"], "pause"), 3)
+        assert cancelled.is_set()
+        assert (await store._one("SELECT active_run_id FROM sessions WHERE id=?", (session,)))[
+            "active_run_id"
+        ] is None
+        assert (await plans.control(session, plan["id"], "pause"))["status"] == "paused"
+        assert len(json.loads((tmp / "scheduler.json").read_text())) == 1
+        row = await store._one("SELECT status FROM runs ORDER BY started_at DESC LIMIT 1")
+        assert row["status"] == "cancelled"
+    finally:
+        await store.close()
+
+
 async def test_model_free_monitor_restart_and_replacement_adapter(cluster):
     plans, context, tmp = cluster
     store = await Store.open(tmp / "platform.sqlite3")
@@ -299,3 +342,53 @@ def test_platform_api_without_model_and_writer_lease(settings_factory):
         assert response.json()[0]["context"]["automation_event"] == "job_completion"
     with RuntimeLease(settings):
         pass  # Released even after an app lifecycle.
+
+
+@pytest.mark.parametrize("backend", ["codex", "antigravity"])
+async def test_job_completion_wakes_selected_backend_once(cluster, monkeypatch, backend):
+    from types import SimpleNamespace
+
+    from chemistry_agent.backends.service import BackendRouter, BackendSettings
+    from chemistry_agent.platform.adapters.chat import ChatAgentAdapter
+    from chemistry_agent.tools import ToolRegistry
+
+    plans, context, tmp = cluster
+    store = await Store.open(tmp / 'external-event.sqlite3')
+    delivered = []
+
+    class ExternalAgent:
+        async def run(self, messages, progress, **kwargs):
+            delivered.append((messages, kwargs))
+            return {'messages': [*messages, {'role':'assistant', 'content':'已核验输出'}],
+                    'tool_calls': [], 'usage': TokenUsage()}
+
+    router = BackendRouter(store, None, ToolRegistry(), tmp, '')
+    await router.initialize()
+    router.register(backend, ExternalAgent())
+    await router.save_settings(BackendSettings(default_backend=backend))
+    session = (await store.create_session('external'))['id']
+    context = OperationContext(session, str(uuid4()))
+    await router.binding(session, create=True)
+    plans.store, plans.agent = store, router
+    plans.provider = SimpleNamespace(
+        configuration=lambda: (None, SimpleNamespace(provider='unused',base_url='unused')),
+        select_model=lambda model: None,
+    )
+    plans.dispatcher.register('chat', ChatAgentAdapter(plans))
+    try:
+        plan = await plans.platform.execute('plan.save',
+            {'title':'job','goal':'job','nodes':[job(tmp)]}, context)
+        await plans.confirm(session, plan['id'], plan['revision'])
+        await tick(plans, context, plan['id'])
+        current = await tick(plans, context, plan['id'])
+        assert current['status'] == 'completed'
+        await plans.dispatcher.deliver_now(session, plan['id'], 'chat')
+        await plans.dispatcher.deliver_now(session, plan['id'], 'chat')
+        assert len(delivered) == 1
+        assert '后台任务结束事件' in delivered[0][0][-1]['content']
+        messages = (await store.get_session(session))['messages']
+        assert all('后台任务结束事件' not in str(m.get('content')) for m in messages)
+        assert messages[-1]['content'] == '已核验输出'
+        assert len(json.loads((tmp / 'scheduler.json').read_text())) == 1
+    finally:
+        await store.close()

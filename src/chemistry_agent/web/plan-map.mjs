@@ -1,5 +1,5 @@
 import {escapeHtml as esc} from './core.mjs';
-import {CARD, FOLDER_HEIGHT, buildGraph, clearDrop, edgePath, layoutGraph, overviewFolds, taskLabel} from './plan-layout.mjs';
+import {CARD, buildGraph, clearDrop, edgePath, edgeRoute, kindName, layoutGraph, overviewFolds, taskLabel} from './plan-layout.mjs';
 import {inSection} from './plan-folders.mjs';
 import {bindMapGestures} from './map-gestures.mjs';
 import {createNavigator} from './map-navigator.mjs';
@@ -13,11 +13,16 @@ const serial = value => esc(JSON.stringify(value));
 export function planMap(layers, key, attribute, title = '') {
   const nodes = layers.flat();
   if (!nodes.length) return '';
-  const cards = nodes.map(n => {
+  const cards = nodes.map((n,index) => {
     const label=taskLabel(n), split=n.title===n.id && label!==n.id ? label.lastIndexOf(' · ') : -1;
-    return `<div class="map-position" data-vertex="${esc(n.id)}" data-label="${esc(label)}" data-group-path="${serial(n.groupPath ?? null)}" data-parents="${serial(n.dependencies)}" ${n.auxiliary?'data-aux':''} hidden>
-    <button type="button" class="map-node" ${attribute}="${esc(n.id)}" data-state="${esc(n.state)}" title="${esc([...new Set([label,n.id,n.description].filter(Boolean))].join(' · '))}" tabindex="-1">
-      ${n.groupPath?.length?`<span class="map-card-context">${esc(n.groupPath.join(' › '))}</span>`:split<0?'':`<span class="map-card-context">${esc(label.slice(0,split))}</span>`}<strong>${esc(split<0?label:label.slice(split+3))}</strong><small><i aria-hidden="true"></i>${esc(n.status)}${attribute==='data-open-step'?'<span data-ionic-step></span>':''}</small>
+    const kind=n.kind || 'vasp', glyph={task:'map',job:'queues',vasp:'compute',model:'structures',analysis:'compare'}[kind] || 'document';
+    const caption=n.groupPath?.join(' / ') || (split<0?'':label.slice(0,split));
+    return `<div class="map-position" data-vertex="${esc(n.id)}" data-label="${esc(label)}" data-search="${esc(n.searchText || '')}" data-group-path="${serial(n.groupPath ?? null)}" data-parents="${serial(n.dependencies)}" ${n.auxiliary?'data-aux':''} hidden>
+    ${caption?`<span class="map-card-caption" title="${esc(caption)}">${esc(caption)}</span>`:''}
+    <button type="button" class="map-node" ${attribute}="${esc(n.id)}" data-kind="${esc(kind)}" data-state="${esc(n.state)}" title="${esc([label,n.description,n.jobSummary].filter(Boolean).join(' · '))}" tabindex="-1">
+      <span class="map-card-top"><span class="map-card-kind">${icon(glyph)}${esc(kindName(kind))}</span><span class="map-card-number">${String(index+1).padStart(2,'0')}</span></span>
+      <strong>${esc(split<0?label:label.slice(split+3))}</strong><small class="map-card-status"><i aria-hidden="true"></i>${esc(n.status)}${attribute==='data-open-step'?'<span data-ionic-step></span>':''}</small>
+      <span class="map-card-footer"><span>${esc(n.jobSummary || '')}</span>${icon('chevron')}</span>
     </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" title="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
@@ -27,15 +32,15 @@ export function planMap(layers, key, attribute, title = '') {
       ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
     </div></div>
     <div class="map-subtools"><select data-groups aria-label="按分支查看"></select>
-      <div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}</div></div>
+      <button type="button" class="map-direction" data-command="direction" title="切换布局方向">从上到下 ↓</button></div>
     <div class="map-pop map-search" data-pop="find" hidden><input type="search" placeholder="查找名称或步骤 ID" aria-label="查找名称或步骤 ID" autocomplete="off"><div data-results></div></div>
     <div class="map-pop" data-pop="options" hidden>
       <label data-aux-option><input type="checkbox" data-all> 显示建模与分析步骤</label>
       <button type="button" data-command="overview">分支概览</button><button type="button" data-command="unfold">展开全部节点</button>
       <button type="button" data-command="arrange">恢复自动布局</button><label class="map-nav-option"><input type="checkbox" data-show-nav> 全屏缩略导航</label></div>
-    <div class="map-window" tabindex="0" aria-label="计算依赖图"><div class="map-size"><div class="map-world"><div class="map-lanes"></div><svg class="map-edges" aria-hidden="true"></svg>${cards}</div></div></div>
+    <div class="map-window" tabindex="0" aria-label="计算依赖图"><div class="map-size"><div class="map-world"><svg class="map-edges" aria-hidden="true"></svg>${cards}</div></div></div>
     <button type="button" class="map-navigator" title="点击或拖动缩略图定位" aria-label="缩略图导航"><svg preserveAspectRatio="none" aria-hidden="true"><path/><rect/></svg></button>
-    <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><span class="map-quick">← 收起 · → 展开</span><span class="map-paper-title">${esc(title)}</span></div>
+    <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}${tool('data-command="arrange"','恢复自动布局',icon('reset'))}</div><span class="map-paper-title">${esc(title)}</span></div>
     <div class="map-pop map-help" data-pop="keys" hidden>
       ${shortcut('← / →','收起 / 展开分支')}${shortcut('↑ / ↓','上一个 / 下一个节点')}${shortcut('Enter','查看步骤详情')}${shortcut('/','查找步骤')}${shortcut('R','恢复这张卡片原位')}${shortcut('F','切换全屏')}${shortcut('0','适应画布')}${shortcut('Esc','关闭浮层或全屏')}${shortcut('Space + 拖动','平移画布')}
     </div><div class="map-grip" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="调整画布高度" title="拖动调整画布高度"><i></i></div>
@@ -49,22 +54,25 @@ function stored(key) { try {return JSON.parse(sessionStorage.getItem(key));} cat
 function mount(map, previous) {
   const $ = selector=>map.querySelector(selector);
   const storageKey='chemistry.planView.'+map.dataset.map;
-  const saved=previous || stored(storageKey) || {};
+  const previousView=previous || stored(storageKey) || {};
+  // Positions from the nested-folder canvas do not fit the new grid/card geometry.
+  const saved=previousView.layoutVersion===4?previousView:{};
   const board=$('.map-board'), view=$('.map-window'), world=$('.map-world'), size=$('.map-size'), svg=$('.map-edges');
   const dialog=$('.map-dialog'), select=$('[data-groups]'), find=$('.map-search input'), results=$('[data-results]'), grip=$('.map-grip');
   world.style.setProperty('--node-w',CARD.width+'px');world.style.setProperty('--node-h',CARD.height+'px');
-  const nodes=[...world.querySelectorAll('[data-vertex]')].map(el=>({id:el.dataset.vertex,title:el.dataset.label,
+  const nodes=[...world.querySelectorAll('[data-vertex]')].map(el=>({id:el.dataset.vertex,title:el.dataset.label,searchText:el.dataset.search,
     parents:JSON.parse(el.dataset.parents),groupPath:JSON.parse(el.dataset.groupPath),reset:el.querySelector('[data-reset-card]'),auxiliary:el.hasAttribute('data-aux'),el,button:el.querySelector('.map-node'),toggle:el.querySelector('[data-branch]')}));
   const byId=new Map(nodes.map(n=>[n.id,n])), onlyAux=nodes.every(n=>n.auxiliary);
   const graphs=new Map(), modes={...saved.modes};
-  let all=saved.all===true || onlyAux, graph, folds, closed, moves, group, layout, active=null, lit=null, paths=[], incident;
+  let all=saved.all!==false || onlyAux, graph, folds, moves, group, layout, active=null, lit=null, paths=[], incident;
   let showNav=saved.showNav!==false;
+  let direction=saved.direction || '';
+  const orientation=()=>direction || (dialog.open?'LR':'TB');
   let originX=0, originY=0;
   const camera=()=>({left:view.scrollLeft-originX,top:view.scrollTop-originY});
   const nav=createNavigator($('.map-navigator'),view,()=>({layout,scale,...camera(),...CARD}),panTo);
   let scale=bound(Number(saved.scale)||1,.005,3), height=saved.height || 0, pop='', raf=0, interacted=false;
   const cnEn=(cn,en)=>getLanguage()==='en'?en:cn;
-  const folderButtons=new Map();
   const folderTitle=folder=>folder.batch ? t('并行分支')+' '+folder.title : folder.title;
   function initMode() {
     if (!graphs.has(all)) graphs.set(all,buildGraph(nodes,all));
@@ -72,14 +80,6 @@ function mount(map, previous) {
     const state=modes[all] || {};
     folds=new Set((state.folds || (graph.vertices.length>32 ? [...overviewFolds(graph)] : [])).filter(id=>graph.byId.has(id)));
     moves=new Map((state.moves || []).filter(([id,p])=>graph.byId.has(id) && Number.isFinite(p?.x) && Number.isFinite(p?.y)));
-    const opened=new Set(state.openFolders || []);
-    closed=new Set([...graph.folders.keys()].filter(id=>state.openFolders ? !opened.has(id) : graph.vertices.length>32));
-    if (!state.openFolders && graph.folders.size) {
-      // An older saved overview may hide every new folder behind its shared clean surface.
-      for (const id of folds) {
-        if (graph.byId.get(id).children.some(child=>graph.byId.get(child).folderIds.length)) folds.delete(id);
-      }
-    }
     group=graph.filters.some(g=>g.id===state.group)?state.group:null;
     $('[data-all]').checked=all; $('[data-aux-option]').hidden=onlyAux || nodes.every(n=>!n.auxiliary);
     select.innerHTML='<option value="">'+t('全部分支')+'</option>'+graph.filters.map(g=>{
@@ -89,16 +89,15 @@ function mount(map, previous) {
     select.value=group || '';select.disabled=graph.filters.length<2;
   }
   function snapshot() {
-    modes[all]={folds:[...folds],moves:[...moves],group,openFolders:[...graph.folders.keys()].filter(id=>!closed.has(id))};
+    modes[all]={folds:[...folds],moves:[...moves],group};
     const focused=board.contains(document.activeElement);
-    const focusedFolder=focused ? document.activeElement.closest('[data-folder]')?.dataset.folder : null;
-    return {modes,all,active,scale,height,showNav,...camera(),full:dialog.open,focused,focusedFolder};
+    return {layoutVersion:4,modes,all,active:interacted?active:null,scale,height,showNav,direction,...camera(),full:dialog.open,focused};
   }
   function save() {
     if (!board.getClientRects().length) return;
     cancelAnimationFrame(raf);
     raf=requestAnimationFrame(()=>{if(!map.isConnected || !view.clientWidth) return;
-      try {const {full,focused,focusedFolder,...persist}=snapshot();sessionStorage.setItem(storageKey,JSON.stringify(persist));} catch { /* Optional. */ }
+      try {const {full,focused,...persist}=snapshot();sessionStorage.setItem(storageKey,JSON.stringify(persist));} catch { /* Optional. */ }
     });
   }
   function panTo(left,top) {
@@ -130,35 +129,20 @@ function mount(map, previous) {
       for(const edge of incident?.get(key) || []) {
         edge.path.classList.toggle('is-traced',on);
         const other=edge.source===key ? edge.target : edge.source;
-        (byId.get(other)?.el || folderButtons.get(other))?.classList.toggle('is-neighbor',on);
+        byId.get(other)?.el?.classList.toggle('is-neighbor',on);
       }
     }
     apply(lit,false); lit=id; apply(id,true);
   }
-  let compact=view.clientWidth>0 && view.clientWidth<530;
-  function endpoint(id) {
-    if(layout.points.has(id)) return layout.points.get(id);
-    const header=layout.headers.get(id);
-    return {x:header.x,y:header.y+(FOLDER_HEIGHT-CARD.height)/2};
-  }
   function edgeD(edge) {
-    const rail=compact && (edge.folder || graph.byId.get(edge.source).section!==graph.byId.get(edge.target).section);
-    return edgePath(endpoint(edge.source),endpoint(edge.target),rail);
-  }
-  function folderMarkup({x,y,section,count}) {
-    const expanded=!closed.has(section.id);
-    return `<button type="button" class="map-folder" data-folder="${esc(section.id)}" style="left:${x}px;top:${y}px;height:${FOLDER_HEIGHT}px"
-      aria-expanded="${expanded}" title="${esc([section.origin,...section.path].filter(Boolean).join(' › '))}"><i aria-hidden="true"></i><strong>${esc(folderTitle(section))}</strong><small>${count} ${t(all?'步':'项计算')}</small></button>`;
+    return edgePath(layout.points.get(edge.source),layout.points.get(edge.target),edgeRoute(edge.source,edge.target,layout));
   }
   function draw() {
-    mark(null); layout=layoutGraph(graph,folds,moves,group,compact,closed);
+    mark(null); layout=layoutGraph(graph,folds,moves,group,orientation());
     const first=layout.points.keys().next().value;
     if (!layout.points.has(active)) active=first;
-    const bands=world.querySelector('.map-lanes');
-    bands.innerHTML=layout.lanes.map(({group:g,start,height:h,count},i)=>`<div class="map-lane" style="top:${start}px;height:${h}px"><span><b>${String(i+1).padStart(2,'0')}</b>${esc(g.title)} <small>${count}/${g.members.length}</small></span></div>`).join('')
-      +[...layout.headers.values()].map(folderMarkup).join('');
-    folderButtons.clear();
-    for(const button of bands.querySelectorAll('[data-folder]')) folderButtons.set(button.dataset.folder,button);
+    board.dataset.direction=orientation();
+    $('[data-command="direction"]').textContent=orientation()==='LR'?cnEn('从左到右 →','Left to right →'):cnEn('从上到下 ↓','Top to bottom ↓');
     paths=[];incident=new Map();
     for (const n of nodes) {
       const p=layout.points.get(n.id);
@@ -178,14 +162,14 @@ function mount(map, previous) {
       }
       for (const source of vertex.parents) if(layout.points.has(source) && !folds.has(source)) paths.push({source,target:n.id,secondary:source!==vertex.primary});
     }
-    for(const link of layout.links) paths.push(link);
-    svg.innerHTML=paths.map(e=>`<path data-source="${esc(e.source)}" data-target="${esc(e.target)}" ${e.folder?'class="folder-edge"':e.secondary?'class="secondary-edge"':''} d="${edgeD(e)}"/>`).join('');
-    for (const [i,path] of [...svg.children].entries()) {
+    const marker='map-arrow-'+map.dataset.map.replace(/[^a-zA-Z0-9_-]/g,'-');
+    svg.innerHTML=`<defs><marker id="${marker}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><polygon points="1,1 7,4 1,7"/></marker></defs>`+paths.map(e=>`<path data-source="${esc(e.source)}" data-target="${esc(e.target)}" marker-end="url(#${marker})" d="${edgeD(e)}"/>`).join('');
+    for (const [i,path] of [...svg.querySelectorAll('path[data-source]')].entries()) {
       const e=paths[i];e.path=path;
       for (const id of [e.source,e.target]) {if(!incident.has(id)) incident.set(id,[]);incident.get(id).push(e);}
     }
-    const tally=layout.points.size+' / '+graph.vertices.length;
-    $('[data-map-count]').textContent=layout.headers.size ? tally+' · '+layout.headers.size+cnEn(' 组',' groups') : tally;
+    const tally=(layout.points.size===graph.vertices.length?graph.vertices.length:layout.points.size+' / '+graph.vertices.length)+cnEn(' 步',' steps');
+    $('[data-map-count]').textContent=tally;
     setSize();nav.draw();if(interacted) mark(active);
   }
   function choose(id,focus=false) {
@@ -197,9 +181,9 @@ function mount(map, previous) {
     mark(id);if(focus) node.button.focus({preventScroll:true});
   }
   function center(id) {
-    const p=layout.points.get(id) || layout.headers.get(id);
+    const p=layout.points.get(id);
     if(!p) return;
-    const h=layout.headers.has(id)?FOLDER_HEIGHT:CARD.height;
+    const h=CARD.height;
     panTo((p.x+CARD.width/2)*scale-view.clientWidth/2,(p.y+h/2)*scale-view.clientHeight/2);
   }
   function zoom(value,x=view.clientWidth/2,y=view.clientHeight/2) {
@@ -220,15 +204,6 @@ function mount(map, previous) {
     const next=layout.points.get(id);
     if(next) view.scrollBy((next.x-old.x)*scale,(next.y-old.y)*scale);
     byId.get(id).button.focus({preventScroll:true});save();
-  }
-  function toggleFolder(id,expand=closed.has(id)) {
-    const header=layout.headers.get(id);
-    if(!header) return;
-    if(expand) closed.delete(id);else closed.add(id);
-    draw();
-    const next=layout.headers.get(id);
-    if(next) view.scrollBy((next.x-header.x)*scale,(next.y-header.y)*scale);
-    folderButtons.get(id)?.focus({preventScroll:true});save();
   }
   function resetCard(id) {
     if(!moves.delete(id)) return;
@@ -251,21 +226,21 @@ function mount(map, previous) {
   function setFull(on,focus=true) {
     if(on===dialog.open) return;
     closePop();
-    const {left,top}=camera();
+    const {left,top}=camera(), previousDirection=orientation();
     if(on) {dialog.append(board);dialog.showModal();}
     else {dialog.close();map.insertBefore(board,dialog);}
     const trigger=$('[data-command="full"]'),label=t(on?'退出全屏':'全屏画布');
     trigger.setAttribute('aria-pressed',String(on));trigger.title=label;trigger.setAttribute('aria-label',label);
     trigger.innerHTML=icon(on?'shrink':'expand');
     if(focus) trigger.focus({preventScroll:true});
-    const narrow=view.clientWidth>0 && view.clientWidth<530;
-    if(compact!==narrow) {compact=narrow;draw();} else setSize();
-    panTo(left,top);
+    draw();
+    if(previousDirection!==orientation()) center(active);else panTo(left,top);
+    viewportWidth=view.clientWidth;viewportHeight=view.clientHeight;
   }
   dialog.addEventListener('cancel',e=>{e.preventDefault();if(pop) closePop(true);else setFull(false);});
   function search() {
     const query=find.value.trim().toLowerCase();
-    const hits=nodes.filter(n=>query?(n.id+' '+n.title+' '+(n.groupPath || []).join(' ')).toLowerCase().includes(query):layout.points.has(n.id));
+    const hits=nodes.filter(n=>query?(n.id+' '+n.title+' '+n.searchText+' '+(n.groupPath || []).join(' ')).toLowerCase().includes(query):layout.points.has(n.id));
     const rows=hits.slice(0,30);
     results.innerHTML=rows.map(n=>`<button type="button" data-hit="${esc(n.id)}"><strong>${esc(n.title)}</strong><small>${esc(n.id)}</small></button>`).join('') ||
       '<p>'+t('没有匹配的步骤')+'</p>';
@@ -276,7 +251,6 @@ function mount(map, previous) {
     if(!graph.byId.has(id)) {snapshot();all=true;initMode();}
     const node=graph.byId.get(id);
     if(!inSection(node,group)) {group=null;select.value='';}
-    for(const folder of node.folderIds) closed.delete(folder);
     for(let p=graph.byId.get(node.primary);p;p=graph.byId.get(p.primary)) folds.delete(p.id);
     closePop();draw();
     if(scale<.7) zoom(1);
@@ -295,39 +269,28 @@ function mount(map, previous) {
     group=select.value || null;
     if(group) {
       for(const id of graph.filters.find(g=>g.id===group).members) folds.delete(id);
-      if(graph.folders.has(group)) closed.delete(group);
     }
     draw();
     if(scale<.7) zoom(1);
     const first=layout.points.keys().next().value;
-    if(folderButtons.has(group)) {folderButtons.get(group).focus({preventScroll:true});center(group);}
-    else {choose(first,true);center(first);}
+    choose(first,true);center(first);
     save();
   };
   $('[data-all]').onchange=e=>{
-    const previousFolder=graph.folders.has(group) ? group : null;
-    const previousFolds=new Map([...graph.folders.keys()].map(id=>[id,closed.has(id)]));
+    const previousGroup=group;
     snapshot();all=e.target.checked;initMode();
-    for(const [id,wasClosed] of previousFolds) {
-      if (!graph.folders.has(id)) continue;
-      if(wasClosed) closed.add(id);else closed.delete(id);
-    }
-    if(previousFolder && graph.folders.has(previousFolder)) {group=previousFolder;select.value=group;}
-    closePop();draw();center(previousFolder || active);save();
+    if(graph.filters.some(row=>row.id===previousGroup)){group=previousGroup;select.value=group;}
+    closePop();draw();center(active);save();
   };
   function command(name) {
     if(['find','keys','options'].includes(name)) {showPop(name);return;}
     closePop();
     if(name==='full') setFull(!dialog.open);
     if(name==='fit') fit();
+    if(name==='direction') {direction=orientation()==='LR'?'TB':'LR';moves.clear();draw();center(active);}
     if(name==='arrange') {moves.clear();draw();center(active);}
     if(name==='overview' || name==='unfold') {
       const suggested=overviewFolds(graph);
-      for(const folder of graph.folders.values()) {
-        const representative=graph.byId.get(folder.members[0]);
-        if(!inSection(representative,group)) continue;
-        if(name==='overview' && group!==folder.id) closed.add(folder.id);else closed.delete(folder.id);
-      }
       for (const n of graph.vertices) if(inSection(n,group)) {
         if(name==='overview' && suggested.has(n.id)) folds.add(n.id);else folds.delete(n.id);
       }
@@ -338,14 +301,13 @@ function mount(map, previous) {
   board.addEventListener('click',event=>{
     const btn=event.target.closest('button');if(!btn) return;
     if(btn.hasAttribute('data-reset-card')) resetCard(btn.closest('[data-vertex]').dataset.vertex);
-    else if(btn.dataset.folder) toggleFolder(btn.dataset.folder);
     else if(btn.hasAttribute('data-branch')) toggle(btn.dataset.branch);
     else if(btn.dataset.hit) jump(btn.dataset.hit);
     else if(btn.dataset.command) command(btn.dataset.command);
     else if(btn.hasAttribute('data-zoom')) Number(btn.dataset.zoom)?zoomBy(1.25**Number(btn.dataset.zoom)):zoom(1);
     else if(btn.matches('.map-node')) choose(btn.closest('[data-vertex]').dataset.vertex);
   });
-  view.onpointerover=e=>{if(e.pointerType!=='touch') {const el=e.target.closest('[data-vertex],[data-folder]');mark(el?.dataset.vertex || el?.dataset.folder || (interacted?active:null));}};
+  view.onpointerover=e=>{if(e.pointerType!=='touch') {const el=e.target.closest('[data-vertex]');mark(el?.dataset.vertex || (interacted?active:null));}};
   view.onpointerleave=()=>mark(interacted?active:null);
   view.onscroll=()=>{view.style.setProperty('--lane-inset',(camera().left/scale+12)+'px');nav.position();save();};
   board.onfocusout=e=>{if(e.relatedTarget && !board.contains(e.relatedTarget)) closePop();};
@@ -357,11 +319,7 @@ function mount(map, previous) {
       if(!n.toggle.hidden && right===folds.has(active)) {toggle(active,right);return;}
       const target=(right?n.children:[n.primary,...n.parents]).find(id=>layout.points.has(id));
       if(target!=null) {choose(target,true);center(target);}
-      else if(right) {
-        const child=n.children.map(id=>graph.byId.get(id)).find(row=>row.folderIds.some(id=>folderButtons.has(id)));
-        const folder=child?.folderIds.find(id=>folderButtons.has(id));
-        if(folder) {folderButtons.get(folder).focus({preventScroll:true});center(folder);}
-      }
+
     } else {
       const ids=[...layout.points.keys()],idx=ids.indexOf(active);
       const id=ids[bound(idx+(key==='ArrowDown'?1:-1),0,ids.length-1)];choose(id,true);center(id);
@@ -372,13 +330,7 @@ function mount(map, previous) {
     if(event.key==='Escape' && (pop || dialog.open)) {event.preventDefault();event.stopPropagation();if(pop) closePop(true);else setFull(false);return;}
     if(pop || event.target.matches('input,select,textarea,[role="separator"]') || event.metaKey || event.altKey || event.ctrlKey) return;
     const key=event.key.toLowerCase();
-    const folder=event.target.closest('[data-folder]')?.dataset.folder;
-    if(folder && ['arrowleft','arrowright'].includes(key)) toggleFolder(folder,key==='arrowright');
-    else if(folder && ['arrowup','arrowdown'].includes(key)) {
-      const ids=[...folderButtons.keys()], next=ids[bound(ids.indexOf(folder)+(key==='arrowup'?-1:1),0,ids.length-1)];
-      folderButtons.get(next).focus({preventScroll:true});center(next);
-    }
-    else if(key==='r' && view.contains(event.target) && !folder) resetCard(event.target.closest('[data-vertex]')?.dataset.vertex || active);
+    if(key==='r' && view.contains(event.target)) resetCard(event.target.closest('[data-vertex]')?.dataset.vertex || active);
     else if(key==='/') command('find');else if(key==='f') command('full');else if(key==='0') command('fit');
     else if(view.contains(event.target) && key.startsWith('arrow')) navigate(event.key);
     else if(event.target===view && key==='enter' && active) byId.get(active).button.click();
@@ -392,7 +344,7 @@ function mount(map, previous) {
     grip.setAttribute('aria-valuenow',height || view.clientHeight || 360);
   }
   function move(id,start,dx,dy) {
-    const p={x:Math.max(12,start.x+dx),y:Math.max(10,start.y+dy)}, el=byId.get(id).el;
+    const p={x:Math.max(64,start.x+dx),y:Math.max(80,start.y+dy)}, el=byId.get(id).el;
     const offset={x:start.offset.x+p.x-start.x,y:start.offset.y+p.y-start.y};
     if(Math.abs(offset.x)<.01 && Math.abs(offset.y)<.01) moves.delete(id);else moves.set(id,offset);
     layout.points.set(id,p);el.style.left=p.x+'px';el.style.top=p.y+'px';
@@ -412,18 +364,18 @@ function mount(map, previous) {
   function restore(s) {
     if(!s || !map.getClientRects().length) return;
     if(s.full) setFull(true,false);
-    if(s.active && layout.points.has(s.active)) choose(s.active,s.focused && !s.focusedFolder);
-    if(s.focused && s.focusedFolder) folderButtons.get(s.focusedFolder)?.focus({preventScroll:true});
+    if(s.active && layout.points.has(s.active)) choose(s.active,s.focused);
     panTo(s.left ?? Math.min(0,(layout.width*scale-view.clientWidth)/2),s.top ?? 0);
   }
+  let viewportWidth=view.clientWidth, viewportHeight=view.clientHeight;
   const sizeObserver=new ResizeObserver(()=>{
     if(!view.clientWidth) return;
-    const narrow=view.clientWidth<530;
-    if(compact!==narrow) {
-      compact=narrow;draw();
-    }
+    const previous=camera(), width=view.clientWidth, heightNow=view.clientHeight;
+    const changed=viewportWidth && (width!==viewportWidth || heightNow!==viewportHeight);
     if(height && !dialog.open) resize(height);
     setSize();
+    if(changed) panTo(previous.left+(viewportWidth-width)/2,previous.top+(viewportHeight-heightNow)/2);
+    viewportWidth=width;viewportHeight=heightNow;
   });
   sizeObserver.observe(view);
   restore(saved);

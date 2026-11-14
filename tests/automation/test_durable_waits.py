@@ -288,7 +288,7 @@ async def test_real_agent_resumes_after_429_without_repeating_extension(cluster,
         await tick(plans, context, plan_id)
         plans.agent = agent
         if failure_boundary == "summary":
-            manager = agent.context_manager
+            manager = app.state.context_manager
             prepare = manager.prepare
             attempted = False
 
@@ -572,4 +572,19 @@ async def test_summary_retries_are_bounded_and_never_replay_uncertain_tools(save
         assert row["retries"] == attempt + 1
         assert row["available_at"] >= time.time() + 7190
         assert await checkpoint.load() == saved_payload
+    assert await ledger.pending(session, plan) is None
+
+
+async def test_agent_turn_timeout_is_blocked_instead_of_automatic_restart(saved):
+    store, session, plan = saved
+    ledger = WaitLedger(store)
+    plan["runtime"]["a"]["status"] = "completed"
+    record_events(plan)
+    await ledger.observe(session, plan)
+    event = await ledger.pending(session, plan)
+    await EventCheckpoint(store, event["id"]).save({"tail": [], "rounds": 120})
+    await ledger.failure(event["id"], TimeoutError())
+    row = await store._one("SELECT * FROM agent_events WHERE id=?", (event["id"],))
+    assert row["status"] == "blocked"
+    assert json.loads(row["checkpoint"])["rounds"] == 120
     assert await ledger.pending(session, plan) is None

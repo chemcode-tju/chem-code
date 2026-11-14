@@ -143,7 +143,8 @@ class Engine:
 
 @pytest.fixture
 async def graph(settings_factory):
-    engine = Engine(settings_factory(automation_enabled=True))
+    # Legacy VASP lifecycle remains available only by explicit opt-in.
+    engine = Engine(settings_factory(automation_enabled=True, aiida_enabled=True))
     chat = CalculationChat(engine)
     context = ToolContext(str(uuid4()), str(uuid4()))
     initial = await chat.import_structure(

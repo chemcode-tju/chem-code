@@ -139,10 +139,18 @@ class SessionDispatcher:
                 await plans.store.fail_run(
                     session,
                     run_id,
-                    getattr(exc, "code", "job_event_interrupted"),
+                    getattr(
+                        exc,
+                        "code",
+                        "agent_turn_timeout"
+                        if isinstance(exc, TimeoutError)
+                        else "job_event_interrupted",
+                    ),
                     tool_calls=delivery.tool_calls,
                     usage=delivery.usage,
                     context=delivery.context,
+                    error_message=getattr(exc, "message", None),
+                    cancelled=isinstance(exc, asyncio.CancelledError),
                 )
                 await ledger.failure(event["id"], exc)
             raise

@@ -24,6 +24,7 @@ class ModelScope:
 
 
 current_model_scope: ContextVar[ModelScope | None] = ContextVar("model_scope", default=None)
+current_effort: ContextVar[str] = ContextVar("reasoning_effort", default="")
 
 
 class ProviderRouter:
@@ -160,7 +161,29 @@ class ProviderRouter:
             ):
                 name = identifier
             seen.add(identifier)
-            models.append({"id": identifier, "name": name})
+            efforts = entry.get("efforts", []) if configuration.provider == "chatgpt" else []
+            if configuration.provider == "deepseek":
+                efforts = ["disabled", "enabled"]
+            supported = {
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultra",
+                "disabled",
+                "enabled",
+            }
+            efforts = (
+                [value for value in efforts if isinstance(value, str) and value in supported]
+                if isinstance(efforts, list)
+                else []
+            )
+            models.append(
+                {"id": identifier, "name": name, **({"efforts": efforts} if efforts else {})}
+            )
             if len(models) == 1000:
                 break
         return {"provider": configuration.provider, "models": models, "source": source}
@@ -184,6 +207,9 @@ class ProviderRouter:
         thinking: bool | None = None,
     ) -> Completion:
         user_id, configuration = self.configuration()
+        effort = current_effort.get()
+        if effort in {"enabled", "disabled"}:
+            thinking = effort == "enabled"
         if configuration.provider == "chatgpt":
             return await self.chatgpt.complete(
                 user_id,
@@ -193,6 +219,7 @@ class ProviderRouter:
                 allow_tools=allow_tools,
                 max_tokens=max_tokens,
                 thinking=thinking,
+                effort=effort,
             )
         settings = self.settings.model_copy(
             update={

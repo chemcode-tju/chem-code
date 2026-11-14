@@ -35,6 +35,8 @@ from chemistry_agent.automation.settings_tools import authorizes_configuration, 
 from chemistry_agent.automation.ssh_profiles import shell_profiles
 from chemistry_agent.automation.ssh_routes import router as ssh_router
 from chemistry_agent.automation.ssh_tools import connection_tools
+from chemistry_agent.backends.routes import router as backend_router
+from chemistry_agent.backends.service import BackendRouter
 from chemistry_agent.chat_queue import ChatQueue
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
@@ -66,6 +68,8 @@ from chemistry_agent.structures import router as structures_router
 from chemistry_agent.tokens import TokenCounter
 from chemistry_agent.tools import ToolRegistry
 from chemistry_agent.user_questions import QUESTION_TOOL, Ask, Reply
+from chemistry_agent.workspace_files import WorkspaceFiles, workspace_tools
+from chemistry_agent.workspace_files import router as workspace_router
 
 logger = logging.getLogger(__name__)
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
@@ -90,13 +94,14 @@ def create_app(
     calculation_enabled = settings.automation_enabled and not settings.auth_enabled
     extras = calculation_chat.tools() if calculation_enabled else []
     extras.append(QUESTION_TOOL)
+    extras.extend(workspace_tools(lambda: app.state.workspace_files))
     if settings.research_memory_enabled:
         extras.extend(memory_tools(lambda: app.state.store))
     if settings.web_search_enabled:
         extras.append(web_search_tool(settings.search_endpoint))
     ssh_hosts = settings.allowed_ssh_hosts
     ssh_root = settings.aiida_path if calculation_enabled else None
-    if calculation_enabled:
+    if calculation_enabled and settings.aiida_enabled:
         extras.extend(connection_tools(automation))
     if ssh_hosts or calculation_enabled:
         extras.append(remote_shell_tool(ssh_hosts, ssh_root))
@@ -120,6 +125,10 @@ def create_app(
                     app.state.title_locks = WeakValueDictionary()
                     app.state.provider = provider
                     app.state.store = store
+                    app.state.workspace_files = WorkspaceFiles(
+                        store, settings.database_path.parent / "agent-workspaces"
+                    )
+                    await app.state.workspace_files.initialize()
                     calculation_chat.attachment_store = store
                     app.state.auth = AuthManager(settings, store)
                     counter = await asyncio.to_thread(TokenCounter, settings.tokenizer_path)
@@ -139,11 +148,24 @@ def create_app(
                         settings.max_tool_rounds,
                         context_manager,
                     )
+                    app.state.agent_backends = BackendRouter(
+                        store,
+                        app.state.agent,
+                        registry,
+                        settings.database_path.parent / "agent-workspaces",
+                        SYSTEM_PROMPT
+                        + (AUTOMATION_PROMPT if calculation_enabled else "")
+                        + (MEMORY_PROMPT if settings.research_memory_enabled else ""),
+                    )
+                    await app.state.agent_backends.initialize()
+                    app.state.agent_backends.workspace_files = app.state.workspace_files
                     app.state.context_manager = context_manager
                     app.state.chat_queue = ChatQueue(store, chat, provider)
                     monitor = (
                         TaskMonitor(calculation_chat, provider, session_store=store)
-                        if calculation_enabled and settings.automation_monitor_enabled
+                        if calculation_enabled
+                        and settings.aiida_enabled
+                        and settings.automation_monitor_enabled
                         else None
                     )
                     app.state.task_monitor = monitor
@@ -153,7 +175,7 @@ def create_app(
                     if calculation_enabled:
                         calculation_chat.plans.start(
                             store,
-                            app.state.agent if settings.platform_agent_enabled else None,
+                            app.state.agent_backends if settings.platform_agent_enabled else None,
                             provider if settings.platform_agent_enabled else None,
                         )
                     await app.state.chat_queue.recover(app)
@@ -161,6 +183,7 @@ def create_app(
                         yield
                     finally:
                         await app.state.chat_queue.close()
+                        await app.state.agent_backends.context.close()
                         await calculation_chat.plans.close()
                         if monitor:
                             await monitor.close()
@@ -177,10 +200,12 @@ def create_app(
     )
     app.mount("/assets", StaticFiles(directory=WEB_DIRECTORY), name="assets")
     app.include_router(model_router)
+    app.include_router(backend_router)
     app.include_router(projects_router)
     app.include_router(memory_router)
     app.include_router(titles_router)
     app.include_router(attachments_router)
+    app.include_router(workspace_router)
     app.include_router(structures_router)
 
     app.state.settings = settings
@@ -260,7 +285,7 @@ def create_app(
         return FileResponse(WEB_DIRECTORY / "structure" / "index.html")
 
     @app.get("/health", tags=["service"])
-    async def health(request: Request):
+    async def health(request: Request, session_id: UUID | None = None):
         provider = request.app.state.provider
         _, configuration = provider.configuration()
         try:
@@ -268,20 +293,34 @@ def create_app(
             local_shell_access = True
         except AgentError:
             local_shell_access = False
-        ready = (
-            False if settings.auth_enabled and not request.state.user else await provider.ready()
-        )
+        backend = "builtin"
+        identifier = str(session_id) if session_id else None
+        if local_shell_access:
+            if identifier:
+                await request.app.state.store.require_session(identifier, request.state.user_id)
+            binding = await request.app.state.agent_backends.binding(identifier)
+            backend = binding["backend"]
+        if settings.auth_enabled and not request.state.user:
+            ready = False
+        elif backend != "builtin":
+            ready = await request.app.state.agent_backends.ready(identifier)
+        else:
+            ready = await provider.ready()
         return {
+            "agent_backend": backend,
             "status": "ok",
             "version": __version__,
             "model_configured": ready,
-            "model": configuration.model or "ChatGPT",
-            "provider": configuration.provider,
+            "model": ("本地 " + request.app.state.agent_backends.descriptors[backend][0])
+            if backend != "builtin"
+            else configuration.model or "ChatGPT",
+            "provider": backend if backend != "builtin" else configuration.provider,
             "thinking": configuration.thinking,
             "context_window_tokens": settings.context_window_tokens,
             "context_input_budget_tokens": settings.context_input_budget,
             "context_recent_turns": settings.context_recent_turns,
             "automation_enabled": calculation_enabled,
+            "aiida_enabled": calculation_enabled and settings.aiida_enabled,
             "ssh_hosts": available_hosts() if local_shell_access else (),
         }
 
@@ -310,7 +349,9 @@ def create_app(
 
     @app.post("/sessions", response_model=SessionSummary, status_code=201, tags=["sessions"])
     async def create_session(body: SessionCreate, request: Request):
-        return await request.app.state.store.create_session(body.title, request.state.user_id)
+        session = await request.app.state.store.create_session(body.title, request.state.user_id)
+        await request.app.state.agent_backends.binding(session["id"], create=True)
+        return session
 
     @app.get("/sessions", response_model=list[SessionSummary], tags=["sessions"])
     async def list_sessions(
@@ -330,14 +371,25 @@ def create_app(
         request: Request,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        compact: bool = False,
     ):
         return await request.app.state.store.list_runs(
-            str(session_id), limit, offset, request.state.user_id
+            str(session_id), limit, offset, request.state.user_id, compact=compact
         )
 
     @app.get("/sessions/{session_id}/context", tags=["sessions"])
     async def context_status(session_id: UUID, request: Request):
         store = request.app.state.store
+        async with store.lock:
+            owned = await store._one(
+                "SELECT id FROM sessions WHERE id=? AND owner_id IS ?",
+                (str(session_id), request.state.user_id),
+            )
+        if owned is None:
+            raise AgentError("session_not_found", "会话不存在。", 404)
+        binding = await request.app.state.agent_backends.binding(str(session_id))
+        if binding["backend"] != "builtin":
+            return await request.app.state.agent_backends.context.snapshot(str(session_id), binding)
         session = await store.get_session(str(session_id), request.state.user_id)
         memory = await store.get_context_memory(str(session_id))
         manager = request.app.state.context_manager
@@ -360,8 +412,26 @@ def create_app(
             "tokenizer": manager.counter.method,
         }
 
+    @app.post("/sessions/{session_id}/context/refresh", status_code=202, tags=["sessions"])
+    async def refresh_native_context(session_id: UUID, request: Request, operation_id: UUID):
+        local_service(request)
+        await request.app.state.store.get_session(str(session_id), request.state.user_id)
+        return await request.app.state.agent_backends.context.start(
+            str(session_id), request.state.user_id, "refresh", str(operation_id)
+        )
+
     @app.post("/sessions/{session_id}/context/compact", tags=["sessions"])
-    async def compact_context(session_id: UUID, request: Request):
+    async def compact_context(session_id: UUID, request: Request, operation_id: UUID | None = None):
+        await request.app.state.store.get_session(str(session_id), request.state.user_id)
+        binding = await request.app.state.agent_backends.binding(str(session_id))
+        if binding["backend"] != "builtin":
+            local_service(request)
+            return JSONResponse(
+                status_code=202,
+                content=await request.app.state.agent_backends.context.start(
+                    str(session_id), request.state.user_id, "compact", str(operation_id or uuid4())
+                ),
+            )
         if calculation_enabled:
             local_service(request)
         provider = request.app.state.provider
@@ -397,7 +467,7 @@ def create_app(
                 run_id,
                 "context_compaction_failed",
                 tool_calls=[],
-                usage=progress.usage,
+                usage=progress.current_usage,
                 context=progress.context,
             )
             raise
@@ -490,7 +560,16 @@ def create_app(
                 configuration.base_url,
             )
         provider.select_model(body.model if "model" in body.model_fields_set else saved_model)
-        if not await provider.ready():
+        binding = await request.app.state.agent_backends.binding(
+            str(body.session_id) if body.session_id else None
+        )
+        if binding["backend"] != "builtin":
+            local_service(request)
+            if not await request.app.state.agent_backends.ready(
+                str(body.session_id) if body.session_id else None
+            ):
+                raise AgentError("agent_not_configured", "请在 Agent 设置中连接本地 Agent。", 503)
+        elif not await provider.ready():
             raise AgentError("model_not_configured", "请在模型设置中登录 ChatGPT 或配置 API。", 503)
         file_context = await attachment_context(store, body.file_ids, request.state.user_id)
         session_id = (
@@ -530,7 +609,7 @@ def create_app(
                 run_id,
                 code,
                 tool_calls=progress.tool_calls,
-                usage=progress.usage,
+                usage=progress.current_usage,
                 cancelled=cancelled,
                 context=progress.context,
             )
@@ -549,7 +628,7 @@ def create_app(
         grant = auto_queue.set(authorized_queue(body.message) if calculation_enabled else None)
         try:
             async with asyncio.timeout(settings.run_timeout_seconds):
-                result = await request.app.state.agent.run(
+                result = await request.app.state.agent_backends.run(
                     messages,
                     progress,
                     session_id=session_id,

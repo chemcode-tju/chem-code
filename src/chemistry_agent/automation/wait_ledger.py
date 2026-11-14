@@ -297,6 +297,7 @@ class WaitLedger:
     async def failure(self, identifier: str, error: BaseException) -> None:
         code = getattr(error, "code", type(error).__name__)
         cause_code = getattr(error, "cause_code", None) or code
+        not_sent = getattr(error, "delivery_not_sent", False)
         temporary = cause_code in {
             "provider_rate_limited",
             "provider_timeout",
@@ -305,22 +306,32 @@ class WaitLedger:
             "chatgpt_stream_interrupted",
             "provider_stream_interrupted",
             "provider_incomplete",
-            "TimeoutError",
             "CancelledError",
         }
         temporary = temporary or (
             cause_code == "provider_error" and getattr(error, "retry_after", None) is not None
         )
+        temporary = temporary or (
+            not_sent and cause_code in {"codex_session_busy", "antigravity_session_busy"}
+        )
         async with self.store.transaction():
             row = await self.store._one("SELECT * FROM agent_events WHERE id=?", (identifier,))
             if row["status"] == "completed":
                 return
-            # Limit automatic summary retries even for transient provider errors.
-            # The checkpoint remains available for an explicit retry after repair.
-            if code == "context_summary_failed" and row["retries"] >= 3:
+            # A whole agent turn timing out is not a transient provider timeout.
+            # Keep its checkpoint for explicit inspection instead of another costly loop.
+            # All transient retries are bounded across the durable event lifetime.
+            if row["retries"] >= 3:
                 temporary = False
+            if not_sent:
+                # A persisted native preflight checkpoint is not a dispatched prompt.
+                await self.store.db.execute(
+                    "UPDATE agent_events SET phase='model',tool_intent=NULL WHERE id=?",
+                    (identifier,),
+                )
             status = (
-                "uncertain" if row["phase"] == "tools" else "retry_wait" if temporary else "blocked"
+                "uncertain" if row["phase"] == "tools" and not not_sent
+                else "retry_wait" if temporary else "blocked"
             )
             delay = min(3600, 30 * 2 ** min(row["retries"], 7))
             delay = max(delay, getattr(error, "retry_after", None) or 0)
@@ -382,12 +393,18 @@ class EventCheckpoint:
             "public_steps": public_steps(payload.get("tail", []), payload.get("calls", [])),
         }
         await self.store.db.execute(
-            "UPDATE runs SET tool_calls=?,answer=?,context_info=? "
+            "UPDATE runs SET tool_calls=?,answer=?,context_info=?,usage=? "
             "WHERE id=(SELECT run_id FROM agent_events WHERE id=?) AND status='running'",
             (
                 json.dumps(payload.get("calls", []), ensure_ascii=False),
                 "\n\n".join(public) or "后台 Agent 正在准备计算并检查执行条件。",
                 json.dumps(context),
+                json.dumps(
+                    {
+                        key: max(0, value - payload.get("usage_baseline", {}).get(key, 0))
+                        for key, value in payload.get("usage", {}).items()
+                    }
+                ),
                 self.identifier,
             ),
         )

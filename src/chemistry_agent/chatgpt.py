@@ -316,7 +316,14 @@ class ChatGPTClient:
                             {"limit": 100, "includeHidden": False, "cursor": cursor},
                         )
                         models.extend(
-                            {"id": item["model"], "name": item.get("displayName") or item["model"]}
+                            {
+                                "id": item["model"],
+                                "name": item.get("displayName") or item["model"],
+                                "efforts": [
+                                    e["reasoningEffort"]
+                                    for e in item.get("supportedReasoningEfforts", [])
+                                ],
+                            }
                             for item in result["data"]
                             if not item.get("hidden")
                         )
@@ -345,6 +352,7 @@ class ChatGPTClient:
         allow_tools: bool,
         max_tokens: int | None = None,
         thinking: bool | None = None,
+        effort: str = "",
     ) -> Completion:
         """Request a tool-call plan; only Chem Code executes registered tools."""
         async with self.lock(user_id):
@@ -357,6 +365,7 @@ class ChatGPTClient:
                     allow_tools=allow_tools,
                     max_tokens=max_tokens,
                     thinking=thinking,
+                    effort=effort,
                 )
             if not await self.authenticated(user_id):
                 raise AgentError("chatgpt_login_required", "请在模型设置中登录 ChatGPT。", 503)
@@ -407,6 +416,8 @@ class ChatGPTClient:
                 ):
                     isolation.extend(["--disable", feature])
                 arguments.extend(isolation)
+                if effort:
+                    arguments.extend(["-c", f'model_reasoning_effort="{effort}"'])
                 if configuration.model:
                     arguments.extend(["--model", configuration.model])
                 arguments.append("-")

@@ -1,27 +1,16 @@
-"""Read VASP artifacts from ordinary monitored jobs without invoking AiiDA."""
+"""Read VASP and LAMMPS artifacts from ordinary monitored jobs without invoking AiiDA."""
 
 import asyncio
-import math
 import re
 from pathlib import Path
 
-from chemistry_agent.automation.slurm_remote import vasp_snapshot
+from chemistry_agent.automation.slurm_remote import ionic_energy_points, scientific_snapshot
 from chemistry_agent.automation.step_edit import edit_policy, planned_text
 from chemistry_agent.errors import AgentError
 
 
 def ionic_points(text: str) -> list[list]:
-    points = []
-    for line in text.splitlines(keepends=True):
-        match = re.match(r"\s*(\d+)\s+F=\s*\S+\s+E0=\s*([-+.\dEeDd]+)", line)
-        if match and line.endswith(("\n", "\r")):
-            try:
-                value = float(match[2].replace("D", "E").replace("d", "e"))
-            except ValueError:
-                continue
-            if math.isfinite(value):
-                points.append([int(match[1]), value])
-    return points
+    return ionic_energy_points(text)
 
 
 def complete_frames(text: str) -> str:
@@ -37,6 +26,32 @@ def complete_frames(text: str) -> str:
         if len(lines) >= count and all(line.endswith(("\n", "\r")) for line in lines[:count]):
             return text[: marker.end()] + "".join(lines[:count])
     raise AgentError("step_no_frames", "尚无完整的轨迹帧。", 409)
+
+
+def complete_dump_frames(text: str) -> str:
+    """Trim a live LAMMPS dump only at a complete atom block, preserving headers."""
+    lines = text.splitlines(keepends=True)
+    atom_count, last_end, offset, index = None, 0, 0, 0
+    while index < len(lines):
+        line = lines[index]
+        if line.strip() == "ITEM: NUMBER OF ATOMS" and index + 1 < len(lines):
+            value = lines[index + 1].strip()
+            atom_count = int(value) if value.isdigit() else None
+        if line.startswith("ITEM: ATOMS ") and atom_count:
+            block = lines[index + 1 : index + 1 + atom_count]
+            if len(block) != atom_count or any(not row.endswith("\n") for row in block):
+                break
+            if any(row.startswith("ITEM:") or not row.strip() for row in block):
+                break
+            last_end = offset + len(line) + sum(map(len, block))
+            offset = last_end
+            index += atom_count + 1
+            continue
+        offset += len(line)
+        index += 1
+    if not last_end:
+        raise AgentError("step_no_frames", "尚无完整的 MD 轨迹帧。", 409)
+    return text[:last_end]
 
 
 async def inspect_generic_step(
@@ -81,29 +96,49 @@ async def inspect_generic_step(
         info.update(planned_text(node))
         return info
     info.update(
-        terminal=bool(record.get("terminal")), scheduler_job_id=record.get("scheduler_job_id")
+        terminal=bool(record.get("terminal")),
+        scheduler_job_id=record.get("scheduler_job_id"),
+        scheduler_state=record.get("scheduler_state", record.get("status")),
     )
     folder = record.get("retrieved_directory")
-    local = await asyncio.to_thread(vasp_snapshot, Path(folder), requested) if folder else None
+    local = (
+        await asyncio.to_thread(scientific_snapshot, Path(folder), requested) if folder else None
+    )
     snapshot = local or {"files": {}, "contents": {}}
     sources = dict.fromkeys(snapshot["files"], "已取回")
     # Running jobs must use live files. Completed jobs fall back to remote files
     # if the retrieval policy did not include the requested scientific artifacts.
-    missing = (
-        requested not in snapshot["contents"]
-        if requested != "info"
-        else not all(
+    if requested != "info":
+        missing = requested not in snapshot["contents"]
+    elif snapshot.get("monitor", {}).get("kind") == "md":
+        missing = not snapshot["monitor"].get("md_points")
+    else:
+        missing = not all(
             name in snapshot["files"]
-            for name in ("POSCAR", "CONTCAR", "XDATCAR", "INCAR", "KPOINTS", "OSZICAR")
+            for name in ("POSCAR", "CONTCAR", "XDATCAR", "INCAR", "KPOINTS", "OSZICAR", "OUTCAR")
         )
-    )
     if not record.get("terminal") or missing:
         try:
-            remote = await chat.plans.slurm.remote(record, "vasp_snapshot", file=requested)
+            remote = await chat.plans.slurm.remote(record, "scientific_snapshot", file=requested)
             first, last = (remote, snapshot) if record.get("terminal") else (snapshot, remote)
             snapshot = {
+                "structure_files": list(
+                    dict.fromkeys(
+                        first.get("structure_files", []) + last.get("structure_files", [])
+                    )
+                ),
+                "structure_companions": last.get(
+                    "structure_companions", first.get("structure_companions", [])
+                ),
+                "parameter_files": last.get("parameter_files", first.get("parameter_files", [])),
                 "files": {**first["files"], **last["files"]},
                 "contents": {**first["contents"], **last["contents"]},
+                "monitor": (
+                    last.get("monitor")
+                    if last.get("monitor", {}).get("outcar_available")
+                    or last.get("monitor", {}).get("md_points")
+                    else first.get("monitor", last.get("monitor", {}))
+                ),
             }
             remote_sources = dict.fromkeys(remote["files"], "作业目录快照")
             sources = (
@@ -117,7 +152,7 @@ async def inspect_generic_step(
             info["note"] = "远端暂不可用，显示已取回文件。"
     info["files"] = {
         name: sources[name]
-        for name in ("POSCAR", "CONTCAR", "XDATCAR")
+        for name in snapshot.get("structure_files", ("POSCAR", "CONTCAR", "XDATCAR"))
         if name in snapshot["files"]
     }
     contents = snapshot["contents"]
@@ -127,8 +162,14 @@ async def inspect_generic_step(
             raise AgentError("step_file_missing", "此作业尚未生成该结构文件。", 404)
         if requested == "XDATCAR":
             text = complete_frames(text)
+        elif "ITEM: TIMESTEP" in text[:8192]:
+            text = complete_dump_frames(text)
         return {"name": requested, "content": text}
-    info["parameters"] = {name: contents[name] for name in ("INCAR", "KPOINTS") if name in contents}
+    info["parameters"] = {
+        name: contents[name]
+        for name in ["INCAR", "KPOINTS", *snapshot.get("parameter_files", [])]
+        if name in contents
+    }
     info["script"] = next(
         (
             contents[name]
@@ -137,6 +178,11 @@ async def inspect_generic_step(
         ),
         "",
     )
+    info["structure_companions"] = snapshot.get("structure_companions", [])
+    info["monitor"] = snapshot.get("monitor", {})
     info["points"] = ionic_points(contents.get("OSZICAR", ""))
-    info["ionic_step"] = info["points"][-1][0] if info["points"] else None
+    md_points = info["monitor"].get("md_points", [])
+    info["ionic_step"] = (
+        md_points[-1]["step"] if md_points else info["points"][-1][0] if info["points"] else None
+    )
     return info

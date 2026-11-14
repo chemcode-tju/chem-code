@@ -3,36 +3,51 @@ import {resultFigures} from './result-figures.mjs';
 import {escapeHtml as esc} from './core.mjs';
 import {createStructureBridge} from './structure-links.mjs';
 import {describeStep, planSteps, workflowGroups} from './workflow-plan.mjs';
-import {nodeStatus} from './general-plan.mjs';
+import {nodeStatus,graphLayers} from './general-plan.mjs';
+import {workflowView,childJobSummary} from './plan-presentation.mjs';
 import {createTextEditor} from './step-editor.mjs';
 import {kindName, taskLabel} from './plan-layout.mjs';
 import {t} from './i18n.mjs';
+import {createConvergenceCard} from './convergence-card.mjs';
+import {createRegisteredResults} from './registered-results.mjs';
 
 const fileNames = ['POSCAR', 'CONTCAR', 'XDATCAR'];
-
-export function energyCurve(points) {
-  if (!points.length) return '<p>尚无完整离子步能量记录。</p>';
-  const energies = points.map(row => row[1]);
-  const high = energies.reduce((a,b) => Math.max(a,b));
-  const low = energies.reduce((a,b) => Math.min(a,b));
-  const start = points[0][0], end = points.at(-1)[0];
-  const x = step => 63 + 226*(step-start)/Math.max(1,end-start);
-  const y = energy => high===low ? 66 : 106 - 83*(energy-low)/(high-low);
-  const line = points.map(([step,energy]) => x(step).toFixed(2)+','+y(energy).toFixed(2)).join(' ');
-  const last = points.at(-1);
-  return `<svg viewBox="0 0 304 143" role="img" aria-label="离子步与体系总能量 E0"><text x="3" y="12">E0 (eV)</text>
-    <path class="curve-axis" d="M62 20V110H294"/><text x="58" y="28" text-anchor="end">${high.toFixed(4)}</text>
-    ${high!==low?`<text x="58" y="108" text-anchor="end">${low.toFixed(4)}</text>`:''}
-    <polyline points="${line}"/><circle cx="${x(last[0])}" cy="${y(last[1])}" r="3"/>
-    <text x="63" y="126">${start}</text>${end!==start?`<text x="288" y="126" text-anchor="end">${end}</text>`:''}
-    <text x="165" y="139">离子步</text></svg><p>第 ${end} 步 · E0 = ${last[1]} eV</p>`;
-}
+const availableFiles=info=>[...new Set([...fileNames,...Object.keys(info?.files || {})])].filter(name=>info?.files?.[name]);
 
 export function createStepDetail({api,rememberCount}) {
   const $ = id => document.getElementById(id);
   const screen = $('step-screen'), frame = $('step-viewer-frame');
-  let current = null, activeFile = '', info = null;
+  let current = null, activeFile = '', info = null, activeSnapshot = null, focusStep = null;
   const editors=new Map();
+  let registeredSelection=null,registeredFiles=[];
+  const results=createRegisteredResults($('step-registered-results'),{api,onStructures(files){registeredFiles=files;drawFiles();},openStructure({name,url,label,identity,scroll=true,sequence=null}) {
+    const sameSequence=sequence && registeredSelection?.sequence?.id===sequence.id;
+    registeredSelection={identity,label,url,name,sequence};activeFile='';activeSnapshot=null;
+    $('step-structures').hidden=false;$('step-structures').open=true;
+    $('step-file-source').textContent=label;drawFiles();
+    if(sameSequence && bridge.seek({frameIndex:sequence.frameIndex})) {
+      if(scroll)$('step-structures').scrollIntoView({block:'nearest',behavior:'smooth'});
+      return;
+    }
+    bridge.reset();bridge.open(sequence?`NEB 路径 · 优化步 ${sequence.step}`:name,async()=>{
+      if(sequence){
+        const data=await api(sequence.url);
+        if(data.stale && registeredSelection?.sequence?.id===sequence.id)$('step-note').textContent=`缓存路径 · ${data.observed_at}`;
+        if(data.kind!=='neb_sequence'||!data.files?.length)throw Error('尚无完整路径结构');
+        return data.files.map(item=>new File([item.content],item.name));
+      }
+      const response=await fetch(url,{cache:'no-store'});
+      if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.error?.message || '结构读取失败');}
+      return new File([await response.blob()],name);
+    },sequence?{sequence:true,selection:{frameIndex:sequence.frameIndex}}:{});
+    if(scroll)$('step-structures').scrollIntoView({block:'nearest',behavior:'smooth'});
+  }});
+  const convergence=createConvergenceCard($('step-chart'),{onTrajectory(name,ionicStep) {
+    const incar=(info?.parameters?.INCAR || '').split('\n').map(line=>line.split(/[!#]/)[0]).join('\n');
+    const stride=Number(incar.match(/\bNBLOCK\s*=\s*(\d+)/i)?.[1] || 1);
+    focusStep=ionicStep;
+    $('step-structures').open=true;selectFile(name,info?.monitor?.engine==='LAMMPS'?{simulationStep:ionicStep}:{ionicStep,stride});
+  }});
   function editor(field,host,options={}) {
     if(!editors.has(field)) {
       const view=current;
@@ -60,13 +75,28 @@ export function createStepDetail({api,rememberCount}) {
         summary.textContent=name;section.dataset.parameterFile=name;section.append(summary,host);$('step-actual-parameters').append(section);
         editor(name,host);
       }
-      editors.get(name).update({text,editable:policy.files,revision:policy.revision,reason:policy.reason});
+      editors.get(name).update({text,editable:policy.files && ['INCAR','KPOINTS'].includes(name),revision:policy.revision,reason:policy.reason});
     }
     $('step-code-title').textContent=codeTitle;
     $('step-code-section').hidden=!script && !policy.files;
     editor('script',$('step-code')).update({text:script,editable:policy.files,revision:policy.revision,reason:policy.reason});
   }
-  const bridge = createStructureBridge({frame,toast:message => { $('step-note').textContent=message; },selectTab() {
+  const bridge = createStructureBridge({frame,toast:message => { focusStep=null;$('step-note').textContent=message; },onFrame(position) {
+    if(registeredSelection){
+      if(registeredSelection.sequence && Number.isInteger(position.frameIndex)){
+        const selected=results.syncFrame(position.frameIndex);
+        if(selected){Object.assign(registeredSelection,selected);$('step-file-source').textContent=selected.label;drawFiles();}
+      }
+      return;
+    }
+    const step=position.simulationStep ?? position.ionicStep;
+    if(Number.isInteger(step))
+      $('step-file-source').textContent=(info?.files[activeFile] || '')+' · '+t(info?.monitor?.kind==='md'?'MD 步':'离子步')+' '+step;
+    if(focusStep!==null && Number.isInteger(step)) {
+      if(step!==focusStep)$('step-note').textContent=`${t('所选 MD 步')} ${focusStep} · ${t('最近保存的轨迹步')} ${step}`;
+      focusStep=null;$('step-structures').scrollIntoView({block:'start',behavior:'smooth'});
+    }
+  },selectTab() {
     $('step-viewer-shell').hidden=false;
     if (!frame.hasAttribute('src')) frame.src='/structures?embed=1';
   }});
@@ -94,14 +124,20 @@ export function createStepDetail({api,rememberCount}) {
   document.addEventListener('fullscreenchange',syncFull);
   dialog.addEventListener('cancel',event=>{event.preventDefault();if(fromFull) close();else expandDetail(false);});
   function resetContent() {
+    results.reset();registeredSelection=null;
+    convergence.reset();
     editors.clear();$('step-purpose').replaceChildren();
     $('step-job-choice').hidden=true;$('step-job-select').replaceChildren();
+    $('step-parent').hidden=true;$('step-child-jobs').hidden=true;$('step-child-jobs').open=false;
+    screen.querySelector('.step-description').open=false;
+    $('step-child-jobs').querySelector('div').replaceChildren();
     $('step-actual-parameters').replaceChildren();
     $('step-group-path').hidden=true;
-    activeFile=''; info=null; bridge.reset(); $('step-viewer-shell').hidden=true;
+    activeFile=''; activeSnapshot=null; focusStep=null; info=null; bridge.reset(); $('step-viewer-shell').hidden=true;
     for (const id of ['step-note','step-error','step-progress','step-file-source','step-downloads','step-output','step-code','step-chart','step-figures','step-investigation-log']) $(id).replaceChildren();
     for (const id of ['step-investigation','step-output-section','step-code-section']) $(id).hidden=true;
     for (const section of screen.querySelectorAll('.step-sections > details')) section.open=false;
+    $('step-registered-results').open=true;
   }
   function enter() {
     if(screen.hidden) {
@@ -142,15 +178,35 @@ export function createStepDetail({api,rememberCount}) {
     const id=event.target.closest('[data-related]')?.dataset.related;
     if(id && current?.related) current.related(id);
   };
+  $('step-parent').onclick=()=>current?.related?.($('step-parent').dataset.parent);
+  $('step-child-jobs').onclick=event=>{
+    const id=event.target.closest('[data-child-job]')?.dataset.childJob;
+    if(id) current?.related?.(id);
+  };
   function drawFiles() {
-    const options=fileNames.filter(name=>info?.files[name]);
+    if(registeredFiles.length) {
+      const selected=registeredFiles.find(item=>item.selected);
+      $('step-files').innerHTML=registeredFiles.map(item=>`<button type="button" data-result-image="${item.index}" aria-pressed="${item.selected}" title="路径优化步 ${item.step} · ${esc(item.path)}">${esc(item.label)}</button>`).join('')
+        +(registeredSelection&&selected?`<a href="${esc(registeredSelection.url)}" download="${esc(registeredSelection.name)}" title="下载结构" aria-label="下载所选像结构"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-save"/></svg></a>`:'');
+      return;
+    }
+    if(registeredSelection) {
+      $('step-files').innerHTML=`<a href="${esc(registeredSelection.url)}" download="${esc(registeredSelection.name)}" title="下载结构"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-save"/></svg> ${esc(registeredSelection.name)}</a>`;
+      return;
+    }
+    const options=availableFiles(info);
     $('step-files').innerHTML=options.map(name=>
-      `<button type="button" data-step-file="${name}" aria-pressed="${name===activeFile}">${name}</button>`).join('') || '<span class="step-empty">'+t('暂无可查看的结构文件')+'</span>';
+      `<button type="button" data-step-file="${esc(name)}" aria-pressed="${name===activeFile}">${esc(name)}</button>`).join('') || '<span class="step-empty">'+t('暂无可查看的结构文件')+'</span>';
   }
-  function selectFile(name) {
+  function selectFile(name,selection=null) {
     if (!current || !info?.files[name]) return;
+    registeredSelection=null;results.clearSelection();
+    if(!selection)focusStep=null;
+    if(selection && name===activeFile && activeSnapshot===info.ionic_step && frame.hasAttribute('src')) {
+      $('step-note').textContent='';if(bridge.seek(selection))return;
+    }
     const source = info.files[name], view = current;
-    activeFile=name; drawFiles(); $('step-note').textContent='';
+    activeFile=name;activeSnapshot=info.ionic_step; drawFiles(); $('step-note').textContent='';
     let caption = source;
     if (name === 'POSCAR' && (source === '方案预览' || source === '实际提交')) {
       if (view.key === 'surface') caption += source === '方案预览'
@@ -164,28 +220,35 @@ export function createStepDetail({api,rememberCount}) {
     bridge.reset();
     bridge.open(name,async () => {
       if (name==='POSCAR' && source==='方案预览' && view.preview) return new Blob([view.preview]);
-      const response=await fetch(view.base+'/'+name+jobQuery(view),{cache:'no-store'});
+      const response=await fetch(view.base+'/'+encodeURIComponent(name)+jobQuery(view),{cache:'no-store'});
       if (!response.ok) {
         const error=await response.json().catch(()=>({}));
         throw new Error(error.error?.message || '结构读取失败，请刷新重试。');
       }
       return new File([await response.blob()],response.headers.get('X-Structure-Name')||name);
-    });
+    },{selection,companions:/\.(dump|lammpstrj)$/i.test(name)?info.structure_companions || []:[]});
   }
   async function refresh(manual=false) {
     const view=current;
     if (!view || (!view.general && view.key==='energies') || view.loading) return;
     view.loading=true;
+    const runtime=view.plan?.runtime?.[view.key] || {};
+    const initialJob=view.selectedJob || runtime.accepted_jobs?.at(-1) || runtime.jobs?.at(-1) || runtime.generic_job_id;
+    const registeredRead=view.genericJob?results.refresh(view.base,initialJob):Promise.resolve(null);
+    if(!info?.points?.length)convergence.update({...info,loading:true},view.id+':'+view.key);
     try {
       const next = await api(view.base+'/info'+jobQuery(view));
       if (current!==view) return;
       if(next.editing?.revision && next.editing.revision<view.revision)return;
       const sourceChanged=activeFile && info?.files[activeFile]!==next.files[activeFile];
       info=next;
+      let registered=null;
       if(view.genericJob) {
         view.selectedJob=next.selected_job_id || '';
         $('step-job-choice').hidden=!(next.jobs?.length);
         $('step-job-select').innerHTML=(next.jobs || []).map(job=>`<option value="${esc(job.id)}" ${job.id===view.selectedJob?'selected':''}>#${esc(job.scheduler_job_id || job.id)} · ${esc(job.state || '')}</option>`).join('');
+        registered=view.selectedJob===initialJob?await registeredRead:await results.refresh(view.base,view.selectedJob);
+        if(current!==view)return;
       }
       if(view.general && view.plan) drawGeneral(view.plan,view.plan.nodes.find(n=>n.id===view.key));
       const entries=next.investigations || [];
@@ -198,27 +261,38 @@ export function createStepDetail({api,rememberCount}) {
       }).join('');
       drawFiles();
       $('step-note').textContent=next.note || '';
+      $('step-monitor-label').textContent=t(next.monitor?.kind==='md'?'分子动力学':'离子步收敛');
       $('step-progress').textContent=next.ionic_step!=null
-        ? `已完成 ${next.ionic_step} 个离子步${view.nsw>0?' · NSW 上限 '+view.nsw:''}`
-        : next.pk ? '等待首个完整离子步记录' : '尚无离子步记录';
-      $('step-chart').innerHTML=energyCurve(next.points);
-      if (!activeFile || sourceChanged) {
-        const nextFile=next.files[activeFile]?activeFile:fileNames.find(name=>next.files[name]);
+        ? next.monitor?.kind==='md'?`${next.ionic_step} MD 步`:`已完成 ${next.ionic_step} 个离子步${view.nsw>0?' · NSW 上限 '+view.nsw:''}`
+        : next.monitor?.kind==='md'?t(next.monitor.stage==='minimization'?'正在准备：能量最小化':'等待首个完整 MD 记录'):next.pk?'等待首个完整离子步记录':'尚无离子步记录';
+      convergence.update({...next,nsw:view.nsw},view.id+':'+view.key+':'+(next.selected_job_id || next.pk || ''));
+      if(view.genericJob) $('step-energies').hidden=!!registered;
+      if(registered?.kind==='neb') {
+        const latest=registered.snapshots?.at(-1);
+        $('step-progress').textContent=latest?`最新完整路径 · 优化步 ${latest.step} · ${latest.images.length} 个像`:'等待完整路径快照';
+      }
+      if (!registeredFiles.length && !registeredSelection && (!activeFile || sourceChanged)) {
+        const nextFile=next.files[activeFile]?activeFile:availableFiles(next)[0];
         if(nextFile && $('step-structures').open && !$('step-structures').hidden) selectFile(nextFile);
         else if(activeFile) {activeFile='';bridge.reset();$('step-viewer-shell').hidden=true;$('step-file-source').textContent='';}
       }
-      else if (manual && activeFile!=='POSCAR') selectFile(activeFile);
+      else if (!registeredFiles.length && !registeredSelection && manual && activeFile!=='POSCAR') selectFile(activeFile);
       if (next.ionic_step!=null) rememberCount(view.id,view.key,next.ionic_step);
     } catch(error) {
-      if(current===view) $('step-note').textContent=error.message;
+      const registered=await registeredRead;
+      if(current===view) {
+        if(registered)$('step-energies').hidden=true;
+        $('step-note').textContent=error.message;
+        if(!info?.points?.length)convergence.update({...info,error:true},view.id+':'+view.key);
+      }
     } finally { view.loading=false; }
   }
   function jobQuery(view) {return view.selectedJob?'?job_id='+encodeURIComponent(view.selectedJob):'';}
   $('step-job-select').onchange=()=>{
     if(!current) return;
     current={...current,selectedJob:$('step-job-select').value,loading:false};
-    activeFile='';info=null;bridge.reset();$('step-viewer-shell').hidden=true;
-    $('step-chart').replaceChildren();$('step-actual-parameters').replaceChildren();$('step-code').replaceChildren();
+    results.reset();registeredSelection=null;activeFile='';info=null;bridge.reset();$('step-viewer-shell').hidden=true;
+    convergence.reset();$('step-actual-parameters').replaceChildren();$('step-code').replaceChildren();
     for(const key of [...editors.keys()])if(key!=='purpose')editors.delete(key);
     refresh();
   };
@@ -247,7 +321,7 @@ export function createStepDetail({api,rememberCount}) {
     $('step-structures').open=true; $('step-energies').open=false;
     $('step-investigation').hidden=true; $('step-investigation-log').replaceChildren();
     $('step-progress').textContent='读取离子步…'; $('step-note').textContent='';
-    $('step-file-source').textContent=''; $('step-chart').replaceChildren();
+    $('step-file-source').textContent=''; convergence.reset();
     info={files:current.preview?{POSCAR:'方案预览'}:{},points:[]};
     drawFiles();
     if (!job && !step.reused_pk && current.preview) selectFile('POSCAR');
@@ -258,13 +332,25 @@ export function createStepDetail({api,rememberCount}) {
   $('step-back').onclick=close;
   $('step-refresh').onclick=()=>refresh(true);
   $('step-structures').addEventListener('toggle',()=>{
-    if(!current || !$('step-structures').open || activeFile) return;
+    if(!current || !$('step-structures').open || activeFile || registeredSelection) return;
+    if(registeredFiles.length){results.selectImage(registeredFiles.find(item=>item.selected)?.index ?? registeredFiles[0].index,false);return;}
     const name=fileNames.find(name=>info?.files[name]);if(name) selectFile(name);
   });
-  $('step-files').onclick=event=>{if(event.target.dataset.stepFile)selectFile(event.target.dataset.stepFile);};
+  $('step-files').onclick=event=>{const image=event.target.closest('[data-result-image]');if(image){results.selectImage(Number(image.dataset.resultImage),false);return;}if(event.target.dataset.stepFile)selectFile(event.target.dataset.stepFile);};
   setInterval(()=>{if(current && (!info?.terminal || current.failed || info?.investigations?.some(row=>!row.terminal)) && !document.hidden && screen.getClientRects().length)refresh();},20000);
   function drawGeneral(plan,node) {
     const state=plan.runtime[node.id];
+    const view=workflowView(plan), children=view.children.get(node.id) || [];
+    const jobs=$('step-child-jobs');jobs.hidden=!children.length;
+    jobs.querySelector('summary span').textContent=childJobSummary(plan,children);
+    const rows=children.map(child=>{
+      const runtime=plan.runtime[child.id] || {};
+      return `<button type="button" data-child-job="${esc(child.id)}"><span><strong>${esc(taskLabel(child))}</strong><small>${runtime.job?.scheduler_job_id?'#'+esc(runtime.job.scheduler_job_id):esc(child.id)}</small></span><span class="step-status" data-state="${esc(runtime.status)}">${esc(nodeStatus(plan,child))}</span><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`;
+    }).join('');
+    if(jobs.querySelector('div').innerHTML!==rows)jobs.querySelector('div').innerHTML=rows;
+    const owner=view.owners.get(node.id), parent=plan.nodes.find(n=>n.id===owner && n.id!==node.id);
+    $('step-parent').hidden=!parent;
+    if(parent){$('step-parent').textContent='← '+taskLabel(parent);$('step-parent').dataset.parent=parent.id;}
     const path=$('step-group-path');
     path.textContent=(node.group_path || []).join(' › ');path.hidden=!path.textContent;
     status(nodeStatus(plan,node),state.status);
@@ -290,11 +376,14 @@ export function createStepDetail({api,rememberCount}) {
       failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar?.NSW,
       related:id=>{const p=current.plan,n=p.nodes.find(n=>n.id===id);if(n) openGeneral(p,n,sessionPath);},
       base:`${sessionPath}/workflows/${plan.id}/steps/${node.id}`};
-    heading(taskLabel(node),kindName(node.kind),node.id,plan.nodes.indexOf(node),plan.nodes.length,plan.title,node.purpose);
+    const view=workflowView(plan), siblings=view.children.get(view.owners.get(node.id)) || view.nodes;
+    const sequence=view.owners.get(node.id)===node.id?graphLayers(view.nodes).flat():siblings;
+    heading(taskLabel(node),kindName(node.kind),node.id,sequence.findIndex(n=>n.id===node.id),sequence.length,plan.title,node.purpose);
     screen.dataset.planId=plan.id;screen.dataset.nodeId=node.id;
     screen.dispatchEvent(new Event('stepchange'));
     const index=new Map(plan.nodes.map(n=>[n.id,n]));
-    relations(node.depends_on.map(id=>index.get(id)).filter(Boolean),plan.nodes.filter(n=>n.depends_on.includes(node.id)));
+    const visible=view.nodes.find(n=>n.id===node.id);
+    relations((visible || node).depends_on.map(id=>index.get(id)).filter(Boolean),(visible?view.nodes:plan.nodes).filter(n=>n.depends_on.includes(node.id)));
     drawGeneral(plan,node);
     $('step-back').focus({preventScroll:true});
     $('step-energies').hidden=!['vasp','job','task'].includes(node.kind); $('step-progress').hidden=$('step-energies').hidden;$('step-refresh').hidden=false;

@@ -17,6 +17,10 @@ def files(root, energy):
         "CONTCAR": POSCAR,
         "XDATCAR": XDATCAR,
         "INCAR": "ENCUT=520\nNSW=150\n",
+        "OUTCAR": (
+            " Iteration 1( 1)\n POSITION TOTAL-FORCE (eV/Angst)\n ---\n"
+            f" 0 0 0 {energy} 0 0\n ---\n"
+        ),
         "KPOINTS": "Gamma\n0\nG\n4 4 1\n",
         "OSZICAR": f" 1 F= {energy} E0= {energy}\n 2 F= -9 E0= -9",
         "submit.sh": "#!/bin/bash\nsbatch --help\n",
@@ -41,7 +45,7 @@ async def test_task_job_selection_and_retrieved_vs_live(tmp_path):
 
     async def remote(record, action, **kwargs):
         calls.append(record["id"])
-        assert action == "vasp_snapshot"
+        assert action == "scientific_snapshot"
         return vasp_snapshot(live, kwargs["file"])
 
     slurm = SimpleNamespace(load=lambda session, key: records[key], remote=remote)
@@ -61,6 +65,9 @@ async def test_task_job_selection_and_retrieved_vs_live(tmp_path):
     assert "520" in info["parameters"]["INCAR"] and info["script"].startswith("#!")
     live_info = await inspect_generic_step(chat, "session", plan, node, "info", "new")
     assert live_info["points"] == [[1, -3.0]] and calls == ["new"]
+    assert info["monitor"]["force_points"] == [[1, 2.0]]
+    assert live_info["monitor"]["force_points"] == [[1, 3.0]]
+    assert info["monitor"]["nsw"] == 150
     assert live_info["files"]["CONTCAR"] == "作业目录快照"
     result = await inspect_generic_step(chat, "session", plan, node, "POSCAR", "old")
     assert result["content"] == POSCAR
@@ -70,6 +77,7 @@ async def test_task_job_selection_and_retrieved_vs_live(tmp_path):
     (stored / "XDATCAR").unlink()
     mixed = await inspect_generic_step(chat, "session", plan, node, "info", "old")
     assert mixed["points"] == [[1, -2.0]]
+    assert mixed["monitor"]["force_points"] == [[1, 2.0]]
     assert mixed["files"] == {"POSCAR": "已取回", "CONTCAR": "已取回", "XDATCAR": "作业目录快照"}
 
 

@@ -34,12 +34,42 @@
       }
       return this.pending.get(index);
     }
+    async advance() {
+      if(this.disposed || this.complete)return;
+      if(!this.indexTask)this.indexTask=Promise.resolve().then(()=>this.source.advance()).finally(()=>{this.indexTask=null;});
+      return this.indexTask;
+    }
+    async findIonicStep(step) {
+      if(!Number.isSafeInteger(step) || step<1)throw Error('离子步编号无效');
+      if(!Array.isArray(this.source.ionicSteps))throw Error('该结构文件没有离子步与轨迹帧的对应信息');
+      // Complete the byte index, not the decoded frames. A concatenated restart
+      // may contain an older copy of the same step; OSZICAR uses the latest run.
+      while(!this.complete && !this.disposed)await this.advance();
+      if(this.disposed)throw Error('结构文件已关闭');
+      const start=this.source.segmentStart || 0;
+      const index=this.source.ionicSteps.indexOf(step,start);
+      if(index<0)throw Error(`轨迹中尚无第 ${step} 个离子步的结构`);
+      return index;
+    }
+    async findSimulationStep(step,{nearest=false}={}) {
+      if(!Number.isSafeInteger(step) || step<0)throw Error('MD 步编号无效');
+      if(!Array.isArray(this.source.simulationSteps))throw Error('该文件没有 MD 步与轨迹帧的对应信息');
+      while(!this.complete && !this.disposed)await this.advance();
+      if(this.disposed)throw Error('结构文件已关闭');
+      const steps=this.source.simulationSteps,start=this.source.segmentStart || 0;
+      const exact=steps.indexOf(step,start);
+      if(exact>=0)return exact;
+      if(!nearest || step<steps[start] || step>steps.at(-1))throw Error(`轨迹中尚无 MD 步 ${step} 的结构`);
+      let index=start;
+      for(let i=start+1;i<steps.length;i++)if(Math.abs(steps[i]-step)<Math.abs(steps[index]-step))index=i;
+      return index;
+    }
     async scan(onProgress) {
       while(!this.disposed&&!this.complete) {
         await pause();if(this.disposed)return;
         // Let explicit frame requests go first on the sequential MCP connection.
         if(this.pending.size){await Promise.allSettled([...this.pending.values()]);continue;}
-        await this.source.advance();if(!this.disposed)onProgress();
+        await this.advance();if(!this.disposed)onProgress();
       }
     }
     dispose(){this.disposed=true;this.cache.clear();this.bytes=0;this.source.dispose?.();}
@@ -84,6 +114,7 @@
     constructor(file,name) {
       this.file=file;this.name=name;this.lines=new ByteLines(file);this.offsets=[];this.ends=[];this.count=0;this.complete=false;
       this.vasp=/^(POSCAR|CONTCAR|XDATCAR)$/i.test(name)||/\.vasp$/i.test(name);this.header='';this.frameHeaders=[];
+      if(this.vasp){this.ionicSteps=[];this.segmentStart=0;}
     }
     async required(){const row=await this.lines.next();if(!row)throw Error('轨迹末尾存在不完整帧');return row;}
     async initialize() {
@@ -118,7 +149,14 @@
           await this.required();
         }
         for(let j=0;j<count;j++)if(!(await this.required()).text.trim())throw Error('轨迹末尾存在不完整帧');
-        if(this.vasp)this.frameHeaders.push(this.header);
+        if(this.vasp) {
+          this.frameHeaders.push(this.header);
+          const configuration=/configuration\s*=\s*(\d+)/i.exec(row.text);
+          const step=configuration?Number(configuration[1]):null;
+          const previous=this.ionicSteps.at(-1);
+          if(step!==null && previous!==null && previous!==undefined && step<=previous)this.segmentStart=this.count;
+          this.ionicSteps.push(step);
+        }
         this.offsets.push(start);this.ends.push(this.lines.offset);this.count++;
         this.complete=this.lines.offset>=this.file.size||(this.vasp&&!this.trajectory);
         if(this.lines.offset-initial>=1048576)break;

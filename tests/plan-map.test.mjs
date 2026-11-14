@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {buildGraph, CARD, clearDrop, edgePath, layoutGraph, overviewFolds, reachableVertices, taskLabel} from '../src/chemistry_agent/web/plan-layout.mjs';
+import {buildGraph, CARD, clearDrop, edgePath, edgeRoute, layoutGraph, overviewFolds, reachableVertices, taskLabel} from '../src/chemistry_agent/web/plan-layout.mjs';
 import {graphLayers} from '../src/chemistry_agent/web/general-plan.mjs';
 
 const node=(id,parents=[],auxiliary=false)=>({id,title:id,parents,auxiliary});
@@ -17,7 +17,7 @@ test('ten thousand sequential steps sort and lay out without recursion', () => {
   assert.equal(graphLayers(nodes.map(n=>({...n,depends_on:n.parents}))).length,10000);
   const graph=buildGraph(nodes),shown=layoutGraph(graph,new Set([3000]));
   assert.equal(shown.points.size,3001);
-  assert.deepEqual(shown.points.get(3000),{x:18+3000*CARD.column,y:12});
+  assert.deepEqual(shown.points.get(3000),{x:64+3000*CARD.column,y:80});
 });
 
 test('interleaved sites of five facets occupy disjoint lanes and stay with the same upstream site',()=>{
@@ -41,7 +41,7 @@ test('interleaved sites of five facets occupy disjoint lanes and stay with the s
   assert.equal(unfolded.points.size,42);
   assert(!unfolded.points.has('f211_s0_relax'));
   const isolated=layoutGraph(graph,new Set(['bulk']),new Map(),ids[2]);
-  assert.equal(isolated.points.size,37);assert.equal(isolated.points.get(ids[2]).x,18);
+  assert.equal(isolated.points.size,37);assert.equal(isolated.points.get(ids[2]).x,64);
   assert.deepEqual(buildGraph(nodes,true).byId.get('f110_s5_relax').parents,['f110_s5_model']);
 });
 
@@ -51,7 +51,7 @@ test('moving a card adjusts both adjacent endpoints without changing other posit
   assert.deepEqual(pinned.points.get('c'),plain.points.get('c'));
   const a=pinned.points.get('a'), b=pinned.points.get('b'), c=pinned.points.get('c');
   assert.equal(b.y,plain.points.get('b').y+150);
-  assert.ok(edgePath(a,b).endsWith(','+b.x+' '+(b.y+CARD.height/2)));
+  assert.ok(edgePath(a,b).endsWith('L'+b.x+' '+(b.y+CARD.height/2)));
   assert.ok(edgePath(b,c).startsWith('M'+(b.x+CARD.width)+' '+(b.y+CARD.height/2)));
   assert.ok(pinned.height>=b.y+CARD.height);
 });
@@ -65,28 +65,21 @@ test('scientific task IDs remain searchable while human-supplied titles are pres
 test('a drop near two neighbors settles into the closest gap without covering either card',()=>{
   const points=new Map([['drag',{x:308,y:142}],['right',{x:486,y:112}],['below',{x:252,y:212}]]);
   const clear=clearDrop(points,'drag');
-  assert.deepEqual(clear,{x:296,y:124});
+  for (const [id,p] of points) if(id!=='drag') assert(Math.abs(p.x-clear.x)>=CARD.width+6 || Math.abs(p.y-clear.y)>=CARD.height+6);
   points.set('drag',clear);assert.deepEqual(clearDrop(points,'drag'),clear);
 });
 
-test('opaque task IDs with arbitrary nested metadata form expandable folders without changing any real edge',()=>{
+test('nested group metadata filters real steps without adding boxes or changing dependency edges',()=>{
   const data=[node('x'), ...['q','z','m','n'].map(id=>node(id,['x'])),node('out',['q','z','m','n'])];
   [['Heavy water','10 ps'],['n-octane','10 ps'],['Heavy water','20 ps'],['n-octane','10 ps']].forEach((path,i)=>data[i+1].groupPath=path);
-  const graph=buildGraph(data), folders=graph.folders;
-  const id=(...path)=>[...folders.values()].find(f=>JSON.stringify(f.path)===JSON.stringify(path)).id;
-  const closed=new Set(folders.keys());
-  const overview=layoutGraph(graph,new Set(),new Map(),null,false,closed);
-  assert.deepEqual([...overview.points.keys()],['x','out']);
-  assert.deepEqual([...overview.headers.keys()],[id('Heavy water'),id('n-octane')]);
-  assert.equal(overview.links.length,4);
-  closed.delete(id('n-octane'));closed.delete(id('n-octane','10 ps'));
-  const expanded=layoutGraph(graph,new Set(),new Map(),null,false,closed);
-  assert.ok(expanded.points.has('z') && expanded.points.has('n'));
-  assert.ok(!expanded.points.has('q') && !expanded.points.has('m'));
+  const graph=buildGraph(data), folder=[...graph.folders.values()].find(f=>f.path.join('/')==='n-octane/10 ps');
+  const layout=layoutGraph(graph,new Set());
+  assert.equal(layout.points.size,data.length);
+  assert.equal(layout.headers.size,0);assert.equal(layout.lanes.length,0);
   assert.deepEqual(graph.byId.get('out').parents,['q','z','m','n']);
-  const filtered=layoutGraph(graph,new Set(),new Map(),id('n-octane','10 ps'),true,closed);
+  const filtered=layoutGraph(graph,new Set(),new Map(),folder.id);
   assert.deepEqual([...filtered.points.keys()],['z','n']);
-  assert.equal(graph.vertices.length,data.length);
+  assert.deepEqual(layoutGraph(graph,new Set(),new Map(),null,true).points,layout.points);
 });
 
 test('wide unlabeled forks get neutral batches while shared results remain outside them',()=>{
@@ -96,7 +89,8 @@ test('wide unlabeled forks get neutral batches while shared results remain outsi
   assert(graph.folders.size && [...graph.folders.values()].every(g=>g.batch));
   assert.deepEqual(graph.byId.get('join').folderIds,[]);
   const closed=layoutGraph(graph,overviewFolds(graph),new Map(),null,false,new Set(graph.folders.keys()));
-  assert.equal(closed.points.size,2);assert.equal(closed.links.length,6);
+  assert.equal(closed.points.size,1);assert.equal(closed.headers.size,0);
+  assert.equal(layoutGraph(graph,new Set()).points.size,31);
 });
 
 test('a later anonymous sweep is still paged in a workflow with other explicitly named branches',()=>{
@@ -106,4 +100,29 @@ test('a later anonymous sweep is still paged in a workflow with other explicitly
   const graph=buildGraph(nodes);
   assert.deepEqual([...graph.folders.values()].filter(g=>g.batch).map(g=>g.members.length),[12,12,6]);
   assert.equal(graph.byId.get('a').folderIds.length,0);
+});
+
+
+test('the critical path is horizontal, forks align by rank, and skip edges avoid intervening cards',()=>{
+  const graph=buildGraph([node('a'),node('b',['a']),node('side',['a']),node('c',['b']),node('join',['c','a','side'])]);
+  const layout=layoutGraph(graph,new Set());
+  const {points}=layout;
+  for(const id of ['b','c','join'])assert.equal(points.get(id).y,points.get('a').y);
+  assert.equal(points.get('b').x,points.get('side').x);
+  assert(points.get('side').y>=points.get('b').y+CARD.row);
+  const route=edgeRoute('a','join',layout), path=edgePath(points.get('a'),points.get('join'),route);
+  assert(route.viaY<points.get('b').y);
+  assert.match(path,/Q/);assert.doesNotMatch(path,/C|NaN|Infinity/);
+  assert.ok(path.endsWith(`L${points.get('join').x} ${points.get('join').y+CARD.height/2}`));
+});
+
+
+test('vertical presentation preserves edges and keeps parallel branches in separate columns',()=>{
+  const graph=buildGraph([node('a'),node('b',['a']),node('side',['a']),node('end',['b','a'])]);
+  const layout=layoutGraph(graph,new Set(),new Map(),null,'TB');
+  assert.equal(layout.points.get('a').x,layout.points.get('end').x);
+  assert.equal(layout.points.get('b').y,layout.points.get('side').y);
+  const route=edgeRoute('a','end',layout);
+  assert.equal(route.direction,'TB');assert(route.viaX<layout.points.get('b').x);
+  assert.doesNotMatch(edgePath(layout.points.get('a'),layout.points.get('end'),route),/C|NaN|Infinity/);
 });

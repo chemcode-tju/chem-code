@@ -1,5 +1,7 @@
+import { externalContextView } from "./external-context.mjs";
+import {createWorkspaceFiles} from "./workspace-files.mjs";
 import {userQuestions} from './user-questions.mjs';
-import {activity, activityOpen, activitySteps, answerBox, initAnswerControls} from "./answer-ui.mjs";
+import {activity, activityOpen, activitySteps, answerBox, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
 import { initSettingsDialog } from "./settings-dialog.mjs";
@@ -23,11 +25,12 @@ const markdown = globalThis.markdownit ? createMarkdownRenderer(globalThis.markd
 const state = {
   sessions: [], sessionId: null, turns: [], runs: [], pending: null, health: null,
   outbox: [], chatSignature: "",
-  busy: false, loading: false, hasMore: false, navigation: 0,
+  busy: false, loading: false, metadataLoading: false, hasMore: false, navigation: 0,
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
 const setDockMaximized = initWorkspaceControls({closeInspector:()=>setInspectorOpen(false)});
 initAnswerControls({root:document.body,answer:i=>state.turns[i]?.answer,toast});
+initDeferredActivities({root:$("conversation"), resolve:id=>state.turns.find((turn,index)=>String(turn.run?.id || index)===id)});
 
 const chatPositions=new Map();
 let restorePosition=false;
@@ -35,6 +38,11 @@ let toastTimer;
 let chatModels;
 let inspectorSession = null;
 let contextGeneration = 0;
+let nativeContext = null;
+let contextSignature = "";
+let contextRequest = null;
+const nativeContextSynced = new Set();
+let contextPolling = false;
 const notifications = createNotifications({ api, selectSession });
 const inspectorTabs = initInspectorTabs(open => {
   if (open) setDrawer("sidebar", false);
@@ -45,7 +53,7 @@ const viewer = createStructureBridge({selectTab:selectInspectorTab, toast});
 async function syncReport(id,event) {
     if (state.busy || state.loading || state.turns.some(t=>t.event===event)) return;
     const generation = state.navigation;
-    const [session,runs] = await Promise.all([api("/sessions/"+id),api("/sessions/"+id+"/runs?limit=100")]);
+    const [session,runs] = await Promise.all([api("/sessions/"+id),api("/sessions/"+id+"/runs?limit=100&compact=true")]);
     if (!state.busy && !state.loading && generation===state.navigation && state.sessionId===id) {
       state.runs = runs;
       state.turns = buildTurns(session.messages,runs);
@@ -194,13 +202,15 @@ function closeDrawers() {
 
 function updateControls() {
   const locked = state.busy || state.loading || chatModels?.saving || calculations.busy();
-  $("compact-context").hidden = !state.sessionId;
-  $("compact-context").disabled = locked || !state.sessionId || !state.health?.model_configured;
-  $("chat-model").disabled = Boolean(locked);
-  $("chat-model-apply").disabled = Boolean(locked);
-  $("chat-model-id").disabled = Boolean(locked);
+  const external = state.health?.agent_backend && state.health.agent_backend !== "builtin";
+  const view = nativeContext ? externalContextView(nativeContext) : null;
+  $("compact-context").hidden = !state.sessionId || (external && !view?.manual);
+  $("compact-context").disabled = locked || !state.sessionId ||
+    (external ? !view || view.disabled : !state.health?.model_configured);
+  $("agent-picker").disabled = Boolean(locked || state.metadataLoading);
+  $("permission-picker").disabled = Boolean(locked || state.metadataLoading);
   $("message-input").disabled = state.loading;
-  $("send-button").disabled = locked || uploads.uploading || !state.health?.model_configured;
+  $("send-button").disabled = locked || state.metadataLoading || uploads.uploading || !state.health?.model_configured;
   $("composer-add").disabled = locked || uploads.uploading;
   $("send-button").setAttribute("aria-label", state.busy ? "正在生成回答" : "发送消息");
   $("new-chat").disabled = locked;
@@ -212,9 +222,11 @@ function updateControls() {
 }
 
 async function refreshHealth() {
+  const healthSession = state.sessionId;
   try {
-    const previousProvider = state.health?.provider;
-    state.health = await api("/health");
+    const health = await api("/health" + (healthSession ? `?session_id=${healthSession}` : ""));
+    if (healthSession !== state.sessionId) return;
+    state.health = chatModels?.adaptHealth(health) || health;
     $("shell-options").replaceChildren(...(state.health.ssh_hosts || []).map(host => {
       const button = document.createElement("button");
       button.type = "button";
@@ -233,17 +245,13 @@ async function refreshHealth() {
     calculations.enabled(Boolean(state.health.automation_enabled));
     notifications.enabled(Boolean(state.health.automation_enabled));
     $("automation-link").hidden = !state.health.automation_enabled;
-    if (chatModels && previousProvider && previousProvider !== state.health.provider) {
-      chatModels.newConversation();
-      if (state.sessionId) await chatModels.loadSession(state.sessionId);
-      await chatModels.refresh();
-    }
     chatModels?.render();
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
       ? `${names[state.health.model] || state.health.model} · ${state.health.provider === "chatgpt" ? "已登录" : "已配置"}` : "模型未配置";
     $("model-status").classList.toggle("unavailable", !state.health.model_configured);
   } catch {
+    if (healthSession !== state.sessionId) return;
     state.health = null;
     $("model-label").textContent = "服务未连接";
     $("model-status").classList.add("unavailable");
@@ -270,7 +278,7 @@ function sessionButton(session) {
 }
 
 const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
-chatModels = createChatModelPicker({ api, state, toast, updateControls });
+chatModels = createChatModelPicker({ api, state, toast, updateControls, refreshHealth });
 const uploads = createFileUploads({ state, toast, updateControls, onChange: () => calculations.drawStructures(), onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
 
 function renderSessions() {
@@ -291,6 +299,9 @@ async function refreshSessions(append = false) {
   state.hasMore = sessions.length === 50;
   renderSessions();
 }
+
+const workspaceFiles=createWorkspaceFiles({api,session:()=>state.sessionId,viewer,
+  attach:file=>{uploads.add(file);$("message-input").focus();},toast});
 
 function renderUser(text, context, files = [], structures = []) {
   const attachedFiles = files.length ? files : contextFiles(context);
@@ -341,7 +352,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${turn.background ? '<div class="assistant-label">Chem Code · 计算更新</div>' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}</div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${turn.background ? '<div class="assistant-label">Chem Code · 计算更新</div>' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div></div></div></article>`
 
   ).join("");
   calculations.drawReportFigures();
@@ -390,6 +401,7 @@ function renderConversation(scroll = true) {
     link.after(button);
   }
   calculations.drawStructures();
+  workspaceFiles.draw();
   if (restorePosition && state.sessionId) {
     viewport.scrollTop=chatPositions.get(state.sessionId) ?? viewport.scrollHeight;
   } else {
@@ -399,29 +411,41 @@ function renderConversation(scroll = true) {
 }
 
 async function selectSession(id, quiet = false) {
+  const openedAt = performance.now();
   if (state.busy) return;
   if(state.sessionId && !state.loading) chatPositions.set(state.sessionId,$("chat-scroll").scrollTop);
   restorePosition=true;
   saveDraft();
-  if (id !== state.sessionId) { resetContextMeter("正在读取上下文…"); progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; viewer.reset(); calculations.reset(); }
+  if (id !== state.sessionId) { resetContextMeter("正在读取上下文…"); progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; state.runs = []; state.outbox = []; state.chatSignature = ""; viewer.reset(); calculations.reset(); }
+  workspaceFiles.reset();
   uploads.select(id);
   calculations.clearSelection();
   const navigation = ++state.navigation;
+  state.sessionId = id;
+  state.health = null;
+  state.metadataLoading = true;
   state.loading = true;
   state.pending = null;
   renderConversation(false);
   setDrawer("sidebar", false);
   if (inspectorSession !== id) restoreInspector(id);
+  // Loading model catalogs must never gate reading a saved conversation.
+  void Promise.allSettled([chatModels.loadSession(id), refreshHealth()]).then(() => {
+    if (navigation !== state.navigation || state.sessionId !== id) return;
+    state.metadataLoading = false;
+    $("conversation").dataset.metadataLoadedMs = String(Math.round(performance.now() - openedAt));
+    updateControls();
+    if (!state.loading) void calculations.refresh().catch(() => {});
+    void chatModels.refresh(false);
+  });
   try {
     // Message history is authoritative. All tool details can be reconstructed from it.
     const [session, runs] = await Promise.all([
       api(`/sessions/${encodeURIComponent(id)}`),
-      api(`/sessions/${encodeURIComponent(id)}/runs?limit=100`).catch(() => []),
+      api(`/sessions/${encodeURIComponent(id)}/runs?limit=100&compact=true`).catch(() => []),
     ]);
     if (navigation !== state.navigation) return;
-    await chatModels.loadSession(id).catch(() => {});
-    if (navigation !== state.navigation) return;
-    state.sessionId = id;
+    $("conversation").dataset.historyLoadedMs = String(Math.round(performance.now() - openedAt));
     state.runs = runs;
     state.turns = buildTurns(session.messages, runs);
     state.loadedAt = session.updated_at;
@@ -435,10 +459,12 @@ async function selectSession(id, quiet = false) {
     if (!quiet) toast(error.message);
     viewer.reset(); calculations.reset();
     state.sessionId = null;
+    state.metadataLoading = false;
     chatModels.newConversation();
     state.turns = [];
     state.runs = [];
     rememberSession(null);
+    workspaceFiles.reset();
     uploads.select(null); restoreInspector(null);
     $("conversation-title").textContent = t("新对话");
   } finally {
@@ -447,9 +473,13 @@ async function selectSession(id, quiet = false) {
       restoreDraft();
       renderConversation();
       restorePosition=false;
+      performance.clearMeasures("chem:session:ready");
+      performance.measure("chem:session:ready", {start:openedAt});
+      $("conversation").dataset.readyMs = String(Math.round(performance.now() - openedAt));
       renderSessions();
       void syncChat();
-      void calculations.refresh().catch(() => {});
+      if (!state.metadataLoading) void calculations.refresh().catch(() => {});
+      void workspaceFiles.refresh();
       void refreshContext();
     }
   }
@@ -469,6 +499,8 @@ function newConversation() {
   state.navigation += 1;
   clearRevision(); projectNavigation.clearSelection();
   state.sessionId = null;
+  state.metadataLoading = false;
+  void refreshHealth();
   state.turns = [];
   state.runs = [];
   state.pending = null; state.outbox = []; state.chatSignature = "";
@@ -547,23 +579,29 @@ async function syncChat() {
     }
     if (signature === state.chatSignature) return;
     let runs = state.runs;
-    if (receipt.updated_at !== state.loadedAt) {
+    let transcriptChanged = false;
+    if (receipt.updated_at !== state.loadedAt ||
+        state.runs.some(run=>run.status==='running' && run.id!==receipt.active_run_id)) {
       const [session, latest] = await Promise.all([
-        api(`/sessions/${id}`), api(`/sessions/${id}/runs?limit=100`),
+        api(`/sessions/${id}`), api(`/sessions/${id}/runs?limit=100&compact=true`),
       ]);
       if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
+      transcriptChanged = true;
       runs = latest;
       state.runs = runs;
       state.turns = buildTurns(session.messages, runs);
       state.loadedAt = session.updated_at;
       void updateSessionTitle(id,session,state.turns);
       void calculations.refresh().catch(() => {});
+      void workspaceFiles.refresh();
       void refreshContext();
     }
-    state.outbox = receipt.requests.filter(item=>item.status!=="completed" &&
+    const outbox = receipt.requests.filter(item=>item.status!=="completed" &&
       !runs.some(run=>run.id===item.run_id && run.status==="completed"));
+    const outboxChanged = JSON.stringify(outbox) !== JSON.stringify(state.outbox);
+    state.outbox = outbox;
     state.chatSignature = signature;
-    renderConversation(false);
+    if (transcriptChanged || outboxChanged) renderConversation(false);
   } catch { /* Keep saved messages and drafts visible while disconnected. */ }
   finally { syncingChat = false; }
 }
@@ -572,7 +610,7 @@ window.addEventListener("focus", syncChat);
 window.addEventListener("pagehide", () => saveDraft());
 
 async function sendChat(message, context = "", files = uploads.files, retryRequest = null) {
-  if (state.busy || state.loading || chatModels.saving || uploads.uploading || !message.trim()) return;
+  if (state.busy || state.loading || state.metadataLoading || chatModels.saving || uploads.uploading || !message.trim()) return;
   const selectedModel = chatModels.value;
   if (!state.health?.model_configured) { toast("请先连接并配置模型。"); return; }
   state.busy = true;
@@ -824,19 +862,14 @@ async function startWorkspace() {
   document.body.classList.remove("auth-checking");
   syncDrawerAccessibility();
   restoreLinkedSettings();
-  await Promise.all([refreshHealth(), refreshSessions().catch((error) => {
-    $("session-list").innerHTML = '<p class="sidebar-empty">暂时无法读取会话，请点击刷新。</p>';
-    toast(error.message);
-  })]);
   const entry = new URL(location.href);
   const setup = entry.searchParams.get("setup") === "compute";
   let id = entry.searchParams.get("session");
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try { if (!setup) id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
-  // Model discovery may share the provider's inference lock. Never block conversation recovery.
-  if (state.health?.model_configured) void chatModels.refresh();
+  void refreshSessions().catch(error => toast(error.message));
   if (id) await selectSession(id, true);
-  else { uploads.select(null); restoreInspector(null); $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
+  else { chatModels.newConversation(); void refreshHealth(); uploads.select(null); restoreInspector(null); $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
   if (setup) {
     const field = $("message-input");
     if (!field.value.trim() && !state.pending) field.value = t("请检查我的计算配置，告诉我还需要提供哪些服务器、软件、赝势和队列信息。");
@@ -902,6 +935,14 @@ function setMeter(percent = null) {
 
 function resetContextMeter(message = "暂无对话记录。") {
   contextGeneration++;
+  nativeContext = null;
+  contextSignature = "";
+  contextRequest = null;
+  $("context-ring").hidden = Boolean(state.health?.agent_backend && state.health.agent_backend !== "builtin");
+  $("native-context-details").replaceChildren();
+  $("native-context-details").hidden = true;
+  $("context-budget").hidden = false;
+  $("context-summary").hidden = false;
   setMeter();
   $("context-panel").close();
   $("context-status").textContent = t("上下文用量");
@@ -916,6 +957,40 @@ async function refreshContext() {
   try {
     const info = await api(`/sessions/${encodeURIComponent(id)}/context`);
     if (id !== state.sessionId || generation !== contextGeneration) return;
+    if (info.managed_by) {
+      const signature = JSON.stringify(info) + document.documentElement.lang;
+      if (signature === contextSignature) return;
+      contextSignature = signature;
+      nativeContext = info;
+      const view = externalContextView(info, document.documentElement.lang || 'zh-CN');
+      setMeter(view.percent);
+      $("context-ring").hidden = !view.visible;
+      $("context-status").textContent = view.title;
+      $("context-budget").hidden = true;
+      $("context-summary").hidden = true;
+      const details = $("native-context-details");
+      details.replaceChildren();
+      for (const [label, value] of view.rows) {
+        const term = document.createElement('dt'), description = document.createElement('dd');
+        term.textContent = t(label); description.textContent = t(value);
+        details.append(term, description);
+      }
+      details.hidden = !view.rows.length;
+      updateControls();
+      // One read-only native resume for old sessions; polling below only reads platform state.
+      const syncKey = `${id}:${info.managed_by}`;
+      if (info.has_thread && !info.updated_at && !info.busy && (!info.operation || (!info.updated_at && info.operation.state !== "running")) && !nativeContextSynced.has(syncKey)) {
+        nativeContextSynced.add(syncKey);
+        void api(`/sessions/${encodeURIComponent(id)}/context/refresh?operation_id=${crypto.randomUUID()}`, {method:'POST'}).catch(() => {});
+      }
+      return;
+    }
+    nativeContext = null;
+    $("context-ring").hidden = false;
+    $("native-context-details").hidden = true;
+    $("context-budget").hidden = false;
+    $("context-summary").hidden = false;
+    updateControls();
     const percent = Math.round(100 * info.estimated_input_tokens / Math.max(1, info.input_budget_tokens));
     setMeter(percent);
     $("context-status").textContent = `会话记忆 · 已摘要 ${info.covered_messages} / ${info.original_messages} 条消息`;
@@ -930,12 +1005,22 @@ async function refreshContext() {
   }
 }
 $("compact-context").onclick = async () => {
-  if (!state.sessionId || state.busy || state.loading || calculations.busy()) return;
+  if (!state.sessionId || $("compact-context").disabled) return;
+  const id = state.sessionId, external = Boolean(nativeContext);
+  contextRequest ||= {session: id, id: crypto.randomUUID()};
+  if (contextRequest.session !== id) contextRequest = {session: id, id: crypto.randomUUID()};
   state.busy = true; updateControls();
   try {
-    const result = await api(`/sessions/${encodeURIComponent(state.sessionId)}/context/compact`, { method: "POST" });
-    await refreshContext();
-    toast(result.context.summary_calls ? "历史摘要已更新，原文和计算产物完整保留。" : "暂无需要进一步压缩的历史，保留最近对话。 ");
+    const result = await api(`/sessions/${encodeURIComponent(id)}/context/compact?operation_id=${contextRequest.id}`, { method: "POST" });
+    contextRequest = null;
+    if (state.sessionId === id) await refreshContext();
+    toast(external ? "已交给 Agent 压缩。" : result.context.summary_calls ? "历史摘要已更新，原文和计算产物完整保留。" : "暂无需要进一步压缩的历史，保留最近对话。");
   } catch (error) { toast(error.message); }
   finally { state.busy = false; updateControls(); }
 };
+setInterval(async () => {
+  if (document.hidden || !state.sessionId || state.loading || contextPolling) return;
+  if (state.health?.agent_backend === 'builtin') return;
+  contextPolling = true;
+  try { await refreshContext(); } finally { contextPolling = false; }
+}, 4000);

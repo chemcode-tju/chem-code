@@ -1,5 +1,7 @@
 """Register, inspect and cancel durable waits from the conversation agent."""
 
+import json
+
 from chemistry_agent.automation.wait_ledger import WaitLedger
 from chemistry_agent.automation.wait_models import WaitControl, WaitRegister
 from chemistry_agent.errors import AgentError
@@ -24,6 +26,20 @@ class WaitOperations:
         async with plans.lock(session, plan_id):
             plans.chat.load(session, "plans", plan_id)
             ledger = WaitLedger(plans.store)
+            if args.action == "list" and args.event_id:
+                # Same tool schema works in already-bound native Agent sessions.
+                # Read the exact event, including bundled originals, without mutating it.
+                async with plans.store.lock:
+                    found = await plans.store._one(
+                        "SELECT id,status,created_at,run_id,error,batch_parent,payload "
+                        "FROM agent_events WHERE id=? AND session_id=? AND plan_id=?",
+                        (str(args.event_id), session, plan_id),
+                    )
+                if found is None:
+                    raise AgentError("event_not_found", "当前方案中不存在此事件。", 404)
+                event = dict(found)
+                event["payload"] = json.loads(event["payload"])
+                return event
             if args.action != "list":
                 if args.event_id:
                     async with plans.store.lock:

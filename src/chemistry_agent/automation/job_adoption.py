@@ -50,6 +50,15 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                 for plan in plans.chat.list_records(session, "plans"):
                     for node, state in plan["runtime"].items():
                         if state.get("generic_job_id") == existing["id"]:
+                            await plans.platform.results.ensure_job(
+                                session,
+                                plan["id"],
+                                node,
+                                existing["id"],
+                                args.results,
+                                existing.get("step_id"),
+                                replace=args.results != "auto",
+                            )
                             return binding(existing, plan["id"], node, reused=True)
         receipt = plans.chat.directory(session, "slurm_jobs") / f"{identifier}.json"
         old = plans.slurm.load(session, identifier) if receipt.exists() else None
@@ -59,6 +68,17 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
             path = plans.chat.directory(session, "plans") / f"{plan_id}.json"
             plan = plans.chat.load(session, "plans", plan_id) if path.exists() else None
             if plan and node_id in plan["runtime"]:
+                await plans.platform.results.ensure_job(
+                    session,
+                    plan_id,
+                    node_id,
+                    identifier,
+                    args.results
+                    if args.results != "auto"
+                    else old.get("settings", {}).get("results", "auto"),
+                    old.get("step_id"),
+                    replace=args.results != "auto",
+                )
                 return binding(old, plan_id, node_id, reused=True)
             if plan and plan["status"] in {"draft", "paused", "stopping", "stopped"}:
                 raise AgentError(
@@ -83,6 +103,7 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                 adopted=True,
                 retrieve=args.retrieve,
                 required_outputs=args.required_outputs,
+                results=args.results,
             )
             record = old or {
                 **observed,
@@ -161,6 +182,14 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                 }
             )
             plans.save(session, plan)
+            await plans.platform.results.ensure_job(
+                session,
+                plan_id,
+                node_id,
+                identifier,
+                settings.results,
+                step_id,
+            )
             return binding(record, plan_id, node_id, reused=bool(old))
 
 
@@ -176,5 +205,6 @@ def binding(record: dict, plan_id: str, node_id: str, *, reused: bool) -> dict:
         "reused": reused,
         "submitted": False,
         "monitoring": True,
+        "results_registered": True,
         "terminal_observed": record.get("terminal", False),
     }

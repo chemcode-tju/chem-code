@@ -1,4 +1,5 @@
 import {planMap} from './plan-map.mjs';
+import {workflowView, childJobSummary} from './plan-presentation.mjs';
 import {taskLabel} from './plan-layout.mjs';
 import {escapeHtml as esc} from './core.mjs';
 
@@ -16,6 +17,7 @@ export function nodeStatus(plan,node) {
     if(job.backend==='slurm' && job.scheduler_state==='unknown') return '等待调度记账结果';
     if(job.paused) return 'AiiDA 已暂停';
     if(job.scheduler_state==='running') return '运行中';
+    if(job.scheduler_state==='pending' || job.scheduler_state==='queued') return '排队中';
     if(job.scheduler_job_id) return '已交调度器';
     return '正在提交';
   }
@@ -41,13 +43,16 @@ export function graphLayers(nodes) {
   return layers;
 }
 export function renderGeneralPlan(plan) {
+  const view = workflowView(plan);
   const titles=Object.fromEntries(plan.nodes.map(n=>[n.id,n.title]));
-  const compute = plan.nodes.filter(node => ['vasp','job','task'].includes(node.kind) && !node.parent_task);
+  const compute = view.nodes.filter(node => ['vasp','job','task'].includes(node.kind));
   const completed = compute.filter(node=>plan.runtime[node.id].status==='completed').length;
-  const layers = graphLayers(plan.nodes).map(layer => layer.map(node => ({
+  const layers = graphLayers(view.nodes).map(layer => layer.map(node => ({
     id:node.id, title:node.title, groupPath:node.group_path, dependencies:node.depends_on, auxiliary:!['vasp','job','task'].includes(node.kind),
-    description:(layer.length>1?'独立分支 · 可并行。':'')+(node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):node.title),
-    state:plan.runtime[node.id].status, status:(plan.runtime[node.id].job?.scheduler_job_id?'#'+plan.runtime[node.id].job.scheduler_job_id+' · ':'')+(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
+    kind:node.kind, jobSummary:childJobSummary(plan,view.children.get(node.id)),
+    searchText:(view.children.get(node.id) || []).map(child=>[child.id,child.title,plan.runtime[child.id]?.job?.scheduler_job_id].filter(Boolean).join(' ')).join(' '),
+    description:node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):node.title,
+    state:plan.runtime[node.id].status, status:(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
   })));
   const graph = planMap(layers,plan.id,'data-general-step',plan.title);
   return `<article class="calculation-preview general-plan" data-task="${esc(plan.id)}" data-general-plan="${esc(plan.id)}"><header><strong>${esc(plan.title)}</strong><small>v${plan.revision}</small></header><p class="task-parameters">${esc(planStatus(plan.status))} · ${completed}/${compute.length} 项计算 · ${plan.max_parallel ? `最多 ${esc(plan.max_parallel)} 个计算并行` : '就绪即提交'}</p><div class="graph-progress" role="progressbar" aria-label="方案完成步骤" aria-valuemin="0" aria-valuemax="${compute.length}" aria-valuenow="${completed}"><span style="width:${100*completed/Math.max(1,compute.length)}%"></span></div>${graph}<details data-fold="goal"><summary>研究目标与版本</summary><p>${esc(plan.goal)}</p>${plan.history.map(h=>`<p>v${h.revision} · 修改 ${h.changed_nodes.length} 步${h.removed_nodes.length?` · 移除 ${h.removed_nodes.map(esc).join('、')}`:''}</p>`).join('')}</details>${plan.status==='draft'?`<div class="task-actions"><button data-revise-plan="${esc(plan.id)}">提出修改</button><button class="tool-submit" data-confirm-plan="${esc(plan.id)}">确认方案并执行</button></div>`:['running','paused'].includes(plan.status)?`<button data-control-plan="${esc(plan.id)}" data-plan-action="${plan.status==='running'?'pause':'resume'}">${plan.status==='running'?'暂停后续步骤':'继续执行'}</button>`:''}</article>`;

@@ -25,8 +25,24 @@
     if (files.reduce((size,file)=>size+file.size,0)>32*1024*1024) throw Error('配套 data/输入/日志合计超过 32 MiB，请选择较小的元数据文件。轨迹不受此限制。');
     return Promise.all(files.map(async file=>({name:file.name,text:await file.text()})));
   }
-  async function open(input, {format = 'auto'} = {}) {
+  async function openSequence(files, name) {
+    if(!files.length)throw Error('路径尚无结构像');
+    // Explicit sequence order only; never infer a trajectory from companion files.
+    let signature=null;
+    const source={count:files.length,complete:true,async read(index) {
+      const text=await files[index].text();
+      const parsed=new StructureParser.StructureDocument('POSCAR',text);
+      const elements=parsed.frame(0).atoms.map(atom=>atom.elem).join(',');
+      if(signature!==null && signature!==elements)throw Error('路径像的原子数或元素顺序不一致');
+      signature=elements;return text;
+    }};
+    const store=new StructureTrajectory.FrameStore('POSCAR',source);
+    try {await store.get(0);}catch(error){store.dispose();throw error;}
+    return {name,store,note:`NEB 路径 · ${files.length} 个实际像 · 非时间轨迹`};
+  }
+  async function open(input, {format = 'auto',sequence=false,name:sequenceName='NEB 路径'} = {}) {
     const files=input && typeof input.slice==='function' && typeof input.name==='string' ? [input] : Array.from(input||[]);
+    if(sequence)return openSequence(files,sequenceName);
     if(!files.length || files.length>32)throw Error('请选择 1–32 个结构及配套文件');
     const entries=await Promise.all(files.map(async file=>({file,format:await classify(file)})));
     if(files.length===1 && format!=='auto')entries[0].format=format;
@@ -67,6 +83,6 @@
     }
     return {name:file.name,store:await StructureTrajectory.local(blob,'converted.extxyz'),note};
   }
-  const api={localName,open,classify};
+  const api={localName,open,classify,openSequence};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.StructureImport=api;
 })(typeof window!=='undefined'?window:globalThis);

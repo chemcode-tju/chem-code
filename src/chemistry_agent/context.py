@@ -224,8 +224,10 @@ class ContextManager:
             "calculation_artifacts",
             "calculation_preview",
             "calculation_job",
+            "calculation_job_files",
             "calculation_job_adopt",
             "calculation_wait_register",
+            "calculation_wait_control",
             "calculation_jobs",
             "build_structure",
             "import_structure",
@@ -418,7 +420,7 @@ class ContextManager:
             current, folded = fold_tool_rounds(
                 current,
                 self.counter,
-                min(self.settings.context_summary_tokens, info.input_budget_tokens // 8),
+                min(self.summary_memory_budget * 2, info.input_budget_tokens // 8),
             )
         active_limit = (
             max(1024, info.input_budget_tokens // 8)

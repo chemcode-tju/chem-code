@@ -1,7 +1,7 @@
-import {folderLinks, indexFolders, inSection} from './plan-folders.mjs';
+import {indexFolders, inSection} from './plan-folders.mjs';
 
 // Geometry is in world pixels. Zoom and the viewport never change the dependency graph.
-export const CARD = {width:184, height:82, column:234, row:100};
+export const CARD = {width:256, height:156, column:352, row:216};
 export const kindName = kind => ({task:'研究步骤',job:'Slurm 任务',vasp:'VASP 计算',model:'结构建模',analysis:'数据分析'})[kind] || '计算步骤';
 
 export function taskLabel({id, title}) {
@@ -67,7 +67,6 @@ export function overviewFolds(graph) {
   for (const node of graph.vertices) {
     // Keep trunk-to-lane edges open. Fold the fan-out inside a branch.
     const laneBridge=node.tree.some(id=>heads.has(id));
-    if (node.folderIds.length || node.children.some(id=>graph.byId.get(id).folderIds.length)) continue;
     // A shared reference can independently reveal dozens of terminal analyses.
     if (!laneBridge && (node.tree.length > 1 || node.children.length > 8)) folds.add(node.id);
   }
@@ -76,77 +75,91 @@ export function overviewFolds(graph) {
 
 export const FOLDER_HEIGHT = 36;
 
-export function layoutGraph(graph, folded, moves = new Map(), scope = null, compact = false, closed = new Set()) {
-  const candidates = scope == null ? graph.vertices : graph.vertices.filter(node=>inSection(node,scope)).map(node=>({
-    id:node.id, parents:node.parents.filter(id=>inSection(graph.byId.get(id),scope))
-  }));
-  const visible=reachableVertices(candidates,folded), trees=new Map(), incoming=new Set();
-  for (const node of candidates) {
-    if (!visible.has(node.id)) continue;
-    const vertex=graph.byId.get(node.id), parent=graph.byId.get(vertex.primary);
-    if (!parent || parent.section!==vertex.section || !visible.has(parent.id) || folded.has(parent.id)) continue;
-    if (!trees.has(parent.id)) trees.set(parent.id,[]);
-    trees.get(parent.id).push(node.id); incoming.add(node.id);
-  }
-  const points=new Map(), lanes=[], headers=new Map(), represented=new Map();
-  const sections=scope == null ? graph.sections : graph.filters.filter(section=>section.id===scope);
-  const baseDepth=scope == null ? 0 : sections[0]?.depth || 0;
-  const banded=graph.sections.length>1;
-  let y=12, right=0, bottom=0;
-
-  function placeTasks(section,members,level) {
-    const stack=members.filter(id=>!incoming.has(id)).reverse();
-    while (stack.length) {
-      const id=stack.pop(), node=graph.byId.get(id), move=moves.get(id);
-      const depth=node.depth-(compact && (banded || section.folder) ? section.depth : baseDepth);
-      const inset=compact && (banded || section.folder) ? 38+level*14 : 18;
-      const x=Math.max(12,inset+depth*CARD.column+(move?.x || 0));
-      const top=Math.max(10,y+(move?.y || 0));
-      points.set(id,{x,y:top});represented.set(id,id);
-      right=Math.max(right,x+CARD.width); bottom=Math.max(bottom,top+CARD.height);
-      const children=trees.get(id);
-      if (children?.length) {
-        for (let i=children.length-1;i>=0;i--) stack.push(children[i]);
-      } else y+=CARD.row;
+// One rank per dependency depth; the longest continuation stays on the same row.
+// Group metadata remains available for filtering, never introduces container nodes.
+export function layoutGraph(graph, folded, moves = new Map(), scope = null, direction = 'LR') {
+  const candidates = graph.vertices.filter(node => inSection(node, scope));
+  const ids = new Set(candidates.map(node => node.id));
+  const visible = reachableVertices(candidates.map(node => ({
+    ...node, parents:node.parents.filter(id => ids.has(id))
+  })), folded);
+  const vertices = candidates.filter(node => visible.has(node.id));
+  const trees = new Map(), roots = [], ranks = new Map();
+  for (const node of vertices) {
+    const parents = node.parents.filter(id => visible.has(id) && !folded.has(id));
+    const parent = parents.reduce((best, id) => best == null || ranks.get(id) > ranks.get(best) ? id : best, null);
+    ranks.set(node.id, parent == null ? 0 : ranks.get(parent) + 1);
+    if (parent == null) roots.push(node.id);
+    else {
+      if (!trees.has(parent)) trees.set(parent, []);
+      trees.get(parent).push(node.id);
     }
   }
-  function placeSection(section,level) {
-    const members=section.members.filter(id=>visible.has(id));
-    if (!members.length) return;
-    const start=y;
-    if (section.folder) {
-      const x=compact ? 20+level*14 : 18+(section.depth-baseDepth)*CARD.column+level*14;
-      headers.set(section.id,{x,y,section,level,count:members.length});
-      right=Math.max(right,x+CARD.width);y+=FOLDER_HEIGHT+7;
-      if (closed.has(section.id)) {
-        for (const id of members) represented.set(id,section.id);
-        return;
-      }
-    } else if (banded) y+=32;
-    const direct=section.direct.filter(id=>visible.has(id));
-    const blocks=section.children.map(child=>({depth:child.depth,place:()=>placeSection(child,level+1)}));
-    if (direct.length) blocks.push({depth:graph.byId.get(direct[0]).depth,place:()=>placeTasks(section,direct,level)});
-    blocks.sort((a,b)=>a.depth-b.depth).forEach(block=>block.place());
-    if (!section.folder && banded) {lanes.push({group:section,start,height:y-start,count:members.length});y+=10;}
+  const lengths = new Map();
+  for (const node of [...vertices].reverse()) {
+    const children = trees.get(node.id) || [];
+    children.sort((a,b) => lengths.get(b) - lengths.get(a));
+    lengths.set(node.id, 1 + children.reduce((max,id) => Math.max(max,lengths.get(id)),0));
   }
-  for (const section of sections) placeSection(section,0);
-  const links=graph.folders.size ? folderLinks(graph,represented,folded) : [];
-  return {points,lanes,headers,links,width:Math.ceil(right+24),height:Math.ceil(Math.max(bottom+20,y))};
+  const points = new Map(), stack = [...roots].reverse();
+  let row = 0, right = 0, bottom = 0;
+  while (stack.length) {
+    const id = stack.pop(), move = moves.get(id), children = trees.get(id) || [];
+    const x = Math.max(64, 64 + (direction==='TB'?row:ranks.get(id)) * CARD.column + (move?.x || 0));
+    const y = Math.max(80, 80 + (direction==='TB'?ranks.get(id):row) * CARD.row + (move?.y || 0));
+    points.set(id, {x,y});
+    right = Math.max(right, x + CARD.width); bottom = Math.max(bottom, y + CARD.height);
+    if (children.length) stack.push(...[...children].reverse());
+    else row++;
+  }
+  return {points, ranks, direction, lanes:[], headers:new Map(), links:[], width:Math.ceil(right+40), height:Math.ceil(bottom+48)};
 }
 
-export function edgePath(a,b,rail=false) {
-  const from=a.y+CARD.height/2,to=b.y+CARD.height/2;
-  if(rail) {
-    const bend=Math.min(14,Math.abs(to-from)/2), sign=Math.sign(to-from), x=Math.min(a.x,b.x)-19;
-    return `M${a.x} ${from} H${x+bend} Q${x} ${from},${x} ${from+sign*bend} V${to-sign*bend} Q${x} ${to},${x+bend} ${to} H${b.x}`;
+function roundedPath(points, radius = 12) {
+  const clean = points.filter((point,i) => !i || point.x !== points[i-1].x || point.y !== points[i-1].y);
+  let path = `M${clean[0].x} ${clean[0].y}`;
+  for (let i=1; i<clean.length-1; i++) {
+    const before=clean[i-1], point=clean[i], after=clean[i+1];
+    const incoming=Math.hypot(point.x-before.x,point.y-before.y), outgoing=Math.hypot(after.x-point.x,after.y-point.y);
+    const r=Math.min(radius,incoming/2,outgoing/2);
+    const start={x:point.x+(before.x-point.x)*r/incoming,y:point.y+(before.y-point.y)*r/incoming};
+    const end={x:point.x+(after.x-point.x)*r/outgoing,y:point.y+(after.y-point.y)*r/outgoing};
+    path+=` L${start.x} ${start.y} Q${point.x} ${point.y} ${end.x} ${end.y}`;
   }
-  if(b.x+CARD.width<a.x) {
-    const x=b.x+CARD.width,mid=(x+a.x)/2;
-    return `M${a.x} ${from} C${mid} ${from},${mid} ${to},${x} ${to}`;
+  const end=clean.at(-1);
+  return path+` L${end.x} ${end.y}`;
+}
+
+export function edgePath(a,b,route = null) {
+  if (route?.direction==='TB') {
+    const start={x:a.x+CARD.width/2,y:a.y+CARD.height},end={x:b.x+CARD.width/2,y:b.y};
+    if (Number.isFinite(route.viaX)) return roundedPath([start,{x:start.x,y:start.y+18},
+      {x:route.viaX,y:start.y+18},{x:route.viaX,y:end.y-32},{x:end.x,y:end.y-32},end]);
+    const mid=(start.y+end.y)/2;
+    return roundedPath([start,{x:start.x,y:mid},{x:end.x,y:mid},end]);
   }
-  const x=a.x+CARD.width, y=a.y+CARD.height/2, end=b.y+CARD.height/2;
-  const bend=Math.max(30,Math.min(130,Math.abs(b.x-x)*.5));
-  return `M${x} ${y} C${x+bend} ${y},${b.x-bend} ${end},${b.x} ${end}`;
+  const start={x:a.x+CARD.width,y:a.y+CARD.height/2}, end={x:b.x,y:b.y+CARD.height/2};
+  if (Number.isFinite(route?.viaY) || end.x-start.x<32) {
+    const viaY=route?.viaY ?? Math.min(a.y,b.y)-32;
+    return roundedPath([start,{x:start.x+24,y:start.y},{x:start.x+24,y:viaY},
+      {x:end.x-24,y:viaY},{x:end.x-24,y:end.y},end]);
+  }
+  const mid=(start.x+end.x)/2;
+  return roundedPath([start,{x:mid,y:start.y},{x:mid,y:end.y},end]);
+}
+
+// Skip-rank edges use the quiet strip above the grid, clear of intermediate cards.
+export function edgeRoute(source, target, layout) {
+  const a=layout.points.get(source), b=layout.points.get(target);
+  if (!a || !b) return null;
+  if (layout.direction==='TB') {
+    if (b.y-a.y <= CARD.row+1 && b.y-a.y >= CARD.height+32) return {direction:'TB'};
+    const left=Math.min(...[...layout.points.values()].map(point=>point.x));
+    return {direction:'TB',viaX:Math.max(8,left-24-(layout.ranks.get(source)%3)*12)};
+  }
+  if (b.x-a.x <= CARD.column+1 && b.x-a.x >= CARD.width+32) return null;
+  const top=Math.min(...[...layout.points.values()].map(point=>point.y));
+  return {viaY:Math.max(8,top-30-(layout.ranks.get(source)%3)*12)};
 }
 
 // Leave a free drop untouched. If it would cover another card, pick the nearest
@@ -155,8 +168,8 @@ export function clearDrop(points,id) {
   const desired=points.get(id), others=[...points].filter(([key])=>key!==id).map(([,p])=>p);
   const w=CARD.width+6,h=CARD.height+6;
   if(!others.some(p=>Math.abs(p.x-desired.x)<w && Math.abs(p.y-desired.y)<h)) return desired;
-  const xs=new Set([desired.x,12]);
-  for(const p of others) {if(p.x-w>=12) xs.add(p.x-w);xs.add(p.x+w);}
+  const xs=new Set([desired.x,64]);
+  for(const p of others) {if(p.x-w>=64) xs.add(p.x-w);xs.add(p.x+w);}
   let best=Infinity, result=desired;
   for(const x of [...xs].sort((a,b)=>Math.abs(a-desired.x)-Math.abs(b-desired.x))) {
     const dx=(x-desired.x)**2;if(dx>=best) break;
@@ -168,7 +181,7 @@ export function clearDrop(points,id) {
         lo=v-h;hi=v+h;
       } else hi=v+h;
     }
-    if(lo!=null && lo<y && y<hi) y=lo>=10 && y-lo<hi-y ? lo : hi;
+    if(lo!=null && lo<y && y<hi) y=lo>=80 && y-lo<hi-y ? lo : hi;
     const dist=dx+(y-desired.y)**2;
     if(dist<best) {result={x,y};best=dist;}
   }

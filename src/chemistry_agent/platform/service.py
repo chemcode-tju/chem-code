@@ -13,6 +13,7 @@ from chemistry_agent.errors import AgentError
 from chemistry_agent.platform.artifacts import ArtifactOperations, ArtifactRead, ArtifactRegister
 from chemistry_agent.platform.contracts import OperationContext
 from chemistry_agent.platform.jobs import JobFileQuery, JobHosts, JobInspect, JobOperations
+from chemistry_agent.platform.results import ResultInspect, ResultOperations, ResultRegister
 from chemistry_agent.platform.steps import StepReport, report_step
 from chemistry_agent.platform.waits import WaitOperations
 
@@ -41,6 +42,7 @@ class ComputationPlatform:
         self.jobs = JobOperations(plans)
         self.waits = WaitOperations(plans)
         self.artifacts = ArtifactOperations(plans)
+        self.results = ResultOperations(plans)
         self.operations = {
             "plan.save": (PlanDraft, plans.draft),
             "plan.get": (PlanQuery, plans.query),
@@ -53,6 +55,8 @@ class ComputationPlatform:
             "plan.report": (StepReport, self.report),
             "artifact.register": (ArtifactRegister, self.artifacts.register),
             "artifact.read": (ArtifactRead, self.artifacts.read),
+            "result.register": (ResultRegister, self.results.register),
+            "result.inspect": (ResultInspect, self.results.inspect),
             "job.adopt": (JobAdopt, self.jobs.adopt),
             "job.files": (JobFileQuery, self.jobs.inspect),
             "job.inspect": (JobInspect, self.jobs.status),

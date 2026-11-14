@@ -137,6 +137,22 @@ class ToolRegistry:
             if tool.contextual and context is None:
                 raise AgentError("chat_context_required", "请在对话中使用此工具。", 422)
             values = (args, context) if tool.contextual else (args,)
+            from chemistry_agent.backends.approvals import current_tool_approval
+
+            broker = current_tool_approval.get()
+            if broker and tool.contextual and tool.name != "ask_user_question":
+                approved = await broker.ask(
+                    context.session_id,
+                    context.run_id,
+                    {
+                        "title": f"批准工具 · {tool.name}",
+                        "details": arguments,
+                    },
+                )
+                if not approved:
+                    raise AgentError(
+                        "tool_declined", "用户拒绝了此次工具执行，请等待新的指示。", 403
+                    )
             if inspect.iscoroutinefunction(tool.handler):
                 result = await tool.handler(*values)
             else:

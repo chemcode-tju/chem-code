@@ -35,6 +35,7 @@ def tools(plans) -> list[Tool]:
             "a monitoring plan. On completion/failure this conversation agent wakes to process "
             "instruction. retrieve lists outputs to download; raw files remain readable. "
             "Use step_id to attach many jobs/attempts to one agent-owned task. "
+            "Sidebar auto-registers; results='neb' or a manifest path overrides auto. "
             "Use calculation_wait_register for grouped waits. Register concrete array elements.",
             JobAdopt,
             plans.platform.handler("job.adopt"),

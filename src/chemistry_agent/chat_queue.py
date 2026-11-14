@@ -206,9 +206,10 @@ class ChatQueue:
                 user_id, config = self.provider.configuration()
                 # ChatGPT inference is serialized per account. Queue complete turns before
                 # begin_run/its timeout, rather than interleaving five turns behind that lock.
+                binding = await request.app.state.agent_backends.binding(session)
                 slot = (
                     self.account_locks.setdefault(user_id, asyncio.Lock())
-                    if config.provider == "chatgpt"
+                    if config.provider == "chatgpt" and binding["backend"] == "builtin"
                     else asyncio.Lock()
                 )
                 async with slot:

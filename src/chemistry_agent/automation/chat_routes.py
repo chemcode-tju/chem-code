@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Body, Query, Request
@@ -19,6 +20,7 @@ from chemistry_agent.automation.recovery import RecoveryPolicy
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.step_edit import StepEdit, edit_policy, edit_step
 from chemistry_agent.errors import AgentError
+from chemistry_agent.platform.results import ResultInspect, ResultRegister
 from chemistry_agent.schemas import ChatResponse, ContextUsage, TokenUsage, ToolExecution
 from chemistry_agent.tools import ToolContext
 
@@ -447,12 +449,51 @@ async def update_step_text(
     return await edit_step(chat.plans, str(session_id), str(plan_id), node_id, body)
 
 
+@router.post("/{session_id}/results")
+async def register_display_result(session_id: UUID, body: ResultRegister, request: Request) -> dict:
+    chat = await session_chat(request, session_id)
+    return await chat.plans.platform.results.register(
+        body, ToolContext(str(session_id), str(uuid4()))
+    )
+
+
+@router.get("/{session_id}/workflows/{plan_id}/steps/{node_id}/results")
+async def inspect_display_result(
+    session_id: UUID,
+    plan_id: UUID,
+    node_id: str,
+    job_id: UUID,
+    request: Request,
+    key: str | None = None,
+    file: str | None = None,
+    path_step: int | None = None,
+):
+    chat = await session_chat(request, session_id)
+    result = await chat.plans.platform.results.inspect(
+        ResultInspect(
+            plan_id=plan_id, node_id=node_id, job_id=job_id, key=key, file=file, path_step=path_step
+        ),
+        ToolContext(str(session_id), str(uuid4())),
+    )
+    if file is not None:
+        return Response(
+            result["content"],
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Structure-Name": quote(result["name"]),
+                "X-Result-Stale": str(result.get("stale", False)).lower(),
+            },
+        )
+    return result
+
+
 @router.get("/{session_id}/workflows/{plan_id}/steps/{node_id}/{file}")
 async def workflow_step(
     session_id: UUID,
     plan_id: UUID,
     node_id: str,
-    file: Literal["info", "POSCAR", "CONTCAR", "XDATCAR"],
+    file: str,
     request: Request,
     job_id: UUID | None = None,
 ):

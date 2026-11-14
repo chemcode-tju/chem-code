@@ -150,8 +150,8 @@ def test_folded_turn_keeps_latest_complete_pair_and_original_messages(tmp_path):
             },
         ]
     wire, count = fold_tool_rounds(turns, TokenCounter(tmp_path / "missing"), 500)
-    assert len(turns) == 9 and count == 3
-    assert wire[0] == turns[0] and wire[-2:] == turns[-2:]
+    assert len(turns) == 9 and count == 1
+    assert wire[0] == turns[0] and wire[-6:] == turns[-6:]
     assert "plan-1" in wire[1]["content"]
 
 

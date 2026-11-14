@@ -21,6 +21,8 @@ def tools(plans) -> list[Tool]:
             "calculation_wait_control",
             "List durable waits/event recovery status, cancel a wait, "
             "or retry a blocked model boundary after fixing configuration. "
+            "With action=list and event_id, read that event's full original payload, "
+            "including instructions and observations omitted from the wakeup summary. "
             "Never replays uncertain tools.",
             WaitControl,
             plans.platform.handler("wait.control"),

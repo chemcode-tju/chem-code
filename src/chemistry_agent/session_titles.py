@@ -91,7 +91,8 @@ async def summarize_session(session_id: UUID, request: Request) -> dict:
         if not answer:
             return {"title": old}
         title = provisional_title(prompt)
-        if await provider.ready():
+        binding = await request.app.state.agent_backends.binding(key)
+        if binding["backend"] == "builtin" and await provider.ready():
             try:
                 _, config = provider.configuration()
                 provider.select_model(

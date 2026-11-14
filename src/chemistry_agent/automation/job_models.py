@@ -4,9 +4,25 @@ from pathlib import PurePosixPath
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from chemistry_agent.automation.models import Resources, StrictModel
+from chemistry_agent.automation.result_defaults import display_source
+
+
+class DisplayOptions(StrictModel):
+    results: str = Field(
+        default="auto",
+        max_length=1024,
+        description="Sidebar: auto reads display.json; neb or neb:glob reads path snapshots; "
+        "otherwise a manifest path. No extra registration call needed.",
+    )
+
+    @field_validator("results")
+    @classmethod
+    def validate_results(cls, value: str) -> str:
+        display_source(value)
+        return value
 
 
 def artifact_path(value: str, *, reserved: bool = True) -> str:
@@ -61,7 +77,7 @@ class FileReference(StrictModel):
         return self
 
 
-class JobSettings(StrictModel):
+class JobSettings(DisplayOptions):
     host: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
     workdir: str = Field(default="~/.chem-agent/jobs", min_length=1)
     adopted: bool = False
@@ -93,7 +109,7 @@ class JobSettings(StrictModel):
         return self
 
 
-class JobAdopt(StrictModel):
+class JobAdopt(DisplayOptions):
     host: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
     scheduler_job_id: str = Field(pattern=r"^[0-9]+(?:_[0-9]+)?$")
     remote_directory: str | None = None

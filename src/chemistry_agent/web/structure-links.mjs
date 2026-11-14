@@ -6,34 +6,58 @@ export function structureButton(kind, id, name, label = '查看结构') {
 }
 
 // Files, never model-supplied URLs, cross the same-origin viewer boundary.
-export function createStructureBridge({selectTab, toast, frame = document.getElementById('structure-viewer-frame')}) {
-  let ready = false, generation = 0, pending = null, timer;
+export function createStructureBridge({selectTab,toast,onFrame=()=>{},frame=document.getElementById('structure-viewer-frame')}) {
+  let ready=false,generation=0,pending=null,timer,loaded=false,failed=false,queuedSelection=null,navigation=0;
   function dispatch() {
-    if (!ready || !pending || !frame.contentWindow) return;
-    frame.contentWindow.postMessage({type:'chem:open-structure', file:pending}, location.origin);
-    pending = null; clearTimeout(timer);
+    if(!ready || !pending || !frame.contentWindow)return;
+    frame.contentWindow.postMessage({type:'chem:open-structure',...pending},location.origin);
+    pending=null;clearTimeout(timer);
   }
-  window.addEventListener('message', event => {
-    if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
-    if (event.data?.type === 'chem:viewer-ready') {ready = true; dispatch();}
-    if (event.data?.type === 'chem:viewer-error') toast(String(event.data.message || '无法读取该结构'));
+  function seek(selection) {
+    if(failed)return false;
+    if(!loaded) {
+      if(pending)pending.selection=selection;
+      else queuedSelection=selection;
+      return true;
+    }
+    frame.contentWindow.postMessage({type:'chem:seek-structure',requestId:generation,navigationId:++navigation,selection},location.origin);
+    return true;
+  }
+  window.addEventListener('message',event=>{
+    if(event.origin!==location.origin || event.source!==frame.contentWindow)return;
+    const message=event.data;
+    if(message?.type==='chem:viewer-ready'){ready=true;dispatch();return;}
+    if(message?.requestId!==generation)return;
+    if(message.type==='chem:viewer-loaded') {
+      loaded=true;
+      if(queuedSelection){const selection=queuedSelection;queuedSelection=null;seek(selection);}
+      else onFrame(message);
+    }
+    if(message.type==='chem:viewer-frame' && message.navigationId===navigation)onFrame(message);
+    if(message.type==='chem:viewer-position' && loaded)onFrame(message);
+    if(message.type==='chem:viewer-error' && (message.navigationId==null || message.navigationId===navigation)) {
+      failed=!loaded;toast(String(message.message || '无法读取该结构'));
+    }
   });
   return {
-    async open(name, fetchBlob) {
-      const version = ++generation;
-      pending = null; clearTimeout(timer);
+    async open(name,fetchBlob,{selection=null,companions=[],sequence=false}={}) {
+      const version=++generation;
+      pending=null;queuedSelection=null;loaded=false;failed=false;clearTimeout(timer);
       selectTab('structure');
       try {
-        const blob = await fetchBlob();
-        if (version !== generation) return;
-        pending = blob instanceof File ? blob : new File([blob], name, {type:blob.type});
-        timer = setTimeout(() => {if (version === generation && pending) toast('查看器未就绪，请重新打开结构。');}, 15000);
+        const blob=await fetchBlob();
+        if(version!==generation)return;
+        if(sequence && (!Array.isArray(blob)||!blob.length||blob.some(item=>!(item instanceof File))))throw Error('路径结构文件无效');
+        const file=sequence?blob[0]:blob instanceof File?blob:new File([blob],name,{type:blob.type});
+        pending={file,...(sequence?{sequence,files:blob,name}:{}),companions:companions.map(item=>new File([item.text],item.name)),requestId:version,selection:queuedSelection || selection};queuedSelection=null;
+        timer=setTimeout(()=>{if(version===generation && pending)toast('查看器未就绪，请重新打开结构。');},15000);
         dispatch();
-      } catch(error) { if (version === generation) toast(error.message); }
+      }catch(error){if(version===generation){failed=true;toast(error.message);}}
     },
+    seek,
     reset() {
-      generation++; pending = null; clearTimeout(timer); ready = false;
-      if (frame.hasAttribute('src')) frame.removeAttribute('src');
+      generation++;pending=null;queuedSelection=null;loaded=false;failed=false;clearTimeout(timer);ready=false;
+      if(frame.hasAttribute('src'))frame.removeAttribute('src');
     },
   };
 }

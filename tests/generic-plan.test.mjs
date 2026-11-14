@@ -35,3 +35,38 @@ test('research completion is separate from a retained failed attempt', () => {
   assert.ok(generalRows(plan,task).includes('42'));
   assert.equal(kindName('task'),'研究步骤');
 });
+
+test('canvas groups explicitly owned jobs and projects their external dependencies without mutating the plan', async()=>{
+  const {workflowView,childJobSummary}=await import('../src/chemistry_agent/web/plan-presentation.mjs');
+  const nodes=[{id:'prepare',kind:'model',depends_on:[]},
+    {id:'relax',kind:'task',depends_on:['prepare']},
+    {id:'a',kind:'job',title:'attempt <1>',parent_task:'relax',depends_on:['prepare']},
+    {id:'b',kind:'job',parent_task:'relax',depends_on:['a']},
+    {id:'freq',kind:'task',depends_on:['b']},
+    {id:'standalone',kind:'job',parent_task:'missing',depends_on:[]}];
+  const plan={id:'test',title:'Test',revision:1,status:'running',changed_nodes:[],history:[],nodes,
+    runtime:Object.fromEntries(nodes.map(n=>[n.id,{status:'pending'}]))};
+  plan.runtime.relax={status:'completed'};
+  plan.runtime.a={status:'failed',job:{scheduler_job_id:'204172'}};
+  plan.runtime.b={status:'running',job:{scheduler_state:'pending'}};
+  const before=JSON.stringify(plan),view=workflowView(plan);
+  assert.deepEqual(view.nodes.map(n=>n.id),['prepare','relax','freq','standalone']);
+  assert.deepEqual(view.nodes.find(n=>n.id==='freq').depends_on,['relax']);
+  assert.deepEqual(view.children.get('relax').map(n=>n.id),['a','b']);
+  assert.match(childJobSummary(plan,view.children.get('relax')),/2 项作业 · 1 失败 · 1 排队/);
+  const html=renderGeneralPlan(plan);
+  assert.doesNotMatch(html,/data-vertex="[ab]"/);
+  assert.match(html,/data-vertex="relax"/);assert.match(html,/204172/);
+  assert.doesNotMatch(html,/<1>/);
+  assert.equal(plan.runtime.relax.status,'completed');
+  assert.equal(JSON.stringify(plan),before);
+});
+
+test('interleaved ownership never introduces a dependency cycle into the canvas',async()=>{
+  const {workflowView}=await import('../src/chemistry_agent/web/plan-presentation.mjs');
+  const {graphLayers}=await import('../src/chemistry_agent/web/general-plan.mjs');
+  const nodes=[{id:'a',kind:'task',depends_on:[]},{id:'b',kind:'task',depends_on:['a']},
+    {id:'job',kind:'job',parent_task:'a',depends_on:['b']}];
+  const view=workflowView({nodes,runtime:{}});
+  assert.equal(graphLayers(view.nodes).flat().length,3);
+});
