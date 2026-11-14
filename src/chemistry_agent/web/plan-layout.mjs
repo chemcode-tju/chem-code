@@ -1,7 +1,7 @@
 import {indexFolders, inSection} from './plan-folders.mjs';
 
 // Geometry is in world pixels. Zoom and the viewport never change the dependency graph.
-export const CARD = {width:256, height:100, column:352, row:160};
+export const CARD = {width:248, height:88, column:344, row:144};
 export const kindName = kind => ({task:'研究步骤',job:'Slurm 任务',vasp:'VASP 计算',model:'结构建模',analysis:'数据分析'})[kind] || '计算步骤';
 
 export function taskLabel({id, title}) {

@@ -65,7 +65,7 @@ export function activity({id,start,end,calls=[],steps=[],running=false,draftRequ
   const label = clock ? t(running?'已用时':'用时')+' '+clock : '';
   const rows = deferred ? "" : activitySteps(steps,calls);
   const draft = draftRequest ? `<div class="answer-output activity-draft" hidden>${liveCopyButton()}<div class="markdown" data-live-request="${esc(draftRequest)}"></div></div>` : '';
-  return `<details class="turn-activity" data-activity="${esc(id)}" data-running="${running}"${deferred ? ' data-deferred-activity' : ''}${running?' open':''}><summary><span>${t('处理过程')}</span><span${running && start?' data-clock="'+esc(start)+'"':''}>${esc(label)}</span>${icon('chevron')}</summary><div class="activity-log"><div data-activity-steps>${rows}</div><p data-activity-placeholder${rows?' hidden':''}>${t(running?'正在生成下一步…':'未调用工具')}</p>${draft}</div></details>`;
+  return `<details class="turn-activity" data-activity="${esc(id)}" data-running="${running}"${deferred ? ' data-deferred-activity' : ''}${running?' open':''}><summary aria-label="${t('处理过程')}"><span${running && start?' data-clock="'+esc(start)+'"':''}>${esc(label)}</span>${icon('chevron')}</summary><div class="activity-log"><div data-activity-steps>${rows}</div><p data-activity-placeholder${rows?' hidden':''}>${t(running?'正在生成下一步…':'未调用工具')}</p>${draft}</div></details>`;
 }
 
 export function answerBox(html,index) {

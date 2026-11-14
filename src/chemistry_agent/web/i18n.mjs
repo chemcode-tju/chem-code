@@ -1,5 +1,43 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "尚未检测":"Not checked",
+  "已设为默认":"Set as default",
+  "设为新对话默认":"Use by default in new chats",
+  "已验证登录":"Sign-in verified",
+  "未通过验证":"Verification failed",
+  "未安装":"Not installed",
+  "已安装 · 尚未检测":"Installed \u00b7 Not checked",
+  "未找到程序":"Program not found",
+  "程序路径已修改 · 需要重新检测":"Program path changed \u00b7 Check again",
+  "已设置新对话默认 Agent":"Default agent updated for new chats",
+  "保存模型设置":"Save model settings",
+  "已保存模型设置":"Model settings saved",
+  "正在检测…":"Checking\u2026",
+  "自动选择模型":"Automatic model",
+  "API 与账号":"API and account",
+  "OpenAI 兼容":"OpenAI compatible",
+  "允许 Agent 使用":"Allow agent access",
+  "已允许 Agent 使用此服务器":"Agent access enabled for this server",
+  "已停用此服务器；正在运行的计算不受影响":"Server access disabled; running calculations are unaffected",
+  "上次测试通过":"Last test passed",
+  "上次测试失败":"Last test failed",
+  "未启用":"Disabled",
+  "尚未启用服务器":"No servers enabled",
+  "选择服务器":"Select server",
+  "没有其他 SSH 主机":"No other SSH hosts",
+  "手动配置 SSH 主机":"Configure SSH host manually",
+  "重新读取":"Reload configuration",
+  "连接信息":"Connection details",
+  "本机 SSH 主机与连接验证":"Local SSH hosts and connection checks",
+  "计算服务尚未启用":"Compute service not enabled",
+  "选择允许 Agent 使用的服务器，连接状态通过测试确认。":"Select servers the agent may use. Test each connection to verify access.",
+  "在本机":"In your local",
+  "中添加主机后，重新读取并选择。":"add a host, then reload and select it.",
+  "执行记录":"Execution record", "当前记录":"Current record", "计算更新":"Calculation update",
+  "生成文件":"Generated files", "收起":"Collapse", "需处理":"Needs attention",
+  "进行与等待":"In progress and waiting", "其他状态":"Other states", "更新记录":"Update history",
+  "上游受阻":"Upstream blocked", "待核对":"Needs review", "提交被拒绝":"Submission rejected",
+  "已提交":"Submitted", "已取消":"Cancelled", "记录":"Record",
   "等待 MD 记录":"Waiting for MD samples", "准备中":"Preparing",
   "分子动力学":"Molecular dynamics", "计算监控":"Calculation monitor", "MD 步":"MD step",
   "势能":"Potential", "总能量":"Total", "动能":"Kinetic", "压力":"Pressure",
@@ -364,6 +402,8 @@ export function t(value) {
   const trimmed = value.trim();
   if (messages[trimmed]) return value.replace(trimmed, messages[trimmed]);
   return value.replace(/^上下文用量 · (\d+)%$/, "Context usage · $1%")
+    .replace(/^展开全部 (\d+) 个文件$/, "Show all $1 files")
+    .replace(/^查看：/, "View: ").replace(/^下载：/, "Download: ").replace(/^用于对话：/, "Cite in chat: ")
     .replace(/^通知 · (\d+) 条未读$/, "Notifications · $1 unread")
     .replace(/^会话记忆 · 已摘要 (\d+) \/ (\d+) 条消息$/, "Chat memory · $1 of $2 messages summarized")
     .replace(/ · 已配置$/, " · Connected").replace(/ · 已登录$/, " · Signed in")

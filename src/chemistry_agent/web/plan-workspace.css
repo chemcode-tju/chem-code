@@ -1,10 +1,26 @@
 /* The paper, inspector and native full-window dialog share the workspace theme. */
 .plan-map { margin:14px 0; min-width:0; }
+.calculation-preview.general-plan {padding:0;border:0;border-radius:0;background:transparent;}
+.general-plan > header {gap:10px;align-items:center;}
+.general-plan > header > strong {flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:var(--font-size-ui,14px);line-height:1.5;}
+.general-plan > header .task-actions {display:flex;gap:6px;margin:0;flex:none;}
+.general-plan > header button {white-space:nowrap;font-size:var(--font-size-secondary,13px);padding:5px 8px;min-height:32px;border-radius:var(--radius-control,8px);}
+.general-plan > .task-parameters {margin:6px 0 8px;}
+.general-plan > .graph-progress {height:3px;margin:0;}
+.general-plan > .plan-map {margin:10px 0 0;}
+.general-plan > details[data-fold=goal] {margin:0;padding:10px 0;font-size:var(--font-size-secondary,13px);color:var(--muted);}
+.general-plan > details[data-fold=goal] > summary {display:flex;align-items:center;gap:8px;min-height:var(--control-height,34px);padding:6px 8px;border-radius:var(--radius-control,8px);cursor:pointer;}
+.general-plan > details[data-fold=goal] > summary::after {content:'';width:6px;height:6px;flex:none;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);margin-left:auto;}
+.general-plan > details[data-fold=goal][open] > summary::after {transform:rotate(135deg);}
+.general-plan > details[data-fold=goal] > summary:hover {background:var(--hover);color:var(--text);}
+.general-plan > details[data-fold=goal] > summary:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+.general-plan > details[data-fold=goal] > p {color:var(--text);}
+.general-plan .map-identity > :is(svg,strong) {display:none;}
 .map-board { position:relative; isolation:isolate; display:flex; flex-direction:column; width:100%; min-width:0; color:var(--text); background:var(--panel); border:.5px solid var(--border); border-radius:16px; container:mapboard / inline-size; }
 .map-board svg:not(.map-edges) { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex:none; }
 .map-tools,.map-subtools,.map-actions,.map-identity,.map-zoom,.map-foot { display:flex;align-items:center;min-width:0; }
 .map-tools,.map-subtools { gap:6px;justify-content:space-between;padding:6px 9px; }
-.map-tools { padding-top:9px; }
+.map-tools {padding:6px 8px;border-bottom:1px solid var(--border);}
 .map-identity { gap:7px;white-space:nowrap; }
 .map-identity > svg { color:var(--muted); }
 .map-identity strong { font-size:15px;letter-spacing:-.02em; }
@@ -14,8 +30,9 @@
 .map-board :is(.map-actions,.map-zoom,.map-foot) button { display:inline-flex;align-items:center;justify-content:center;gap:5px;width:34px;height:34px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--muted); }
 .map-board :is(.map-actions,.map-zoom,.map-foot) button:hover,.map-board button[aria-expanded=true]:not([data-branch]) { background:var(--hover);color:var(--text); }
 .map-board .map-actions [data-command=full] { color:var(--text); }
-.map-subtools { border-bottom:1px solid var(--border);padding-top:0; }
-.map-subtools select { appearance:auto; max-width:calc(100% - 132px);min-width:0;width:auto;border:0;border-radius:8px;background-color:transparent;padding:6px 8px;font-size:14px;color:var(--text);line-height:1.4; }
+.map-subtools {flex:1;min-width:0;padding:0;border:0;}
+.map-subtools select {appearance:auto;max-width:100%;min-width:0;width:auto;border:0;border-radius:8px;background-color:transparent;padding:6px 8px;font-size:14px;color:var(--text);line-height:1.4;}
+.map-actions {margin-left:auto;flex:none;}
 .map-subtools select:disabled { opacity:.7; }
 .map-board .map-zoom [data-zoom="0"] { width:48px;font-size:13px;font-variant-numeric:tabular-nums; }
 .map-zoom [data-command=fit] { border-left:1px solid var(--border);border-radius:0;margin-left:2px; }
@@ -29,9 +46,9 @@
 .map-edges path.is-traced { stroke:var(--accent);stroke-width:1.8; }
 .map-position { position:absolute;width:var(--node-w);height:var(--node-h); }
 .map-card-caption {position:absolute;left:2px;right:2px;top:-25px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--muted);pointer-events:none;}
-.map-board .map-node {display:flex;flex-direction:column;width:100%;height:100%;padding:12px;gap:10px;text-align:left;border:1px solid var(--border);border-radius:var(--radius-panel,12px);color:var(--text);background:var(--raised);touch-action:none;user-select:none;cursor:grab;}
-.map-board .map-node strong {font-size:15px;line-height:21px;font-weight:550;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:break-word;min-height:42px;}
-.map-board .map-card-status {display:flex;align-items:center;gap:5px;max-width:100%;margin-top:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--muted);}
+.map-board .map-node {display:flex;flex-direction:column;width:100%;height:100%;padding:10px 12px;gap:6px;text-align:left;border:1px solid var(--border);border-radius:var(--radius-panel,12px);color:var(--text);background:var(--raised);touch-action:none;user-select:none;cursor:grab;}
+.map-board .map-node strong {font-size:14px;line-height:19px;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:break-word;}
+.map-board .map-card-status {display:flex;align-items:center;gap:5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--muted);}
 .map-position:has([data-branch]:not([hidden])) .map-card-status {max-width:calc(100% - 58px);}
 .map-node small i,.step-status::before {display:inline-block;flex:none;width:6px;height:6px;vertical-align:1px;margin-right:3px;background:var(--muted);border-radius:50%;}
 .map-node:is([data-state=running],[data-state=active]) small i,.step-status:is([data-state=running],[data-state=active])::before {background:var(--accent);}

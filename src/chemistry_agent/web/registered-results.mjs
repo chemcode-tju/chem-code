@@ -84,11 +84,11 @@ function chart({label,x_label,y_label,unit,points},action='',selected=null,targe
   </svg></figure>`;
 }
 
-export function createRegisteredResults(host,{api,openStructure,onStructures=()=>{}}) {
+export function createRegisteredResults(host,{api,openStructure,onStructures=()=>{},onReset=()=>{}}) {
   let context=null,data=null,key=null,step=null,image=null,mode='profile';
   let tail=true,generation=0,opened=false,plotWidth=480;
-  function reset() {generation++;context=null;data=null;key=null;step=null;tail=true;image=null;mode='profile';opened=false;host.hidden=true;host.replaceChildren();onStructures([]);}
-  async function showStructure(index,scroll=true) {
+  function reset() {generation++;context=null;data=null;key=null;step=null;tail=true;image=null;mode='profile';opened=false;onReset();host.hidden=true;host.replaceChildren();onStructures([]);}
+  async function showStructure(index,scroll=false) {
     if(!context || !data)return;
     const row=data.kind==='neb'?selectedPath(data,step)?.images.find(item=>item.index===index):data.structures[index];
     if(!row)return;
@@ -102,33 +102,39 @@ export function createRegisteredResults(host,{api,openStructure,onStructures=()=
   function render() {
     if(!context)return;
     host.hidden=false;
-    plotWidth=Math.max(240,Math.round(host.clientWidth || 480));
+    // Keep the viewer outside the refreshed chart fragment. Rebuilding its iframe
+    // on image/iteration changes discards playback state and triggers reloads.
+    if(!host.querySelector('.registered-result-content'))host.innerHTML=`<summary></summary><div class="step-section-body"><div class="registered-result-content"></div><div class="result-viewer-slot"></div></div>`;
+    const content=host.querySelector('.registered-result-content');
+    plotWidth=Math.max(240,Math.round(content.clientWidth || host.clientWidth || 480));
     const active=host.contains(document.activeElement)?document.activeElement:null;
     const focusAttribute=active && ['data-dataset','data-path-step','data-follow','data-neb-mode','data-open-image','data-image','data-iteration'].find(name=>active.hasAttribute(name));
     const focusValue=focusAttribute?active.getAttribute(focusAttribute):null;
+    const focusTag=active?.tagName;
     const row=selectedPath(data,step);
     const plot=row?nebChart(data,step,mode):null;if(plot)mode=plot.mode;
+    if(row && !row.images.some(item=>item.index===image))image=row.images[0]?.index ?? null;
     const selected=row?.images.find(item=>item.index===image);
     if(row)step=row.step;
     onStructures(row?row.images.map(item=>({...item,step:row.step,selected:item.index===image})):[]);
     const options=context.datasets.map(item=>`<option value="${esc(item.key)}" ${item.key===key?'selected':''}>${esc(item.title)}</option>`).join('');
     const controls=data?.kind==='neb'?`<label>路径优化步 <select data-path-step aria-label="路径优化步">${data.snapshots.map(item=>`<option value="${item.step}" ${item.step===step?'selected':''}>${item.step}</option>`).join('')}</select></label><label class="result-follow"><input type="checkbox" data-follow ${tail?'checked':''}>最新</label>`:'';
-    const structures=row?row.images.map(item=>`<button type="button" data-image="${item.index}" aria-pressed="${image===item.index}">${esc(item.label)}</button>`).join(''):(data?.structures || []).map((item,i)=>`<button type="button" data-image="${i}">${esc(item.label || item.path)}</button>`).join('');
-    host.innerHTML=`<summary>${icon('compare')}${data?.kind==='neb'?'NEB 路径与收敛':'计算结果'}</summary>
-      <div class="result-controls"><select data-dataset aria-label="结果数据集">${options}</select>${controls}</div>
+    const structures=row?row.images.map(item=>`<button type="button" data-image="${item.index}" aria-pressed="${image===item.index}" aria-label="像 ${item.index}" title="像 ${item.index} · ${esc(item.path)}">${String(item.index).padStart(2,'0')}</button>`).join(''):(data?.structures || []).map((item,i)=>`<button type="button" data-image="${i}">${esc(item.label || item.path)}</button>`).join('');
+    host.querySelector(':scope > summary').innerHTML=`${icon('compare')}${data?.kind==='neb'?'NEB 路径与收敛':'计算结果'}`;
+    content.innerHTML=`<div class="result-controls">${context.datasets.length>1?`<select data-dataset aria-label="结果数据集">${options}</select>`:''}${controls}</div>
       ${data?.stale?'<p class="result-note result-warning" role="status">当前源读取失败，正在显示缓存结果。</p>':''}
       ${row?`<dl class="conv-metrics"><div><dt>路径像</dt><dd>${row.images.length}</dd></div><div><dt>相对能量峰值</dt><dd>${row.peak_energy.toFixed(4)}<small>eV</small></dd></div>${Number.isFinite(row.force)?`<div><dt>NEB 投影 Fmax</dt><dd>${row.force.toFixed(4)}<small>eV/Å</small></dd></div>`:''}</dl>
-      <div class="conv-toolbar"><div class="conv-modes" role="group" aria-label="NEB 视图">${plot.modes.map(([key,label])=>`<button type="button" data-neb-mode="${key}" aria-pressed="${key===mode}">${label}</button>`).join('')}</div>
-      <div class="conv-actions"><button type="button" data-open-image ${!selected?'disabled':''} title="查看所选像结构" aria-label="查看所选像结构">${icon('structures')}</button></div></div>`:`<div class="step-file-options">${structures}</div>`}
+      <div class="conv-toolbar"><div class="conv-modes" role="group" aria-label="NEB 视图">${plot.modes.map(([key,label])=>`<button type="button" data-neb-mode="${key}" aria-pressed="${key===mode}">${label}</button>`).join('')}</div></div>`:`<div class="step-file-options">${structures}</div>`}
       <div class="result-plots">${row?chart(plot,plot.action,plot.action==='image'?image:step,plot.target,plotWidth):
         (data?.series || []).map(s=>chart(s,'',null,null,plotWidth)).join('') || '<p class="result-empty">等待完整结果快照</p>'}</div>
-      ${row?`<p class="result-selection">${esc(nebSelection(data,step,image,mode))}${plot.action==='image'&&selected?.endpoint_reference?`<br>端点参考 · TOTEN ${selected.endpoint_reference.energy.toFixed(6)} eV · 原始全原子 Fmax ${selected.endpoint_reference.atomic_fmax.toFixed(4)} eV/Å<br>${esc(selected.endpoint_reference.source)}`:''}</p>`:''}
+      ${row?`<p class="result-selection">${esc(nebSelection(data,step,image,mode))}</p><div class="result-images" role="group" aria-label="路径像">${structures}${selected?`<a href="${esc(resultURL(context.base,context.job,key,selected.path))}" download="${esc(selected.path.split('/').at(-1))}" title="下载所选像结构" aria-label="下载所选像结构">${icon('download')}</a>`:''}</div>${plot.action==='image'&&selected?.endpoint_reference?`<details class="result-reference"><summary>端点参考</summary><p>TOTEN ${selected.endpoint_reference.energy.toFixed(6)} eV · 原始全原子 Fmax ${selected.endpoint_reference.atomic_fmax.toFixed(4)} eV/Å</p><p>${esc(selected.endpoint_reference.source)}</p></details>`:''}`:''}
       ${data?.skipped?.length?`<details class="result-note"><summary>${data.skipped.length} 个快照暂未读取</summary>${data.skipped.map(s=>`<p>${esc(s.path)}: ${esc(s.reason)}</p>`).join('')}</details>`:''}
       ${data?.observed_at?`<p class="result-note result-updated">${data.stale?'缓存时间':'更新于'} <time datetime="${esc(data.observed_at)}" title="${esc(data.observed_at)}">${esc(resultTimestamp(data.observed_at))}</time></p>`:''}`;
-    if(focusAttribute) [...host.querySelectorAll(`[${focusAttribute}]`)].find(element=>element.getAttribute(focusAttribute)===focusValue)?.focus({preventScroll:true});
+    if(focusAttribute) [...host.querySelectorAll(`[${focusAttribute}]`)].find(element=>element.tagName===focusTag && element.getAttribute(focusAttribute)===focusValue)?.focus({preventScroll:true});
   }
   if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{
-    if(context && !host.hidden && host.clientWidth>0 && Math.abs(host.clientWidth-plotWidth)>=1)render();
+    const width=host.querySelector('.registered-result-content')?.clientWidth;
+    if(context && !host.hidden && width>0 && Math.abs(width-plotWidth)>=1)render();
   }).observe(host);
   async function load() {
     const ticket=++generation,ctx=context,chosen=key;
@@ -160,7 +166,7 @@ export function createRegisteredResults(host,{api,openStructure,onStructures=()=
     } catch(error) {if(context===ctx && data){render();}}
   }
   host.addEventListener('change',event=>{
-    if(event.target.matches('[data-dataset]')){key=event.target.value;data=null;step=null;tail=true;opened=false;image=null;mode='profile';load();}
+    if(event.target.matches('[data-dataset]')){key=event.target.value;data=null;step=null;tail=true;opened=false;image=null;mode='profile';onReset();onStructures([]);load();}
     if(event.target.matches('[data-path-step]')){step=Number(event.target.value);tail=false;render();if(opened)showStructure(image,false);}
     if(event.target.matches('[data-follow]')){tail=event.target.checked;if(tail){step=data?.snapshots?.at(-1)?.step;render();if(opened)showStructure(image,false);}}
   });
@@ -172,12 +178,12 @@ export function createRegisteredResults(host,{api,openStructure,onStructures=()=
     tail=false;
     if(item.hasAttribute('data-iteration')){step=Number(item.dataset.iteration);tail=false;const matched=historyImage(selectedPath(data,step),mode);if(matched!==null)image=matched;}
     if(item.hasAttribute('data-image'))image=Number(item.dataset.image);
-    if(item.tagName.toLowerCase()==='button')showStructure(image);
-    else {render();if(opened)showStructure(image,false);}
+    if(item.hasAttribute('data-image') || opened)showStructure(image,false);
+    else render();
   }
   host.addEventListener('click',activate);
   host.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)&&event.target.matches('circle')){event.preventDefault();activate(event);}});
-  return {refresh,reset,selectImage:showStructure,syncFrame(frameIndex){
+  return {refresh,reset,selectImage:showStructure,reopenSelection(){if(opened)showStructure(image,false);},viewerSlot:()=>host.querySelector('.result-viewer-slot'),syncFrame(frameIndex){
     const row=selectedPath(data,step),item=row?.images[frameIndex];
     if(!item)return null;image=item.index;render();
     return {name:item.path.split('/').at(-1),url:resultURL(context.base,context.job,key,item.path),label:`路径优化步 ${step} · 像 ${image} · ${data.energy_label} ${item.energy.toFixed(6)} eV`};

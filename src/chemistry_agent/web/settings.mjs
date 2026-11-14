@@ -72,6 +72,7 @@ function togglePanels() {
 }
 function displaySettings(data) {
   savedSettings = data;
+  document.dispatchEvent(new CustomEvent("chem:model-settings", {detail:{provider:data.provider,model:data.model,configured:data.provider === "chatgpt" ? undefined : Boolean(data.model && (data.has_api_key || data.provider === "openai-compatible"))}}));
   $("provider").value = data.provider;
   $("base-url").value = data.base_url;
   $("model").value = data.model;
@@ -126,6 +127,7 @@ async function action(operation) {
 async function refreshLogin() {
   const data = await api("/api/model/chatgpt/status");
   chatgptAuthenticated = Boolean(data.authenticated);
+  if (savedSettings?.provider === "chatgpt") document.dispatchEvent(new CustomEvent("chem:model-settings", {detail:{provider:"chatgpt",model:savedSettings.model,configured:chatgptAuthenticated}}));
   const labels = { starting: "正在启动授权…", waiting: "请在官方页面完成授权。", complete: "授权完成。", failed: "登录失败，请重新授权。", expired: "授权已超时，请重新登录。", cancelled: "已取消登录。", idle: "尚未登录 ChatGPT。" };
   const pending = ["starting", "waiting"].includes(data.login.state);
   $("chatgpt-status").textContent = pending ? labels[data.login.state] : data.authenticated

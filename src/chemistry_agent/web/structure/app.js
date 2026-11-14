@@ -28,6 +28,17 @@ function displayPlayback(playing) {
   button.title = label;
 }
 function stop() { ++playbackGeneration; cancelAnimationFrame(timer); timer = null; timelineSeek=null;resumeWhenVisible=false;doc?.setPlayback?.(frameIndex,false);displayPlayback(false); }
+function setTrajectoryExpanded(expanded) {
+  const button = $("trajectory-toggle"), label = expanded ? "收起轨迹工具" : "展开轨迹工具";
+  $("trajectory-toolbar").classList.toggle("trajectory-collapsed", !expanded);
+  button.setAttribute("aria-expanded", String(expanded));
+  button.setAttribute("aria-label", label); button.title = label;
+  if (!expanded) for (const id of ["playback-menu", "viewport-menu"]) $(id).open = false;
+  // Folding only changes chrome: the active frame and playback loop stay intact.
+  views?.resizeToLayout();
+  updateTimeline();
+}
+$("trajectory-toggle").onclick = () => setTrajectoryExpanded($("trajectory-toggle").getAttribute("aria-expanded") !== "true");
 function updateTimeline() {
   if (!doc) return;
   $("timeline").max = doc.count - 1; if(!timelineSeek)$("timeline").value = frameIndex; $("timeline").disabled = doc.count < 2;

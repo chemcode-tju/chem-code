@@ -1,8 +1,9 @@
 import { escapeHtml as esc } from './core.mjs';
+import {fileIcon} from './file-actions.mjs';
 
 export const isStructureName = name => /^(?:POSCAR|CONTCAR|XDATCAR)(?:$|[._-])|\.(?:cif|xyz|extxyz|vasp|poscar|contcar|xdatcar|traj|gro|pdb|dump|lammpstrj|data|lmp)$/i.test(name || '');
-export function structureButton(kind, id, name, label = '查看结构') {
-  return `<button type="button" class="view-result" data-open-kind="${esc(kind)}" data-open-id="${esc(id)}" data-open-name="${esc(name)}">${esc(label)}</button>`;
+export function structureButton(kind, id, name, label = '查看结构', iconOnly = false) {
+  return `<button type="button" class="${iconOnly?'file-action':'view-result'}"${iconOnly?` title="${esc(label)}" aria-label="${esc(label+'：'+name)}"`:''} data-open-kind="${esc(kind)}" data-open-id="${esc(id)}" data-open-name="${esc(name)}">${iconOnly?fileIcon('eye'):esc(label)}</button>`;
 }
 
 // Files, never model-supplied URLs, cross the same-origin viewer boundary.

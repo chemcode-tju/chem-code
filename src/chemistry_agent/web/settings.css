@@ -74,3 +74,14 @@ button.secondary:hover { background:var(--hover); }
 .settings-panel>h3,.account-section h3,#model-form>section h2,.account-row strong { font-weight:600; }
 .settings-sidebar nav button[aria-selected=true] { font-weight:500; }
 .settings-panel .hint:empty { display:none; }
+
+/* Settings content keeps a readable column at the smallest supported width. */
+.settings-panel { min-width:0; }
+.settings-panel > .hint { margin:0 0 16px; color:var(--muted); }
+#model-form > section { padding:12px 0; background:transparent; border-radius:0; }
+#agent-settings > .actions.footer { position:static; border-top:0; background:transparent; }
+@media(max-width:420px) {
+  .model-choice-row { align-items:stretch; flex-wrap:wrap; }
+  .model-choice-row select { flex-basis:150px; }
+  .settings-panel .actions.footer { justify-content:flex-start; }
+}

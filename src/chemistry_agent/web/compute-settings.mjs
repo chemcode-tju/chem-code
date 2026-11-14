@@ -262,10 +262,12 @@ export function createComputeSettings(selectTab) {
       $('setup-local').hidden=true;$('setup-default').replaceChildren();
       if(panel==='servers') localSSH.activate();
       if(panel==='automation') $('compute-steps').innerHTML=[
-        ['Agent',health?.model_configured?'已配置':'未配置','agent'],
-        ['服务器','本机 SSH 配置','servers'],
-        ['计算平台',health?.automation_enabled?'已启用 · Slurm 作业监控与持久等待':'未启用','servers'],
-      ].map(([name,state,target])=>`<li><button type="button" data-generic-setting="${target}">${esc(t(name))}</button><span>${esc(t(state))}</span></li>`).join('');
+        ['Agent',health?.model_configured?'已配置':'未配置','agent','model',Boolean(health?.model_configured)],
+        ['服务器','本机 SSH 主机与连接验证','servers','servers',null],
+        ['计算平台',health?.automation_enabled?'Slurm 作业监控与持久等待':'计算服务尚未启用',null,'automation',Boolean(health?.automation_enabled)],
+      ].map(([name,detail,target,icon,ready])=>`<li class="overview-item"><svg class="icon overview-icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${icon}"/></svg>
+        <div class="overview-description"><strong>${esc(t(name))}</strong><small>${esc(t(detail))}</small></div>
+        ${target?`<button type="button" class="secondary overview-action" data-generic-setting="${target}">${esc(t('设置'))}<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`:`<span class="overview-state" data-ready="${ready}">${esc(t(ready?'已启用':'未启用'))}</span>`}</li>`).join('');
       $('compute-steps').onclick=event=>{const button=event.target.closest('[data-generic-setting]');if(button) selectTab(button.dataset.genericSetting);};
       if(['software','potentials','queues','environments'].includes(panel)) selectTab('servers');
       return;

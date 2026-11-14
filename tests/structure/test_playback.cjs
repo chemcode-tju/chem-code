@@ -4,7 +4,12 @@ const source=fs.readFileSync('src/chemistry_agent/web/structure/app.js','utf8');
 const elements=new Map(),windowEvents=new Map(),scheduled=new Map();
 let sequence=0,playing=false,releaseSeek;
 const element=id=>{
-  if(!elements.has(id))elements.set(id,{value:0,events:new Map(),addEventListener(name,callback){this.events.set(name,callback);}});
+  if(!elements.has(id)) {
+    const classes=new Set(),attributes=new Map();
+    elements.set(id,{value:0,events:new Map(),addEventListener(name,callback){this.events.set(name,callback);},
+      getAttribute:name=>attributes.get(name),setAttribute:(name,value)=>attributes.set(name,String(value)),
+      classList:{contains:name=>classes.has(name),toggle(name,enabled){enabled?classes.add(name):classes.delete(name);}}});
+  }
   return elements.get(id);
 };
 const doc={count:100,setPlayback(){},prefetch(){}};
@@ -22,6 +27,21 @@ const event=name=>element('timeline').events.get(name);
 
 (async()=>{
   element('play').onclick();assert(playing);
+  let resized=0;context.views={resizeToLayout(){resized++;}};
+  context.setTrajectoryExpanded(true);
+  const foldingTimer=context.timer,foldingRun=context.playbackGeneration,foldingFrame=context.frameIndex;
+  element('playback-menu').open=true;
+  element('viewport-menu').open=true;
+  element('trajectory-toggle').onclick();
+  assert.equal(element('trajectory-toggle').getAttribute('aria-expanded'),'false');
+  assert(element('trajectory-toolbar').classList.contains('trajectory-collapsed'));
+  assert.equal(element('playback-menu').open,false,'A folded settings menu must close');
+  assert.equal(element('viewport-menu').open,false,'A folded view menu must close');
+  assert(playing);assert.equal(context.timer,foldingTimer);assert.equal(context.playbackGeneration,foldingRun);
+  assert.equal(context.frameIndex,foldingFrame,'Folding must not reset the active frame');
+  element('trajectory-toggle').onclick();
+  assert.equal(element('trajectory-toggle').getAttribute('aria-expanded'),'true');
+  assert.equal(context.timer,foldingTimer);assert(resized>=3,'The viewport follows the new toolbar height');
   event('pointerdown')();assert.equal(context.timer,null);assert(playing);
   element('timeline').value=52;await event('input')({target:element('timeline')});
   await windowEvents.get('pointerup')();
@@ -30,6 +50,8 @@ const event=name=>element('timeline').events.get(name);
   const timer=context.timer;await event('change')();await event('blur')();assert.equal(context.timer,timer);
   context.stop();event('pointerdown')();element('timeline').value=21;await event('change')();
   assert(!playing);assert.equal(context.timer,null);assert.equal(context.frameIndex,21);
+  context.setTrajectoryExpanded(false);context.setTrajectoryExpanded(true);
+  assert(!playing);assert.equal(context.timer,null);assert.equal(context.frameIndex,21,'Paused folds stay paused on the same frame');
   element('play').onclick();element('timeline').value=22;event('input')({target:element('timeline')});await event('change')();
   assert(playing,'Keyboard seeking also preserves playback intent');
   event('pointerdown')();releaseSeek=true;
@@ -110,5 +132,6 @@ const event=name=>element('timeline').events.get(name);
   element('drift-enabled').checked=false;await element('drift-apply').onclick();assert.equal(context.drift,null);
   context.stop();changeDisplay();element('playback-speed').events.get('input')();assert(!playing);assert.equal(context.timer,null);
   console.log('Timeline: playing/paused scrubs, keyboard seek, duplicate completion, explicit pause and stale-file guards passed.');
+  console.log('Trajectory disclosure: playing/paused folds preserve frame and animation loop, close settings and resize the viewport.');
   console.log('Display controls: global settings, advanced display, reset and async drift correction preserve playback intent.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

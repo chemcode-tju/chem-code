@@ -31,8 +31,9 @@
     <section class="settings-panel" id="appearance" data-panel="appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden><h2>外观</h2><h3 id="mode-label">显示模式</h3><div class="theme-options" role="group" aria-labelledby="mode-label"><button type="button" data-mode="system" aria-pressed="false"><span class="theme-mini theme-system" aria-hidden="true"><i></i><b></b></span><span>跟随系统</span></button><button type="button" data-mode="light" aria-pressed="false"><span class="theme-mini theme-light" aria-hidden="true"><i></i><b></b></span><span>白色</span></button><button type="button" data-mode="dark" aria-pressed="false"><span class="theme-mini theme-dark" aria-hidden="true"><i></i><b></b></span><span>深夜</span></button></div><div class="setting-row"><label for="chat-font-size">对话字号</label><select id="chat-font-size"><option value="14">14 px</option><option value="16">16 px</option><option value="18">18 px</option><option value="20">20 px</option></select></div><p id="appearance-notice" class="hint" role="status"></p></section>
     <section id="agent-settings" class="settings-panel" data-panel="agent" role="tabpanel" aria-labelledby="tab-agent" hidden>
       <h2>Agent 与模型</h2>
+      <div class="agent-service-list">
       <details class="agent-row" id="chem-agent-settings">
-        <summary><svg class="icon"><use href="/assets/ui-icons.svg#i-flask"/></svg><span>Chem Agent</span><span class="agent-default" data-default-for="builtin"></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-flask"/></svg><span class="agent-identity"><strong>Chem Agent</strong><span class="agent-model" data-model-for="builtin">正在读取…</span></span><span class="agent-default" data-default-for="builtin" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <form id="model-form" class="agent-fields">
       <label for="provider">登录方式</label>
       <select id="provider">
@@ -82,26 +83,27 @@
         <button type="submit">保存 API 配置</button>
       </div>
         </form>
+        <div class="agent-card-actions builtin-actions"><button type="button" class="secondary" data-use-backend="builtin">设为新对话默认</button></div>
       </details>
       <details class="agent-row" id="codex-settings">
-        <summary><svg class="icon"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span>Codex</span><span class="agent-default" data-default-for="codex"></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span class="agent-identity"><strong>Codex</strong><span class="agent-model" data-model-for="codex">正在读取…</span></span><span class="agent-default" data-default-for="codex" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="codex-executable">程序路径</label><input id="codex-executable" value="codex" autocomplete="off" spellcheck="false">
           <label for="codex-model">默认模型</label><div class="model-choice-row"><select id="codex-model" data-no-i18n><option value="">跟随 Codex</option></select><button id="codex-probe" type="button" class="secondary">检测连接</button></div>
-          <label for="codex-effort">推理强度</label><select id="codex-effort" data-no-i18n><option value="">跟随模型</option></select>
+          <label for="codex-effort">推理强度</label><select id="codex-effort" data-no-i18n><option value="">跟随模型</option></select><div class="agent-card-actions"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button type="button" class="secondary" data-use-backend="codex">设为新对话默认</button></div>
         </div>
       </details>
       <details class="agent-row" id="antigravity-settings">
-        <summary><svg class="icon"><use href="/assets/ui-icons.svg#i-automation"/></svg><span>Antigravity</span><span class="agent-default" data-default-for="antigravity"></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <summary><img class="agent-logo" src="/assets/antigravity.svg" alt=""><span class="agent-identity"><strong>Antigravity</strong><span class="agent-model" data-model-for="antigravity">正在读取…</span></span><span class="agent-default" data-default-for="antigravity" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="antigravity-executable">程序路径</label><input id="antigravity-executable" value="agy" autocomplete="off" spellcheck="false">
           <label for="antigravity-model">默认模型</label><div class="model-choice-row"><select id="antigravity-model" data-no-i18n><option value="">跟随 Antigravity</option></select><button id="antigravity-probe" type="button" class="secondary">检测连接</button></div>
-          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort" data-no-i18n><option value="">跟随模型</option></select>
+          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort" data-no-i18n><option value="">跟随模型</option></select><div class="agent-card-actions"><span class="agent-connection-state" data-connection-for="antigravity">尚未检测</span><button type="button" class="secondary" data-use-backend="antigravity">设为新对话默认</button></div>
         </div>
       </details>
-      <div class="setting-row"><label for="agent-backend">默认 Agent</label><select id="agent-backend"><option value="builtin">Chem Agent</option><option value="codex">Codex</option><option value="antigravity">Antigravity</option></select></div>
-      <div class="actions footer"><button id="agent-save" type="button">保存</button></div>
-      <p id="agent-notice" role="status" aria-live="polite"></p>
+      </div>
+      <div hidden><label for="agent-backend">默认 Agent</label><select id="agent-backend"><option value="builtin">Chem Agent</option><option value="codex">Codex</option><option value="antigravity">Antigravity</option></select></div>
+      <div class="actions footer agent-save-actions"><p id="agent-notice" role="status" aria-live="polite"></p><button id="agent-save" type="button">保存模型设置</button></div>
     </section>
     <div id="compute-scope" class="compute-scope" hidden>
       <label for="active-server">当前服务器</label><select id="active-server" data-no-i18n></select>
@@ -117,9 +119,18 @@
     </section>
     <section class="settings-panel compute-panel" id="servers" data-panel="servers" role="tabpanel" aria-labelledby="tab-servers" hidden>
       <h2>服务器连接</h2>
-      <p>选择这台电脑已配置的 SSH 服务器。Agent 可通过终端查找计算软件、环境脚本和赝势目录。</p>
-      <div class="compute-actions"><button type="button" id="local-ssh-refresh">读取本机 SSH 配置</button><button type="button" id="local-ssh-save">保存启用的服务器</button></div>
-      <div id="local-ssh-list"></div><p id="local-ssh-status" role="status"></p>
+      <p class="hint">选择允许 Agent 使用的服务器，连接状态通过测试确认。</p>
+      <div id="local-ssh-list" class="server-cards"></div>
+      <div class="server-management"><p id="local-ssh-status" role="status" aria-live="polite"></p>
+      <details id="local-ssh-picker" class="config-editor server-picker"><summary>添加服务器</summary>
+        <div class="server-picker-content"><label for="local-ssh-choice">本机 SSH 配置</label><div class="model-choice-row"><select id="local-ssh-choice" data-no-i18n></select><button type="button" id="local-ssh-add">添加</button></div>
+        <div class="compute-actions"><button type="button" class="secondary" id="local-ssh-refresh">重新读取</button></div>
+        <details class="manual-ssh"><summary>手动配置 SSH 主机</summary><p class="hint">在本机 <code>~/.ssh/config</code> 中添加主机后，重新读取并选择。</p><pre>Host research-cluster
+  HostName cluster.example.com
+  User your-name
+  IdentityFile ~/.ssh/id_ed25519</pre></details></div>
+      </details>
+      </div>
       <details id="legacy-aiida-connection" class="config-editor" hidden><summary>AiiDA 连接配置（可选）</summary>
       <div id="server-record"></div>
       <div id="server-actions" class="compute-actions" hidden>

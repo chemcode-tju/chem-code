@@ -11,7 +11,9 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     const models = catalogs[current.backend]?.models || [];
     const model = models.find(item => item.id === current.model)?.name || current.model || models.find(item => item.default)?.name || names[current.backend];
     $('agent-picker-label').textContent = `${model} · ${effortLabel(current.effort)}`;
-    picker.querySelector('.agent-logo use').setAttribute('href', `/assets/ui-icons.svg#${current.backend === 'antigravity' ? 'i-automation' : 'i-gpt'}`);
+    picker.querySelector('.agent-logo').outerHTML = current.backend === 'antigravity'
+      ? '<img class="icon agent-logo" src="/assets/antigravity.svg" alt="">'
+      : '<svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg>';
     picker.title = `${names[current.backend]} · ${model} · ${effortLabel(current.effort)}`;
     $('permission-label').textContent = permissionLabel(current.permission);
     permission.title = current.backend !== 'builtin' ? `${names[current.backend]} 本机执行权限；平台工具沿用平台授权` : 'Chem Agent 工具执行权限';

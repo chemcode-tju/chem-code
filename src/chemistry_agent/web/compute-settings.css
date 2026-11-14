@@ -29,8 +29,8 @@
 .compute-actions {margin:14px 0;}
 .config-editor,.compatibility {margin-top:20px;border:1px solid var(--border);border-radius:12px;}
 .compute-panel summary,#secret-removal summary {display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:400;}
-.config-editor>summary,.compatibility>summary {padding:11px 14px;}
-.compute-panel summary::before,#secret-removal summary::before {content:"";width:6px;height:6px;display:block;flex:none;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);}
+.config-editor>summary,.compatibility>summary {padding:11px 14px;min-height:40px;background:var(--panel);border-radius:inherit;}
+.compute-panel summary::before,#secret-removal summary::before {order:1;margin-left:auto;content:"";width:6px;height:6px;display:block;flex:none;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);}
 .compute-panel details[open]>summary::before,#secret-removal[open]>summary::before {transform:rotate(135deg);}
 .config-editor[open]>summary,.compatibility[open]>summary {border-bottom:1px solid var(--border);}
 .config-editor form,.compatibility>div {padding:0 14px 14px;}
@@ -73,3 +73,64 @@
 .queue-resources .config-facts + .config-facts {border-top:1px solid var(--border);padding-top:8px;}
 
 .needs-config { display:inline-block; margin-top:12px; }
+
+/* One service group, one readable summary row; controls never occupy the icon column. */
+.setup-list { border:1px solid var(--border); border-radius:var(--radius-panel); overflow:hidden; background:var(--panel); }
+.setup-list li { padding:14px; gap:12px; }
+.setup-list li:last-child { border-bottom:0; }
+.setup-list strong { font-size:14px; font-weight:600; line-height:20px; }
+.setup-list small { margin-top:3px; line-height:20px; }
+.overview-icon { width:20px; height:20px; color:var(--muted); }
+.overview-description { min-width:0; }
+.overview-action { display:inline-flex; align-items:center; gap:5px; min-height:34px; padding:5px 8px; white-space:nowrap; }
+.overview-action .icon { width:12px; height:12px; }
+.setup-list li > .overview-state[data-ready] { color:var(--muted); font-size:13px; white-space:nowrap; }
+.overview-state[data-ready=true]::before { content:'✓'; margin-right:5px; color:var(--accent); } /* taste-skill-ignore: functional check mark indicates completion or selection. */
+.server-cards { border:1px solid var(--border); border-radius:var(--radius-panel); overflow:hidden; background:var(--panel); }
+.server-card { padding:14px; border-bottom:1px solid var(--border); }
+.server-card:last-child { border-bottom:0; }
+.server-card > header { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; }
+.server-card > header > .icon { width:20px; height:20px; flex:none; color:var(--muted); }
+.server-identity { display:grid; gap:3px; flex:1; min-width:140px; }
+.server-identity strong { font-weight:600; font-size:14px; line-height:20px; overflow-wrap:anywhere; }
+.server-subtitle { display:flex; flex-wrap:wrap; gap:3px 6px; align-items:baseline; font-size:13px; line-height:18px; color:var(--muted); }
+.server-address { flex:1 1 130px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.server-activation { display:flex; align-items:center; gap:8px; flex:none; font-size:13px; color:var(--muted); cursor:pointer; }
+.server-card-actions { display:flex; align-items:center; gap:12px; margin-left:auto; flex:none; }
+.server-check-state { font-size:13px; color:var(--muted); white-space:nowrap; }
+.server-card-actions button { min-height:30px; padding:4px 9px; font-size:13px; }
+.server-source { margin:8px 0 0 32px; }
+.server-source > summary { font-size:13px; color:var(--muted); }
+.server-source pre,.manual-ssh pre { max-width:100%; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.65 var(--font-code); }
+.server-source .config-facts { font-size:13px; }
+.server-empty { margin:0; padding:20px 16px; font-size:14px; color:var(--muted); }
+.server-management { display:flex; flex-wrap:wrap; align-items:center; gap:10px 12px; margin-top:14px; }
+.server-picker { flex:none; margin:0 0 0 auto; border:0; background:transparent; }
+.server-picker > summary { min-height:34px; padding:7px 12px; border:1px solid var(--border); border-radius:var(--radius-control); }
+.server-picker[open] { flex-basis:100%; }
+.server-picker[open] > summary { border-bottom:1px solid var(--border); }
+.server-picker-content { padding:16px; }
+.server-picker-content > label { margin:0 0 8px; }
+.manual-ssh { padding-top:12px; border-top:1px solid var(--border); }
+.manual-ssh > summary { font-size:14px; }
+#local-ssh-status { flex:1 1 170px; margin:0; font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
+#local-ssh-status:empty { display:none; }
+#local-ssh-status.error,.server-check-state.error { color:var(--danger); }
+.settings-switch { appearance:none; position:relative; box-sizing:border-box; width:36px; height:20px; min-height:0; margin:0; padding:0; border:1px solid var(--strong-border); border-radius:12px; background:var(--strong-border); cursor:pointer; flex:none; transition:background var(--motion-fast); }
+.settings-switch::after { content:''; position:absolute; inset:2px auto auto 2px; width:14px; height:14px; border-radius:50%; background:var(--raised); transition:transform var(--motion-fast); }
+.settings-switch:checked { background:var(--accent); border-color:var(--accent); }
+.settings-switch:checked::after { transform:translateX(16px); background:var(--on-accent); }
+.settings-switch:disabled { opacity:.55; cursor:wait; }
+@media(max-width:420px) {
+  .setup-list li { gap:10px; padding:12px; grid-template-columns:20px minmax(0,1fr) auto; }
+  .server-card { padding:12px; }
+  .server-card > header { gap:8px; }
+  .server-activation { gap:6px; }
+  .server-card-actions { gap:10px; }
+  .server-source { margin-left:28px; }
+}
+@media(pointer:coarse) {
+  .server-activation { min-height:44px; }
+  .server-card-actions button,.overview-action { min-height:44px; }
+}
+@media(prefers-reduced-motion:reduce) { .settings-switch,.settings-switch::after { transition:none; } }

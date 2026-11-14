@@ -383,6 +383,8 @@
   "格式识别": "File format",
   "请先打开结构": "Open a structure first",
   "收起轨迹与视图": "Collapse trajectory and view",
+  "收起轨迹工具": "Collapse trajectory controls",
+  "展开轨迹工具": "Expand trajectory controls",
   "导出": "Export",
   "视图方向与布局": "View orientation and layout",
   "结构信息": "Structure information",

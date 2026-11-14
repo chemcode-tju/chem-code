@@ -55,9 +55,9 @@
       <div id="inspector-content" role="tabpanel" aria-labelledby="particles-tab" tabindex="0"></div>
       <p id="inspector-note"></p>
     </section>
-    <div class="bottom-toolbar">
+    <div id="trajectory-toolbar" class="bottom-toolbar">
       <div id="trajectory-tools">
-        <div class="ruler"><div id="ticks" aria-hidden="true"></div><input id="timeline" type="range" min="0" max="0" value="0" aria-label="轨迹帧滑块" disabled></div>
+        <div class="ruler"><div id="ticks" aria-hidden="true"></div><input id="timeline" type="range" min="0" max="0" value="0" aria-label="轨迹帧滑块" disabled><button type="button" id="trajectory-toggle" aria-expanded="true" aria-controls="trajectory-tools" aria-label="收起轨迹工具" title="收起轨迹工具"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button></div>
         <div class="transport"><div class="playback" role="group" aria-label="轨迹播放"><button type="button" id="first" aria-label="第一帧" title="第一帧"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-first"/></svg></button>
           <button type="button" id="previous" aria-label="上一帧" title="上一帧"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-previous"/></svg></button>
           <button type="button" id="play" aria-label="播放轨迹" title="播放轨迹"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-play"/></svg></button>

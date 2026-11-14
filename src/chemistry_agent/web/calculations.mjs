@@ -5,6 +5,7 @@ import {workflowPlan} from "./workflow-plan.mjs";
 import {renderGeneralPlan} from './general-plan.mjs';
 import { escapeHtml as esc } from './core.mjs';
 import { structureButton, getFileBlob, isStructureName } from './structure-links.mjs';
+import {fileIcon,updateStructureCount} from './file-actions.mjs';
 
 const progressSignature = job => JSON.stringify([job.adsorption,job.steps?.map(s=>[s.pk,s.branch_valid,s.scheduler_state,s.scheduler_job_id,s.process_state,s.paused,s.finished_ok,s.results?.run_status])]);
 const number = Number.isFinite;
@@ -36,7 +37,7 @@ export function renderTaskCard(item, job, recovery, sessionPath, policy={}) {
     ${job ? (!job.finished_ok ? `<details data-fold="recovery"><summary>故障处理</summary>${surface && !surface.co_sites?.length ? '' : `<label>自动重试上限 <input type="number" min="0" max="5" value="${esc(policy.max_attempts ?? 2)}" data-retry-limit="${id}"></label><button data-recovery-job="${esc(job.id)}" data-recovery-mode="auto">启用或更新自动重试</button>`}<button data-recovery-job="${esc(job.id)}" data-recovery-mode="diagnose">请求分析</button><button data-recovery-job="${esc(job.id)}" data-recovery-mode="off">关闭自动处理</button></details>` : '') : `${surface && !surface.co_sites?.length ? '' : `<details data-fold="policy"><summary>重试设置</summary><label><input type="checkbox" data-auto-recovery="${id}">自动修复</label><label>最多 <input type="number" min="0" max="5" value="2" data-retry-limit="${id}"> 次</label></details>`}<button type="button" class="tool-submit" data-confirm-preview="${id}">${item.workflow && item.workflow !== 'single' ? '确认整个流程并提交' : '确认提交'}</button>`}</article>`;
 }
 
-export function createCalculations({ api, getSession, isBusy, toast, onConfirmed, viewer, chatFiles, syncReport, refreshProgress, reviseStep }) {
+export function createCalculations({ api, getSession, isBusy, toast, onConfirmed, viewer, chatFiles, syncReport, refreshProgress, onPlans, reviseStep }) {
   const panel = document.getElementById("calculation-cards");
   const knownSteps = new Map();
   function displayCount(preview,key,count) {
@@ -62,12 +63,14 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
     const base = path(session);
     const structures = unique(records?.structures || [], item => item.source_structure_uuid || item.id);
     const jobs = Object.values(records?.live_jobs || {}).filter(job => job.finished_ok && job.output_structure && !structures.some(item => item.source_job_id === job.id));
-    const row = (title, kind, id, name, url, attach='') => `<div class="structure-item"><span>${esc(title)}</span>${structureButton(kind,id,name,'查看')}<a href="${esc(url)}" download>下载</a>${attach}</div>`;
-    const rows = structures.map(item => row(`${item.name} · ${item.formula}`, 'artifact', item.id, `${item.name}.extxyz`, `${base}/files/structure/${encodeURIComponent(item.id)}`, `<button data-attach-structure="${esc(item.id)}">用于对话</button>`));
-    for (const job of jobs) rows.unshift(row(`优化结构 · #${job.pk}`, 'job', job.id, `optimized-job-${job.pk}.extxyz`, `${base}/jobs/${encodeURIComponent(job.id)}/structure.extxyz`, `<button data-import-job="${esc(job.id)}">用于对话</button>`));
+    const cite=(attr,id,name)=>`<button type="button" class="file-action" ${attr}="${esc(id)}" title="用于对话" aria-label="用于对话：${esc(name)}">${fileIcon('cite')}</button>`;
+    const row = (title, kind, id, name, url, attach='') => `<div class="structure-item"><span title="${esc(title)}">${esc(title)}</span><span class="workspace-file-actions">${structureButton(kind,id,name,'查看',true)}<a class="file-action" href="${esc(url)}" download title="下载" aria-label="下载：${esc(name)}">${fileIcon('download')}</a>${attach}</span></div>`;
+    const rows = structures.map(item => row(`${item.name} · ${item.formula}`, 'artifact', item.id, `${item.name}.extxyz`, `${base}/files/structure/${encodeURIComponent(item.id)}`, cite('data-attach-structure',item.id,item.name)));
+    for (const job of jobs) rows.unshift(row(`优化结构 · #${job.pk}`, 'job', job.id, `optimized-job-${job.pk}.extxyz`, `${base}/jobs/${encodeURIComponent(job.id)}/structure.extxyz`, cite('data-import-job',job.id,`优化结构 #${job.pk}`)));
     for (const file of unique(chatFiles().filter(file => isStructureName(file.name)), file => file.id)) rows.push(row(file.name,'file',file.id,file.name,`/api/files/${encodeURIComponent(file.id)}`));
     structureList.innerHTML = rows.join('');
     structureList.innerHTML += (records?.models || []).map(item => `<details class="model-record"><summary>建模代码 · ${esc(item.name)}</summary><pre>${esc(item.code)}</pre><a href="${base}/files/model/${esc(item.id)}" download>下载 model.py</a></details>`).join('');
+    updateStructureCount();
   }
   function drawReportFigures() {
     if (!session || session !== getSession()) return;
@@ -124,12 +127,13 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   });
   async function refresh() {
     const id = getSession();
-    if (!enabled || !id) { records = null; session = id; render(); return; }
+    if (!enabled || !id) { records = null; session = id; onPlans?.(id,[]);render(); return; }
     if (session !== id) { selected = []; drawAttachments(); }
     session = id;
     const response = await api(`${path(id)}/artifacts`);
     if (id !== getSession()) return;
     records = response;
+    onPlans?.(id,records.plans || []);
     void refreshProgress?.(id);
     render();
   }
@@ -250,6 +254,7 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
       if(id!==getSession() || !records) return;
       const graphChanged=JSON.stringify(records.plans)!==JSON.stringify(graphData.plans);
       records.plans=graphData.plans;
+      onPlans?.(id,records.plans || []);
       const changes = Object.entries(data.jobs).some(([id, job]) => {
         const previous = records.live_jobs?.[id];
         return !previous || progressSignature(previous) !== progressSignature(job) || renderTaskStatus(previous, records.recovery?.[id]) !== renderTaskStatus(job, data.recovery?.[id]) || Boolean(previous.output_structure) !== Boolean(job.output_structure);
@@ -269,11 +274,11 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   return {
     refresh, drawStructures,
     drawReportFigures,
-    enabled(value) { enabled = value; if (!enabled) { detail.close(); selected = []; records = null; drawAttachments(); render(); } },
+    enabled(value) { enabled = value; if (!enabled) { detail.close(); selected = []; records = null; onPlans?.(getSession(),[]);drawAttachments(); render(); } },
     selection() { return [...selected]; },
     selectedIds() { return selected.map((item) => item.id); },
     clearSelection() { selected = []; drawAttachments(); },
-    reset() { knownSteps.clear(); detail.close(); captureMaps(panel,{suspend:true,dispose:true});panel.replaceChildren(); selected = []; records = null; session = null; drawAttachments(); render(); },
+    reset() { knownSteps.clear(); detail.close(); captureMaps(panel,{suspend:true,dispose:true});panel.replaceChildren(); selected = []; records = null; session = null; onPlans?.(getSession(),[]);drawAttachments(); render(); },
     busy() { return pending; },
   };
 }

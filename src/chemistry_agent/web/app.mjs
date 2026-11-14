@@ -71,6 +71,7 @@ const progressFeed=createProgressFeed({
 });
 const calculations = createCalculations({
   syncReport, refreshProgress:id=>progressFeed.refresh(id),
+  onPlans:(id,plans)=>progressFeed.setPlans(id,plans),
   reviseStep(id,title,planRevision) {
     const field = $("message-input");
     if (innerWidth<=767) setInspectorOpen(false);
@@ -214,6 +215,7 @@ function updateControls() {
   $("composer-add").disabled = locked || uploads.uploading;
   $("send-button").setAttribute("aria-label", state.busy ? "正在生成回答" : "发送消息");
   $("new-chat").disabled = locked;
+  $("new-chat-list").disabled = locked;
   $("new-project").disabled = locked;
   $("draft-project").disabled = locked || Boolean(state.sessionId);
   document.querySelectorAll("[data-new-in]").forEach((button) => { button.disabled = locked; });
@@ -244,7 +246,6 @@ async function refreshHealth() {
     }));
     calculations.enabled(Boolean(state.health.automation_enabled));
     notifications.enabled(Boolean(state.health.automation_enabled));
-    $("automation-link").hidden = !state.health.automation_enabled;
     chatModels?.render();
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
@@ -352,7 +353,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${turn.background ? '<div class="assistant-label">Chem Code · 计算更新</div>' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div></div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label calculation-update-label"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-timeline"/></svg><span>计算更新</span></div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${turn.background ? '<div class="assistant-label calculation-update-label"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-timeline"/></svg><span>计算更新</span></div>' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div></div></div></article>`
 
   ).join("");
   calculations.drawReportFigures();
@@ -754,7 +755,7 @@ $("session-list").addEventListener("click", (event) => {
   const button = event.target.closest("[data-session]");
   if (button) selectSession(button.dataset.session);
 });
-$("refresh-sessions").addEventListener("click", () => refreshSessions().catch((error) => toast(error.message)));
+$("new-chat-list").addEventListener("click", newConversation);
 $("load-more").addEventListener("click", async () => {
   $("load-more").disabled = true;
   try { await refreshSessions(true); } catch (error) { toast(error.message); }

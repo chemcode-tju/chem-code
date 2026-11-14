@@ -24,15 +24,14 @@ export function planMap(layers, key, attribute, title = '') {
     </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" title="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
-    <div class="map-tools"><div class="map-identity">${icon('map')}<strong title="${esc(title)}">方案画布</strong><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-actions">
+    <div class="map-tools"><div class="map-identity">${icon('map')}<strong title="${esc(title)}">方案画布</strong><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-subtools"><select data-groups aria-label="按分支查看"></select></div><div class="map-actions">
       ${tool('data-command="find" aria-expanded="false"','查找步骤',icon('find'))}
       ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more'))}
       ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
     </div></div>
-    <div class="map-subtools"><select data-groups aria-label="按分支查看"></select>
-      <button type="button" class="map-direction" data-command="direction" title="切换布局方向">从上到下 ↓</button></div>
     <div class="map-pop map-search" data-pop="find" hidden><input type="search" placeholder="查找名称或步骤 ID" aria-label="查找名称或步骤 ID" autocomplete="off"><div data-results></div></div>
     <div class="map-pop" data-pop="options" hidden>
+      <button type="button" class="map-direction" data-command="direction" title="切换布局方向">从上到下 ↓</button>
       <label data-aux-option><input type="checkbox" data-all> 显示建模与分析步骤</label>
       <label><input type="checkbox" data-all-arrows> 显示全部方向箭头</label>
       <button type="button" data-command="overview">分支概览</button><button type="button" data-command="unfold">展开全部节点</button>
@@ -55,7 +54,7 @@ function mount(map, previous) {
   const storageKey='chemistry.planView.'+map.dataset.map;
   const previousView=previous || stored(storageKey) || {};
   // Positions from the nested-folder canvas do not fit the new grid/card geometry.
-  const saved=previousView.layoutVersion===5?previousView:{};
+  const saved=previousView.layoutVersion===6?previousView:{};
   const board=$('.map-board'), view=$('.map-window'), world=$('.map-world'), size=$('.map-size'), svg=$('.map-edges');
   const dialog=$('.map-dialog'), select=$('[data-groups]'), find=$('.map-search input'), results=$('[data-results]'), grip=$('.map-grip');
   world.style.setProperty('--node-w',CARD.width+'px');world.style.setProperty('--node-h',CARD.height+'px');
@@ -91,7 +90,7 @@ function mount(map, previous) {
   function snapshot() {
     modes[all]={folds:[...folds],moves:[...moves],group};
     const focused=board.contains(document.activeElement);
-    return {layoutVersion:5,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,...camera(),full:dialog.open,focused};
+    return {layoutVersion:6,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,...camera(),full:dialog.open,focused};
   }
   function save() {
     if (!board.getClientRects().length) return;
