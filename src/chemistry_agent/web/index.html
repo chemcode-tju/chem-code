@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/assets/plan-workspace.css">
   <link rel="stylesheet" href="/assets/convergence-card.css">
   <link rel="stylesheet" href="/assets/registered-results.css">
+  <link rel="stylesheet" href="/assets/step-detail.css">
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
   <link rel="stylesheet" href="/assets/vendor/katex/katex.min.css">
   <script src="/assets/vendor/katex/katex.min.js" defer></script>
@@ -55,7 +56,7 @@
   <main class="main-panel new-session">
     <header class="topbar">
       <div class="breadcrumb"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="打开会话导航" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-menu"/></svg></button><h1 id="conversation-title">新对话</h1></div>
-      <div class="topbar-actions"><button class="icon-button tools-toggle" id="tools-toggle" aria-controls="inspector" title="展开研究面板" aria-label="展开研究面板" aria-expanded="false"><span class="dock-count" id="dock-count" aria-hidden="true">0</span></button></div>
+      <div class="topbar-actions"><button class="icon-button tools-toggle" id="tools-toggle" aria-controls="inspector" title="展开研究面板" aria-label="展开研究面板" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-left-panel"/></svg><span>研究面板</span><span id="dock-count" class="sr-only" aria-hidden="true">0</span></button></div>
     </header>
 
     <div class="chat-scroll" id="chat-scroll">
@@ -134,8 +135,8 @@
         <header class="step-heading">
           <div class="step-kicker"><span id="step-kind"></span><span id="step-index"></span></div>
           <div id="step-group-path" class="step-group-path" aria-label="所属分支" hidden></div>
-          <h2 id="step-title"></h2><code id="step-key"></code>
-          <details class="step-description"><summary>步骤说明</summary><div id="step-purpose"></div></details>
+          <h2 id="step-title"></h2>
+          <details class="step-description"><summary>步骤说明</summary><code id="step-key"></code><div id="step-purpose"></div></details>
           <div class="step-meta"><span class="step-status" id="step-status"></span><span id="step-progress" role="status"></span>
             <button type="button" id="step-refresh">刷新</button></div>
         </header>
@@ -145,10 +146,10 @@
         <label id="step-job-choice" hidden>查看计算 <select id="step-job-select"></select></label>
         <section id="step-relations" aria-label="依赖关系"></section>
         <div class="step-sections">
+          <details id="step-registered-results" hidden open></details>
           <details id="step-config"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg>参数文件</summary>
             <div id="step-actual-parameters"></div>
           </details>
-          <details id="step-registered-results" hidden open></details>
           <details id="step-structures"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-structures"/></svg>结构文件</summary>
             <div class="step-file-options" id="step-files"></div><p id="step-file-source"></p>
             <div class="structure-viewer-shell" id="step-viewer-shell" hidden><iframe id="step-viewer-frame" title="步骤结构查看器"></iframe></div>

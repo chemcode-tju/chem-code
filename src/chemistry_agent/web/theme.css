@@ -29,7 +29,16 @@
   --mask: var(--dsw-alias-bg-mask-1);
   --shadow: 0 0 0 .5px var(--border), 0 4px 16px rgb(0 0 0 / 3%), 0 0 24px rgb(0 0 0 / 3%);
   --floating-shadow: 0 0 0 .5px var(--border), 0 3px 8px rgb(0 0 0 / 4%), 0 0 20px rgb(0 0 0 / 5%);
-  --reading-size: 14px;
+  --reading-size: 16px;
+  --font-size-ui: 14px;
+  --font-size-secondary: 13px;
+  --radius-control: 8px;
+  --radius-panel: 12px;
+  --radius-dialog: 16px;
+  --control-height: 34px;
+  --menu-padding: 4px;
+  --motion-fast: 120ms;
+  --motion-expand: 180ms;
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -65,7 +74,7 @@ a {
 button {
   border:1px solid var(--border);
   background:var(--surface);
-  border-radius:12px;
+  border-radius:var(--radius-control);
   padding:6px 12px;
 }
 button:hover,a:hover {
@@ -78,7 +87,7 @@ button:disabled {
 input,select,textarea {
   background:var(--surface);
   border:1px solid var(--strong-border);
-  border-radius:12px;
+  border-radius:var(--radius-control);
   padding:7px 12px;
 }
 textarea {

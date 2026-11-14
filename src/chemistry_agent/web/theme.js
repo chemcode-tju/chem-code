@@ -1,6 +1,6 @@
 /* Loaded before styles so navigation does not flash the wrong theme. */
 (() => {
-  const defaults = { mode: "system", fontSize: 14 };
+  const defaults = { mode: "system", fontSize: 16 };
   function normalize(value) {
     return { mode: ["light", "dark", "system"].includes(value?.mode) ? value.mode : defaults.mode,
       fontSize: [14, 16, 18, 20].includes(value?.fontSize) ? value.fontSize : defaults.fontSize };

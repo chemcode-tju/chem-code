@@ -9,7 +9,7 @@ import {createTextEditor} from './step-editor.mjs';
 import {kindName, taskLabel} from './plan-layout.mjs';
 import {t} from './i18n.mjs';
 import {createConvergenceCard} from './convergence-card.mjs';
-import {createRegisteredResults} from './registered-results.mjs';
+import {createRegisteredResults,resultTimestamp} from './registered-results.mjs';
 
 const fileNames = ['POSCAR', 'CONTCAR', 'XDATCAR'];
 const availableFiles=info=>[...new Set([...fileNames,...Object.keys(info?.files || {})])].filter(name=>info?.files?.[name]);
@@ -32,7 +32,7 @@ export function createStepDetail({api,rememberCount}) {
     bridge.reset();bridge.open(sequence?`NEB 路径 · 优化步 ${sequence.step}`:name,async()=>{
       if(sequence){
         const data=await api(sequence.url);
-        if(data.stale && registeredSelection?.sequence?.id===sequence.id)$('step-note').textContent=`缓存路径 · ${data.observed_at}`;
+        if(data.stale && registeredSelection?.sequence?.id===sequence.id)$('step-note').textContent=`缓存路径 · ${resultTimestamp(data.observed_at)}`;
         if(data.kind!=='neb_sequence'||!data.files?.length)throw Error('尚无完整路径结构');
         return data.files.map(item=>new File([item.content],item.name));
       }
@@ -317,8 +317,8 @@ export function createStepDetail({api,rememberCount}) {
     textDetails({parameters:Object.fromEntries(['INCAR','KPOINTS'].filter(name=>item.files?.[prefix+name]).map(name=>[name,item.files[prefix+name]])),script:item.files?.[prefix+'_aiidasubmit.sh'] || ''});
     const aggregate=key==='energies';
     for (const id of ['step-structures','step-energies','step-refresh','step-progress']) $(id).hidden=aggregate;
-    $('step-config').open=true;
-    $('step-structures').open=true; $('step-energies').open=false;
+    $('step-config').open=false;
+    $('step-structures').open=!job; $('step-energies').open=!aggregate && !!job;
     $('step-investigation').hidden=true; $('step-investigation-log').replaceChildren();
     $('step-progress').textContent='读取离子步…'; $('step-note').textContent='';
     $('step-file-source').textContent=''; convergence.reset();
@@ -345,7 +345,7 @@ export function createStepDetail({api,rememberCount}) {
     jobs.querySelector('summary span').textContent=childJobSummary(plan,children);
     const rows=children.map(child=>{
       const runtime=plan.runtime[child.id] || {};
-      return `<button type="button" data-child-job="${esc(child.id)}"><span><strong>${esc(taskLabel(child))}</strong><small>${runtime.job?.scheduler_job_id?'#'+esc(runtime.job.scheduler_job_id):esc(child.id)}</small></span><span class="step-status" data-state="${esc(runtime.status)}">${esc(nodeStatus(plan,child))}</span><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`;
+      return `<button type="button" data-child-job="${esc(child.id)}" title="${esc(child.id)}"><span><strong>${esc(taskLabel(child))}</strong>${runtime.job?.scheduler_job_id?`<small>#${esc(runtime.job.scheduler_job_id)}</small>`:''}</span><span class="step-status" data-state="${esc(runtime.status)}">${esc(nodeStatus(plan,child))}</span><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`;
     }).join('');
     if(jobs.querySelector('div').innerHTML!==rows)jobs.querySelector('div').innerHTML=rows;
     const owner=view.owners.get(node.id), parent=plan.nodes.find(n=>n.id===owner && n.id!==node.id);
@@ -388,7 +388,9 @@ export function createStepDetail({api,rememberCount}) {
     $('step-back').focus({preventScroll:true});
     $('step-energies').hidden=!['vasp','job','task'].includes(node.kind); $('step-progress').hidden=$('step-energies').hidden;$('step-refresh').hidden=false;
     $('step-structures').hidden=node.kind==='analysis';
-    $('step-config').open=true; $('step-structures').open=node.kind==='model';
+    $('step-config').open=false; $('step-structures').open=node.kind==='model';
+    const runtime=plan.runtime[node.id];
+    $('step-energies').open=node.kind==='vasp' || !!(runtime.generic_job_id || runtime.jobs?.length);
     info={files:{},points:[]}; drawFiles(); refresh();
   }
   return {open,close,openGeneral,updateGeneral(plan) {

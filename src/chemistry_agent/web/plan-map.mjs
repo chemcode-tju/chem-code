@@ -13,20 +13,18 @@ const serial = value => esc(JSON.stringify(value));
 export function planMap(layers, key, attribute, title = '') {
   const nodes = layers.flat();
   if (!nodes.length) return '';
-  const cards = nodes.map((n,index) => {
+  const cards = nodes.map(n => {
     const label=taskLabel(n), split=n.title===n.id && label!==n.id ? label.lastIndexOf(' · ') : -1;
-    const kind=n.kind || 'vasp', glyph={task:'map',job:'queues',vasp:'compute',model:'structures',analysis:'compare'}[kind] || 'document';
+    const kind=n.kind || 'vasp';
     const caption=n.groupPath?.join(' / ') || (split<0?'':label.slice(0,split));
     return `<div class="map-position" data-vertex="${esc(n.id)}" data-label="${esc(label)}" data-search="${esc(n.searchText || '')}" data-group-path="${serial(n.groupPath ?? null)}" data-parents="${serial(n.dependencies)}" ${n.auxiliary?'data-aux':''} hidden>
     ${caption?`<span class="map-card-caption" title="${esc(caption)}">${esc(caption)}</span>`:''}
-    <button type="button" class="map-node" ${attribute}="${esc(n.id)}" data-kind="${esc(kind)}" data-state="${esc(n.state)}" title="${esc([label,n.description,n.jobSummary].filter(Boolean).join(' · '))}" tabindex="-1">
-      <span class="map-card-top"><span class="map-card-kind">${icon(glyph)}${esc(kindName(kind))}</span><span class="map-card-number">${String(index+1).padStart(2,'0')}</span></span>
+    <button type="button" class="map-node" ${attribute}="${esc(n.id)}" data-kind="${esc(kind)}" data-state="${esc(n.state)}" aria-label="${esc([label,n.status].filter(Boolean).join(' · '))}" title="${esc([kindName(kind),caption,label,n.status,n.description,n.jobSummary].filter(Boolean).join(' · '))}" tabindex="-1">
       <strong>${esc(split<0?label:label.slice(split+3))}</strong><small class="map-card-status"><i aria-hidden="true"></i>${esc(n.status)}${attribute==='data-open-step'?'<span data-ionic-step></span>':''}</small>
-      <span class="map-card-footer"><span>${esc(n.jobSummary || '')}</span>${icon('chevron')}</span>
     </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" title="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
-    <div class="map-tools"><div class="map-identity">${icon('map')}<strong>方案画布</strong><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-actions">
+    <div class="map-tools"><div class="map-identity">${icon('map')}<strong title="${esc(title)}">方案画布</strong><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-actions">
       ${tool('data-command="find" aria-expanded="false"','查找步骤',icon('find'))}
       ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more'))}
       ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
@@ -36,11 +34,12 @@ export function planMap(layers, key, attribute, title = '') {
     <div class="map-pop map-search" data-pop="find" hidden><input type="search" placeholder="查找名称或步骤 ID" aria-label="查找名称或步骤 ID" autocomplete="off"><div data-results></div></div>
     <div class="map-pop" data-pop="options" hidden>
       <label data-aux-option><input type="checkbox" data-all> 显示建模与分析步骤</label>
+      <label><input type="checkbox" data-all-arrows> 显示全部方向箭头</label>
       <button type="button" data-command="overview">分支概览</button><button type="button" data-command="unfold">展开全部节点</button>
       <button type="button" data-command="arrange">恢复自动布局</button><label class="map-nav-option"><input type="checkbox" data-show-nav> 全屏缩略导航</label></div>
     <div class="map-window" tabindex="0" aria-label="计算依赖图"><div class="map-size"><div class="map-world"><svg class="map-edges" aria-hidden="true"></svg>${cards}</div></div></div>
     <button type="button" class="map-navigator" title="点击或拖动缩略图定位" aria-label="缩略图导航"><svg preserveAspectRatio="none" aria-hidden="true"><path/><rect/></svg></button>
-    <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}${tool('data-command="arrange"','恢复自动布局',icon('reset'))}</div><span class="map-paper-title">${esc(title)}</span></div>
+    <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}${tool('data-command="arrange"','恢复自动布局',icon('reset'))}</div></div>
     <div class="map-pop map-help" data-pop="keys" hidden>
       ${shortcut('← / →','收起 / 展开分支')}${shortcut('↑ / ↓','上一个 / 下一个节点')}${shortcut('Enter','查看步骤详情')}${shortcut('/','查找步骤')}${shortcut('R','恢复这张卡片原位')}${shortcut('F','切换全屏')}${shortcut('0','适应画布')}${shortcut('Esc','关闭浮层或全屏')}${shortcut('Space + 拖动','平移画布')}
     </div><div class="map-grip" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="调整画布高度" title="拖动调整画布高度"><i></i></div>
@@ -56,16 +55,17 @@ function mount(map, previous) {
   const storageKey='chemistry.planView.'+map.dataset.map;
   const previousView=previous || stored(storageKey) || {};
   // Positions from the nested-folder canvas do not fit the new grid/card geometry.
-  const saved=previousView.layoutVersion===4?previousView:{};
+  const saved=previousView.layoutVersion===5?previousView:{};
   const board=$('.map-board'), view=$('.map-window'), world=$('.map-world'), size=$('.map-size'), svg=$('.map-edges');
   const dialog=$('.map-dialog'), select=$('[data-groups]'), find=$('.map-search input'), results=$('[data-results]'), grip=$('.map-grip');
   world.style.setProperty('--node-w',CARD.width+'px');world.style.setProperty('--node-h',CARD.height+'px');
   const nodes=[...world.querySelectorAll('[data-vertex]')].map(el=>({id:el.dataset.vertex,title:el.dataset.label,searchText:el.dataset.search,
-    parents:JSON.parse(el.dataset.parents),groupPath:JSON.parse(el.dataset.groupPath),reset:el.querySelector('[data-reset-card]'),auxiliary:el.hasAttribute('data-aux'),el,button:el.querySelector('.map-node'),toggle:el.querySelector('[data-branch]')}));
+    parents:JSON.parse(el.dataset.parents),groupPath:JSON.parse(el.dataset.groupPath),caption:el.querySelector('.map-card-caption'),reset:el.querySelector('[data-reset-card]'),auxiliary:el.hasAttribute('data-aux'),el,button:el.querySelector('.map-node'),toggle:el.querySelector('[data-branch]')}));
   const byId=new Map(nodes.map(n=>[n.id,n])), onlyAux=nodes.every(n=>n.auxiliary);
   const graphs=new Map(), modes={...saved.modes};
   let all=saved.all!==false || onlyAux, graph, folds, moves, group, layout, active=null, lit=null, paths=[], incident;
   let showNav=saved.showNav!==false;
+  let allArrows=saved.allArrows===true;
   let direction=saved.direction || '';
   const orientation=()=>direction || (dialog.open?'LR':'TB');
   let originX=0, originY=0;
@@ -91,7 +91,7 @@ function mount(map, previous) {
   function snapshot() {
     modes[all]={folds:[...folds],moves:[...moves],group};
     const focused=board.contains(document.activeElement);
-    return {layoutVersion:4,modes,all,active:interacted?active:null,scale,height,showNav,direction,...camera(),full:dialog.open,focused};
+    return {layoutVersion:5,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,...camera(),full:dialog.open,focused};
   }
   function save() {
     if (!board.getClientRects().length) return;
@@ -128,11 +128,17 @@ function mount(map, previous) {
       if(!key) return;
       for(const edge of incident?.get(key) || []) {
         edge.path.classList.toggle('is-traced',on);
+        updateArrow(edge);
         const other=edge.source===key ? edge.target : edge.source;
         byId.get(other)?.el?.classList.toggle('is-neighbor',on);
       }
     }
     apply(lit,false); lit=id; apply(id,true);
+  }
+  function updateArrow(edge) {
+    const traced=edge.path.classList.contains('is-traced');
+    if(traced || allArrows) edge.path.setAttribute('marker-end',`url(#${edge.marker}${traced?'-active':''})`);
+    else edge.path.removeAttribute('marker-end');
   }
   function edgeD(edge) {
     return edgePath(layout.points.get(edge.source),layout.points.get(edge.target),edgeRoute(edge.source,edge.target,layout));
@@ -144,9 +150,11 @@ function mount(map, previous) {
     board.dataset.direction=orientation();
     $('[data-command="direction"]').textContent=orientation()==='LR'?cnEn('从左到右 →','Left to right →'):cnEn('从上到下 ↓','Top to bottom ↓');
     paths=[];incident=new Map();
+    const captions=new Set();
     for (const n of nodes) {
       const p=layout.points.get(n.id);
       n.el.hidden=!p; if (!p) continue;
+      if(n.caption) {const text=n.caption.textContent;n.caption.hidden=captions.has(text);captions.add(text);}
       n.reset.hidden=!moves.has(n.id);
       n.el.style.left=p.x+'px';n.el.style.top=p.y+'px';n.button.tabIndex=n.id===active?0:-1;
       n.el.classList.toggle('is-current',interacted && n.id===active);
@@ -163,9 +171,9 @@ function mount(map, previous) {
       for (const source of vertex.parents) if(layout.points.has(source) && !folds.has(source)) paths.push({source,target:n.id,secondary:source!==vertex.primary});
     }
     const marker='map-arrow-'+map.dataset.map.replace(/[^a-zA-Z0-9_-]/g,'-');
-    svg.innerHTML=`<defs><marker id="${marker}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><polygon points="1,1 7,4 1,7"/></marker></defs>`+paths.map(e=>`<path data-source="${esc(e.source)}" data-target="${esc(e.target)}" marker-end="url(#${marker})" d="${edgeD(e)}"/>`).join('');
+    svg.innerHTML='<defs>'+['','-active'].map(suffix=>`<marker id="${marker}${suffix}" class="${suffix?'active-arrow':''}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><polygon points="1,1 7,4 1,7"/></marker>`).join('')+'</defs>'+paths.map(e=>`<path data-source="${esc(e.source)}" data-target="${esc(e.target)}" d="${edgeD(e)}"/>`).join('');
     for (const [i,path] of [...svg.querySelectorAll('path[data-source]')].entries()) {
-      const e=paths[i];e.path=path;
+      const e=paths[i];e.path=path;e.marker=marker;updateArrow(e);
       for (const id of [e.source,e.target]) {if(!incident.has(id)) incident.set(id,[]);incident.get(id).push(e);}
     }
     const tally=(layout.points.size===graph.vertices.length?graph.vertices.length:layout.points.size+' / '+graph.vertices.length)+cnEn(' 步',' steps');
@@ -258,6 +266,8 @@ function mount(map, previous) {
   }
   $('[data-show-nav]').checked=showNav;
   $('[data-show-nav]').onchange=e=>{showNav=e.target.checked;setSize();save();};
+  $('[data-all-arrows]').checked=allArrows;
+  $('[data-all-arrows]').onchange=e=>{allArrows=e.target.checked;paths.forEach(updateArrow);save();};
   find.oninput=search;
   $('[data-pop="find"]').onkeydown=e=>{
     const buttons=[...results.querySelectorAll('button')], i=buttons.indexOf(document.activeElement);
@@ -309,6 +319,7 @@ function mount(map, previous) {
   });
   view.onpointerover=e=>{if(e.pointerType!=='touch') {const el=e.target.closest('[data-vertex]');mark(el?.dataset.vertex || (interacted?active:null));}};
   view.onpointerleave=()=>mark(interacted?active:null);
+  view.addEventListener('focusin',e=>{const node=e.target.closest('[data-vertex]');if(node) choose(node.dataset.vertex);});
   view.onscroll=()=>{view.style.setProperty('--lane-inset',(camera().left/scale+12)+'px');nav.position();save();};
   board.onfocusout=e=>{if(e.relatedTarget && !board.contains(e.relatedTarget)) closePop();};
   board.onpointerdown=e=>{if(pop && !e.target.closest('[data-pop],[data-command="'+pop+'"]')) closePop();};
@@ -365,7 +376,8 @@ function mount(map, previous) {
     if(!s || !map.getClientRects().length) return;
     if(s.full) setFull(true,false);
     if(s.active && layout.points.has(s.active)) choose(s.active,s.focused);
-    panTo(s.left ?? Math.min(0,(layout.width*scale-view.clientWidth)/2),s.top ?? 0);
+    const first=layout.points.get(active) || layout.points.values().next().value;
+    panTo(s.left ?? (first.x+CARD.width/2)*scale-view.clientWidth/2,s.top ?? Math.max(0,first.y*scale-40));
   }
   let viewportWidth=view.clientWidth, viewportHeight=view.clientHeight;
   const sizeObserver=new ResizeObserver(()=>{

@@ -11,6 +11,9 @@ const gro=(step,precision=3)=>`time ${step}\n1\n${'1'.padStart(5)}${'SOL'.padEnd
   const meta=metadata('units real\ndump_modify v element Cu O sort id');
   let frame=parsed(md.parseDump(dump(),meta));
   assert.deepEqual(frame.atoms.map(a=>a.elem),['Cu','O']);
+  assert.deepEqual(frame.atoms.map(a=>a.type),['1','2']);
+  assert.deepEqual(frame.origin,[-2,-3,4]);
+  assert.equal(frame.atoms[0].mass,undefined,'Do not present elemental fallback as a source mass');
   assert.deepEqual(frame.atoms.map(a=>[a.x,a.y,a.z]),[[0,0,0],[5,10,15]]);
   assert.deepEqual(frame.pbc,[true,false,true]);
   assert.deepEqual(frame.cell,[[10,0,0],[0,20,0],[0,0,30]]);
@@ -57,3 +60,12 @@ const gro=(step,precision=3)=>`time ${step}\n1\n${'1'.padStart(5)}${'SOL'.padEnd
   await assert.rejects(md.open(new File(['ITEM: UNITS\nlj\n',dump()],'x.dump'),'lammps-dump-text',[{name:'in',text:'dump_modify v element Cu O'}]),/units lj/);
   console.log('MD streams: 500+ frames, bounded cache, units, precision, box origins/tilts, IDs and truncation passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+// Source metadata survives conversion without treating atom names as force-field types.
+{
+  const gro='Water\n    1\n    7SOL     OW   42   0.100   0.200   0.300\n   1.00000   1.00000   1.00000\n';
+  const converted=md.parseGro(gro);
+  const frame=new StructureParser.StructureDocument('metadata.xyz',converted).frame(0);
+  assert.equal(frame.atoms[0].name,'OW');assert.equal(frame.atoms[0].sourceId,'42');
+  assert.equal(frame.atoms[0].residue,'SOL');assert.equal(frame.atoms[0].type,undefined);
+}

@@ -14,6 +14,14 @@ export function profilePoints(snapshot) {
   return (snapshot?.images || []).map(image=>[image.index,image.relative_energy]);
 }
 
+export function resultTimestamp(value,locale='zh-CN',timeZone) {
+  if(!value)return '';
+  const date=new Date(value);
+  if(!Number.isFinite(date.getTime()))return String(value);
+  return new Intl.DateTimeFormat(locale,{year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',...(timeZone?{timeZone}:{})}).format(date);
+}
+
 export function nebChart(data,step,mode='profile') {
   const row=selectedPath(data,step),images=row?.images || [],history=data?.snapshots || [];
   const modes=[['profile','像间能量']];
@@ -57,18 +65,20 @@ export function nebSelection(data,step,image,mode) {
 }
 const icon=name=>`<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${name}"/></svg>`;
 
-function chart({label,x_label,y_label,unit,points},action='',selected=null,target=null) {
+function chart({label,x_label,y_label,unit,points},action='',selected=null,target=null,width=480) {
   if(!points.length)return `<p class="result-empty">${esc(label)} · 暂无完整记录</p>`;
+  // Lay out labels at the actual panel width instead of shrinking all SVG text on narrow panes.
+  const height=Math.max(240,Math.min(320,width*.48)),right=width-24,bottom=height-46;
   const xs=linearScale(points.map(p=>p[0])),ys=linearScale([...points.map(p=>p[1]),...(Number.isFinite(target)?[target]:[])]);
-  const x=value=>64+(value-xs.min)/(xs.max-xs.min)*386;
-  const y=value=>174-(value-ys.min)/(ys.max-ys.min)*140;
+  const x=value=>64+(value-xs.min)/(xs.max-xs.min)*(right-64);
+  const y=value=>bottom-(value-ys.min)/(ys.max-ys.min)*(bottom-36);
   const line=points.map(([a,b],i)=>`${i && (!action || a===points[i-1][0]+1)?'L':'M'}${x(a)},${y(b)}`).join(' ');
-  return `<figure class="result-chart"><figcaption>${esc(label)}</figcaption><svg viewBox="0 0 480 216" role="img" aria-label="${esc(label)}">
+  return `<figure class="result-chart"><figcaption>${esc(label)}</figcaption><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(label)}">
     <text x="64" y="17" class="result-axis-title">${esc(y_label)}${unit?' / '+esc(unit):''}</text>
-    ${ys.ticks.map(v=>`<path class="result-grid" d="M64 ${y(v)}H450"/><text x="56" y="${y(v)+4}" text-anchor="end">${esc(formatTick(v,ys))}</text>`).join('')}
-    ${points.filter((p,i)=>i===0||i===points.length-1||points.length<9||i%Math.ceil(points.length/5)===0).map(([a])=>`<text x="${x(a)}" y="191" text-anchor="middle">${a}</text>`).join('')}
-    <text x="257" y="212" text-anchor="middle">${esc(x_label)}</text>
-    ${Number.isFinite(target)?`<path class="result-target" d="M64 ${y(target)}H450"/><text x="447" y="${y(target)-5}" text-anchor="end">目标 ${target}</text>`:''}
+    ${ys.ticks.map(v=>`<path class="result-grid" d="M64 ${y(v)}H${right}"/><text x="56" y="${y(v)+4}" text-anchor="end">${esc(formatTick(v,ys))}</text>`).join('')}
+    ${points.filter((p,i)=>i===0||i===points.length-1||points.length<9||i%Math.ceil(points.length/5)===0).map(([a])=>`<text x="${x(a)}" y="${bottom+20}" text-anchor="middle">${a}</text>`).join('')}
+    <text x="${(64+right)/2}" y="${height-6}" text-anchor="middle">${esc(x_label)}</text>
+    ${Number.isFinite(target)?`<path class="result-target" d="M64 ${y(target)}H${right}"/><text x="${right-3}" y="${y(target)-5}" text-anchor="end">目标 ${target}</text>`:''}
     <path class="result-line" d="${line}"/>
     ${points.map(([a,b],i)=>`<circle cx="${x(a)}" cy="${y(b)}" r="${a===selected?5:3}" class="${a===selected?'selected':''}" ${action?`data-${action}="${a}" tabindex="0" role="button" aria-label="${esc(x_label)} ${a}, ${b.toFixed(6)} ${esc(unit)}"`:''}><title>${esc(x_label)} ${a}: ${b.toFixed(6)} ${esc(unit)}</title></circle>`).join('')}
   </svg></figure>`;
@@ -76,7 +86,7 @@ function chart({label,x_label,y_label,unit,points},action='',selected=null,targe
 
 export function createRegisteredResults(host,{api,openStructure,onStructures=()=>{}}) {
   let context=null,data=null,key=null,step=null,image=null,mode='profile';
-  let tail=true,generation=0,opened=false;
+  let tail=true,generation=0,opened=false,plotWidth=480;
   function reset() {generation++;context=null;data=null;key=null;step=null;tail=true;image=null;mode='profile';opened=false;host.hidden=true;host.replaceChildren();onStructures([]);}
   async function showStructure(index,scroll=true) {
     if(!context || !data)return;
@@ -92,6 +102,10 @@ export function createRegisteredResults(host,{api,openStructure,onStructures=()=
   function render() {
     if(!context)return;
     host.hidden=false;
+    plotWidth=Math.max(240,Math.round(host.clientWidth || 480));
+    const active=host.contains(document.activeElement)?document.activeElement:null;
+    const focusAttribute=active && ['data-dataset','data-path-step','data-follow','data-neb-mode','data-open-image','data-image','data-iteration'].find(name=>active.hasAttribute(name));
+    const focusValue=focusAttribute?active.getAttribute(focusAttribute):null;
     const row=selectedPath(data,step);
     const plot=row?nebChart(data,step,mode):null;if(plot)mode=plot.mode;
     const selected=row?.images.find(item=>item.index===image);
@@ -102,16 +116,20 @@ export function createRegisteredResults(host,{api,openStructure,onStructures=()=
     const structures=row?row.images.map(item=>`<button type="button" data-image="${item.index}" aria-pressed="${image===item.index}">${esc(item.label)}</button>`).join(''):(data?.structures || []).map((item,i)=>`<button type="button" data-image="${i}">${esc(item.label || item.path)}</button>`).join('');
     host.innerHTML=`<summary>${icon('compare')}${data?.kind==='neb'?'NEB 路径与收敛':'计算结果'}</summary>
       <div class="result-controls"><select data-dataset aria-label="结果数据集">${options}</select>${controls}</div>
-      ${data?.stale?`<p class="result-note">当前源读取失败 · 缓存快照 ${esc(data.observed_at)}</p>`:''}
+      ${data?.stale?'<p class="result-note result-warning" role="status">当前源读取失败，正在显示缓存结果。</p>':''}
       ${row?`<dl class="conv-metrics"><div><dt>路径像</dt><dd>${row.images.length}</dd></div><div><dt>相对能量峰值</dt><dd>${row.peak_energy.toFixed(4)}<small>eV</small></dd></div>${Number.isFinite(row.force)?`<div><dt>NEB 投影 Fmax</dt><dd>${row.force.toFixed(4)}<small>eV/Å</small></dd></div>`:''}</dl>
       <div class="conv-toolbar"><div class="conv-modes" role="group" aria-label="NEB 视图">${plot.modes.map(([key,label])=>`<button type="button" data-neb-mode="${key}" aria-pressed="${key===mode}">${label}</button>`).join('')}</div>
       <div class="conv-actions"><button type="button" data-open-image ${!selected?'disabled':''} title="查看所选像结构" aria-label="查看所选像结构">${icon('structures')}</button></div></div>`:`<div class="step-file-options">${structures}</div>`}
-      <div class="result-plots">${row?chart(plot,plot.action,plot.action==='image'?image:step,plot.target):
-        (data?.series || []).map(s=>chart(s)).join('') || '<p class="result-empty">等待完整结果快照</p>'}</div>
+      <div class="result-plots">${row?chart(plot,plot.action,plot.action==='image'?image:step,plot.target,plotWidth):
+        (data?.series || []).map(s=>chart(s,'',null,null,plotWidth)).join('') || '<p class="result-empty">等待完整结果快照</p>'}</div>
       ${row?`<p class="result-selection">${esc(nebSelection(data,step,image,mode))}${plot.action==='image'&&selected?.endpoint_reference?`<br>端点参考 · TOTEN ${selected.endpoint_reference.energy.toFixed(6)} eV · 原始全原子 Fmax ${selected.endpoint_reference.atomic_fmax.toFixed(4)} eV/Å<br>${esc(selected.endpoint_reference.source)}`:''}</p>`:''}
       ${data?.skipped?.length?`<details class="result-note"><summary>${data.skipped.length} 个快照暂未读取</summary>${data.skipped.map(s=>`<p>${esc(s.path)}: ${esc(s.reason)}</p>`).join('')}</details>`:''}
-      <p class="result-note">${esc(data?.observed_at || '')}</p>`;
+      ${data?.observed_at?`<p class="result-note result-updated">${data.stale?'缓存时间':'更新于'} <time datetime="${esc(data.observed_at)}" title="${esc(data.observed_at)}">${esc(resultTimestamp(data.observed_at))}</time></p>`:''}`;
+    if(focusAttribute) [...host.querySelectorAll(`[${focusAttribute}]`)].find(element=>element.getAttribute(focusAttribute)===focusValue)?.focus({preventScroll:true});
   }
+  if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{
+    if(context && !host.hidden && host.clientWidth>0 && Math.abs(host.clientWidth-plotWidth)>=1)render();
+  }).observe(host);
   async function load() {
     const ticket=++generation,ctx=context,chosen=key;
     try {

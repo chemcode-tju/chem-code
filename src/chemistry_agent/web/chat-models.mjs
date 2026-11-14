@@ -61,7 +61,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     menu.column(1, names[backend], [{message:'正在读取模型…'}]);
     let data, error;
     try { data = await catalog(backend, reload); } catch (failure) { error = failure.message; }
-    if (version !== browsing || !menu.visible) return;
+    if (version !== browsing || !menu.isColumnOpen(1, names[backend])) return;
     const rows = (data?.models || []).map(model => modelRow(backend, model));
     if (error) rows.push({message:error});
     if (data?.message && !data.authenticated && backend !== 'builtin') rows.push({message:data.message});

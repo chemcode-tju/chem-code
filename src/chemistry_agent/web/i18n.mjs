@@ -340,7 +340,7 @@ const messages = {
   "刷新会话":"Refresh chats", "历史会话":"Chat history", "加载更多对话":"Load more", "会话导航":"Navigation", "关闭侧栏":"Close sidebar", "打开会话导航":"Open navigation",
   "打开研究工具":"Open research tools", "关闭研究面板":"Close research panel", "输入化学问题":"Message", "输入问题，或描述你的研究任务…":"Ask a question or describe your research task…", "输入问题，开始研究。":"Ask a question to get started.",
   "模型设置":"Model settings", "模型未配置":"Set up a model", "服务未连接":"Service offline", "正在连接…":"Connecting…", "已登录":"Signed in", "已配置":"Connected", "发送消息":"Send message", "正在生成回答":"Generating a response",
-  "研究面板":"Research panel", "研究工具与计算结果":"Research tools and results", "分子工具":"Molecular tools", "本地计算":"Local",
+  "显示全部方向箭头":"Show all direction arrows", "研究面板":"Research panel", "研究工具与计算结果":"Research tools and results", "分子工具":"Molecular tools", "本地计算":"Local",
   "分子 · 晶胞 · 轨迹":"Molecules · cells · trajectories", "打开查看器 ↗":"Open viewer ↗", "分子属性":"Molecular properties", "分子量 · LogP · 氢键 · TPSA":"Mass · LogP · H-bonds · TPSA",
   "结构相似度":"Structure similarity", "Morgan 指纹 · Tanimoto":"Morgan fingerprint · Tanimoto", "分子 SMILES":"Molecule SMILES", "例如 CCO（乙醇）":"e.g. CCO (ethanol)",
   "计算分子属性":"Calculate properties", "分子 A · SMILES":"Molecule A · SMILES", "分子 B · SMILES":"Molecule B · SMILES", "例如 CCO":"e.g. CCO", "例如 CO":"e.g. CO", "比较结构相似度":"Compare structures",

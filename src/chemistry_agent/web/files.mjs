@@ -27,10 +27,12 @@ export function createFileUploads({ state, toast, updateControls, onChange, onUn
     trigger.setAttribute("aria-expanded", "false");
   }
   trigger.addEventListener("click", () => {
+    if (menu.hidden) document.dispatchEvent(new CustomEvent('chem:menu-open', {detail:trigger}));
     menu.hidden = !menu.hidden;
     trigger.setAttribute("aria-expanded", String(!menu.hidden));
     if (!menu.hidden) menu.querySelector("button").focus();
   });
+  document.addEventListener('chem:menu-open', event => { if (event.detail !== trigger) closeMenus(); });
   document.addEventListener("click", event => { if (!event.target.closest(".add-menu")) closeMenus(); });
   document.addEventListener("keydown", event => {
     if (event.key === "Escape" && !menu.hidden) { closeMenus(); trigger.focus(); }

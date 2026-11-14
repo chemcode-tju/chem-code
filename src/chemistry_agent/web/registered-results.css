@@ -1,2 +1,51 @@
-.result-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:12px 0}.result-controls label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}.result-controls select{max-width:100%;min-height:30px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px}.result-follow{margin-left:auto}.result-metrics,.result-note{font-size:12px;color:var(--muted);line-height:1.6;margin:10px 0}.result-plots{display:grid;gap:12px}.result-chart{margin:0;border:1px solid var(--border);border-radius:8px;padding:10px 6px 6px;min-width:0}.result-chart figcaption{font-size:12px;font-weight:600;margin:0 10px 4px;color:var(--text)}.result-chart svg{width:100%;display:block;overflow:visible}.result-chart svg text{fill:var(--muted);font:10px system-ui}.result-chart .result-axis-title{font-size:11px}.result-grid{stroke:var(--border);stroke-width:.7}.result-line{stroke:var(--accent);stroke-width:1.8;fill:none}.result-target{stroke:var(--muted);stroke-dasharray:4 4;fill:none}.result-chart circle{fill:var(--accent);stroke:var(--surface);stroke-width:1.5}.result-chart circle[role=button]{cursor:pointer}.result-chart circle:hover,.result-chart circle:focus,.result-chart circle.selected{stroke:var(--text);stroke-width:2;outline:none}.result-empty{font-size:12px;color:var(--muted);padding:12px 0}
-#step-registered-results .result-chart{border:0;padding:0;border-radius:0}#step-registered-results .result-chart figcaption{font-weight:400;color:var(--muted);font-size:11px;margin:0 0 4px}#step-registered-results .result-chart svg{max-height:280px}#step-registered-results .conv-metrics{margin:12px 0}#step-registered-results .conv-modes button{padding:4px 7px}#step-registered-results .conv-actions button:disabled{opacity:.35;cursor:default}.result-selection{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;margin:6px 0 12px;min-height:18px}.result-image-list{margin-top:8px}.result-image-list>summary{font-size:12px;color:var(--muted)}.result-image-list .step-file-options{margin-top:8px}
+.result-controls {display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin:12px 0 18px;}
+.result-controls label {display:inline-flex;align-items:center;gap:8px;flex-shrink:0;white-space:nowrap;font-size:var(--font-size-ui,14px);color:var(--muted);}
+.result-controls select {max-width:100%;min-height:var(--control-height,34px);background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-control,8px);padding:5px 10px;}
+.result-controls > [data-dataset] {min-width:0;flex:0 1 auto;}
+.result-controls [data-path-step] {min-width:64px;font-variant-numeric:tabular-nums;}
+.result-controls .result-follow {margin-left:auto;flex:0 0 auto;}
+.result-follow input {width:16px;height:16px;margin:0;accent-color:var(--accent);}
+.result-metrics,.result-note {font-size:var(--font-size-secondary,13px);color:var(--muted);line-height:1.6;margin:12px 0;overflow-wrap:anywhere;}
+.result-warning {color:var(--text);padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-control,8px);}
+.result-updated {margin-bottom:0;}
+.result-plots {display:grid;gap:16px;}
+.result-chart {margin:0;padding:0;min-width:0;}
+.result-chart figcaption {font-size:var(--font-size-ui,14px);font-weight:500;margin:0 0 8px;color:var(--text);}
+.result-chart svg {width:100%;display:block;overflow:visible;}
+.result-chart svg text {fill:var(--muted);font:12px var(--font-ui,system-ui);font-variant-numeric:tabular-nums;}
+.result-chart .result-axis-title {font-size:12px;}
+.result-grid {stroke:var(--border);stroke-width:.7;}
+.result-line {stroke:var(--accent);stroke-width:1.8;fill:none;}
+.result-target {stroke:var(--muted);stroke-dasharray:4 4;fill:none;}
+.result-chart circle {fill:var(--accent);stroke:var(--surface);stroke-width:1.5;}
+.result-chart circle[role=button] {cursor:pointer;}
+.result-chart circle:hover,.result-chart circle:focus,.result-chart circle.selected {stroke:var(--text);stroke-width:2;outline:none;}
+.result-empty {font-size:var(--font-size-ui,14px);color:var(--muted);padding:12px 0;}
+#step-registered-results .result-chart svg {max-height:360px;}
+#step-registered-results {container-type:inline-size;}
+#step-registered-results .conv-metrics {display:flex;flex-wrap:nowrap;margin:14px 0 18px;gap:0;border:1px solid var(--border);border-radius:var(--radius-panel,12px);}
+#step-registered-results .conv-metrics > div {flex:1;min-width:0;padding:14px 16px;}
+#step-registered-results .conv-metrics > div + div {border-left:1px solid var(--border);}
+#step-registered-results .conv-metrics dt {font-size:var(--font-size-secondary,13px);}
+#step-screen #step-registered-results .conv-metrics dd {font-family:var(--font-code,monospace);font-size:22px;font-weight:600;line-height:1.5;}
+#step-registered-results .conv-metrics small {font-size:var(--font-size-secondary,13px);font-weight:400;margin-left:5px;}
+#step-registered-results .conv-modes {gap:4px;}
+#step-registered-results .conv-modes button {font-size:var(--font-size-ui,14px);padding:6px 9px;min-height:var(--control-height,34px);border-radius:var(--radius-control,8px);}
+#step-registered-results .conv-actions button:disabled {opacity:.35;cursor:default;}
+.result-selection {font-size:var(--font-size-ui,14px);color:var(--muted);line-height:1.65;font-variant-numeric:tabular-nums;margin:12px 0;overflow-wrap:anywhere;}
+.result-image-list {margin-top:8px;}
+.result-image-list>summary {font-size:var(--font-size-ui,14px);color:var(--muted);}
+.result-image-list .step-file-options {margin-top:8px;}
+@container (max-width:500px) {
+  #step-registered-results .conv-metrics > div {padding:12px;}
+  #step-screen #step-registered-results .conv-metrics dd {font-size:18px;}
+}
+@container (max-width:360px) {
+  #step-registered-results .conv-metrics {display:block;}
+  #step-registered-results .conv-metrics > div {display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 12px;}
+  #step-registered-results .conv-metrics > div + div {border-left:0;border-top:1px solid var(--border);}
+  #step-registered-results .conv-metrics dt {margin:0;}
+}
+@media(pointer:coarse) {
+  .result-controls select,#step-registered-results .conv-modes button,.result-follow {min-height:44px;}
+}
