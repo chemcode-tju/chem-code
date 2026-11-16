@@ -13,7 +13,7 @@ let inspector;
 let playback = {fps:60, speed:1, step:1, loop:true};
 function afterPaint(callback) { requestAnimationFrame(() => setTimeout(callback, 0)); }
 function scheduleRender(reset = false) { const ticket=++paintTicket; afterPaint(() => { if(ticket===paintTicket)render(reset); }); }
-function clearFollow() { drift=null;$("drift-enabled").checked=false;$("drift-state").textContent="未启用"; }
+function clearFollow() { drift=null;$("drift-enabled").checked=false;$("drift-state").textContent="";$("drift-state").hidden=true; }
 function sceneSettings() {
   return StructureScene.settings(frameData,{style:$("style").value,palette:$("palette").value,
     scale:Number($("radius-scale").value),cell:$("cell").checked,labels:$("labels").checked,
@@ -79,6 +79,7 @@ function render(reset = false, strict = false) {
     if (!$("source-panel").hidden) $("source").value = activeRecord.text;
     $("source-title").textContent = doc.vaspPreview ? `第 ${frameIndex + 1} 帧 VASP 源码` : doc.xyz ? `第 ${frameIndex + 1} 帧源码` : "VASP 文件源码";
     updateSelection();
+    if(inspector)inspector.transformed=Boolean(drift || $("wrap").checked);
     inspector?.update(frameData,frameIndex,selection);
   } catch (error) { stop(); status(error.message, true); if(strict)throw error; }
 }
@@ -158,7 +159,15 @@ async function go(index) {
   })();
   return navigationTask;
 }
+function setExportAvailable(available) {
+  $("snapshot").disabled=!available;
+  const trigger=$("export-menu").querySelector("summary");
+  trigger.setAttribute("aria-disabled",String(!available));trigger.tabIndex=available?0:-1;
+  if(!available)$("export-menu").open=false;
+}
+$("export-menu").querySelector("summary").addEventListener("click",event=>{if($("snapshot").disabled)event.preventDefault();});
 function discardDocument() {
+  setExportAvailable(false);
   doc?.dispose(); doc=null; activeRecord=null; navigationTarget=null; navigationTask=null;
   document.body.classList.remove("has-structure");
   inspector?.clear();
@@ -173,6 +182,7 @@ async function showDocument(store,generation,selection=null) {
   activeRecord=record;
   document.body.classList.add("has-structure");
   $("drift-settings").disabled = false;
+  setExportAvailable(true);
   frameIndex=target;streamComplete=store.complete;render(true,true);status('');loading=false;
   // Render the first frame before starting any background index batch.
   afterPaint(()=>store.scan(()=>{if(doc===store){streamComplete=store.complete;updateTimeline();}})
@@ -249,9 +259,16 @@ for(const id of ['display-dialog','drift-dialog'])StructureControls.draggable($(
 new ResizeObserver(updateTimeline).observe($("ticks"));
 inspector=new StructureInspector.Panel(()=>views?.resizeToLayout(),index=>{selection=[index];selectionChanged();});
 $("drift-settings").onclick=()=>{
-  $("drift-reference").max=Math.max(0,(doc?.count||1)-1);
+  $("drift-reference").max=doc?.count||1;
+  syncDriftScope();
   openPanel($("drift-dialog"));
 };
+function syncDriftScope(){
+  const specified=$("drift-source").value==='indices';
+  $("drift-atoms").parentElement.hidden=!specified;
+  $("drift-use-selection").hidden=!specified;
+}
+$("drift-source").onchange=syncDriftScope;
 $("drift-close").onclick=()=>$("drift-dialog").close();
 $("drift-use-selection").onclick=()=>{
   $("drift-atoms").value=selection.map(i=>i+1).join(', ');
@@ -262,8 +279,7 @@ $("drift-apply").onclick=async()=>{
   if(!$("drift-enabled").checked){clearFollow();$("drift-error").textContent='';render();return;}
   $("drift-apply").disabled=true;
   try {
-    const reference=Number($("drift-reference").value);
-    if(!Number.isInteger(reference)||reference<0||reference>=doc.count)throw Error('参考帧尚未加载或超出范围');
+    const reference=StructureControls.referenceIndex($("drift-reference").value,doc.count);
     const currentDoc=doc,generation=readGeneration,currentFrame=frameData;
     const currentIndices=$("drift-source").value==='all'?currentFrame.atoms.map((_,i)=>i):StructureControls.atomIndices($("drift-atoms").value,currentFrame.atoms.length);
     const referenceFrame=(await currentDoc.get(reference)).frame;
@@ -276,7 +292,8 @@ $("drift-apply").onclick=async()=>{
       StructureGeometry.removeDrift(frameData,referenceFrame,StructureSelection.remap(referenceFrame,frameData,indices),indices);
     }
     drift=candidate;$("drift-error").textContent='';render();
-    $("drift-state").textContent=drift?`已应用：${drift.indices.length} 个原子 · 参考帧 ${reference}`:'未启用';
+    $("drift-state").textContent=drift?`已应用：${drift.indices.length} 个原子 · 参考帧 ${reference+1}`:'';
+    $("drift-state").hidden=!drift;
   }catch(error){$("drift-error").textContent=error.message;}finally{$("drift-apply").disabled=false;}
 };
 $("source-toggle").onclick = () => { stop(); $("source-panel").hidden = !$("source-panel").hidden; if(doc)$("source").value=activeRecord.text; };
@@ -299,7 +316,7 @@ async function openStructure(files, format = $("import-format").value, selection
   $("source-panel").hidden = true; $("source-toggle").hidden = /\.traj$/i.test(file.name);
   $("filename").removeAttribute("data-empty-title");
   $("filename").textContent = file.name; status("");
-  $("import-note").textContent = "正在读取…";
+  $("import-note").textContent = "";
   try {
     const imported = await StructureImport.open(files, {format,...options});
     if (generation !== readGeneration) { imported.store.dispose(); return; }
@@ -313,7 +330,7 @@ async function openStructure(files, format = $("import-format").value, selection
     if (generation !== readGeneration) return;
     discardDocument();
     status(error.message, true);
-    $("import-note").textContent = "读取失败，请检查文件或导入选项后重新选择。";
+    $("import-note").textContent = "";
     return {name: file.name, error: error.message};
   } finally { if (generation === readGeneration) loading = false; }
 }
@@ -369,7 +386,8 @@ $("snapshot").onclick=async()=>{
 };
 for(const id of ["snapshot-format","snapshot-dpi","snapshot-transparent","snapshot-crop"])$(id).onchange=()=>{
   snapshotData=null;$("snapshot-save").disabled=true;
-  $("snapshot-transparent").disabled=$("snapshot-format").value!=='png';afterPaint(refreshSnapshot);
+  $("snapshot-transparent").disabled=$("snapshot-format").value!=='png';
+  $("snapshot-transparent").parentElement.hidden=$("snapshot-transparent").disabled;afterPaint(refreshSnapshot);
 };
 $("snapshot-close").onclick=()=>{$("snapshot-dialog").close();++snapshotTicket;};
 $("snapshot-save").onclick = () => {
@@ -380,7 +398,7 @@ $("snapshot-save").onclick = () => {
   const anchor = document.createElement("a");
   anchor.href = url; anchor.download = `${name}.${format}`; anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  $("snapshot-result").textContent = "已发起浏览器下载";
+  $("snapshot-result").textContent = "已开始下载";
 };
 
 const headerMenus = [...document.querySelectorAll(".header-menu,.bottom-menu")];

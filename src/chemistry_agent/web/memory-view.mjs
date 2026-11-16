@@ -6,10 +6,9 @@ const esc = value => escapeHtml(String(value ?? ''));
 const valueText = value => value === undefined ? '未记录' : typeof value === 'string' ? value : JSON.stringify(value);
 const dateText = value => new Date(value).toLocaleString('zh-CN', {hour12:false});
 
-export function scopeDescription(scope) {
-  if (scope === 'session') return '仅检索所选对话沉淀的文档。切换对话后自动更新结果。';
-  if (scope === 'project') return '检索所选项目的研究记录；选择来源对话时采用其项目。同一项目内切换对话，结果可能相同。';
-  return '检索本人全部项目和对话。切换来源对话不会缩小此范围。';
+export function memoryScope(scope, session = '', project = '') {
+  const selected = ['personal','project','session'].includes(scope) ? scope : 'personal';
+  return {scope:selected, session:selected === 'session' ? session : '', project_id:selected === 'project' ? project : ''};
 }
 
 export function resultCard(item) {
@@ -35,7 +34,7 @@ function lessonBody(item) {
       + (changes.length ? section('参数变化 · 修复前 → 修复后', table(['参数','修复前','修复后'], changes.map(row=>[
           row.parameter, row.reference_present === false ? '未显式记录' : row.reference,
           row.current_present === false ? '未显式记录' : row.current,
-        ]), (row,column)=>column===0 || (column===1 ? changes[row].reference_present!==false : changes[row].current_present!==false))) : '')
+        ]), (row,column)=>column===0 || (column===1 ? changes[row].reference_present!==false : changes[row].current_present!==false)) + '<p class="document-notice">参数变化不等于已证实的报错根因。</p>') : '')
       + section('后续结果', `<p>${esc(({completed:'后续执行完成', failed:'后续执行仍失败', running:'后续执行中'})[record.retry_outcome] || record.retry_outcome || '尚无后续结果')}</p>`);
   } catch { return null; }
 }
@@ -47,7 +46,7 @@ export function documentBody(item, sourceTitle, markdown) {
   const evidenceRows = [
     ['电子收敛', check(evidence.electronic_converged)],
     ['离子收敛', check(evidence.ionic_converged)],
-    ['科学精度', evidence.scientifically_validated === true ? '有审核记录（需核对来源）' : '未验证'],
+    ['科学精度', evidence.scientifically_validated === true ? '有审核记录' : '未验证'],
   ];
   if (evidence.scheduler_job_id) evidenceRows.push(['调度作业', evidence.scheduler_job_id]);
   if (evidence.exit_status !== undefined && evidence.exit_status !== null) evidenceRows.push(['退出码', evidence.exit_status]);
@@ -59,7 +58,7 @@ export function documentBody(item, sourceTitle, markdown) {
     ${tags.length ? `<p class="document-meta" data-no-i18n>${tags.map(esc).join(' · ')}</p>` : ''}
     ${lesson ?? `<div class="markdown">${markdown.render(item.content)}</div>`}
     ${section('证据与适用性', table(['检查项','记录'], evidenceRows,(row,column)=>row>=3&&column===1))}
-    <p class="document-notice"><span${item.applicability ? ' data-no-i18n' : ''}>${esc(item.applicability || '复用前核对体系、参数及来源。')}</span><br>收敛记录不代表科学精度已验证；参数变化不等于已证实的报错根因。</p>
+    ${item.applicability ? `<p class="document-notice" data-no-i18n>${esc(item.applicability)}</p>` : ''}
     ${lesson ? `<details class="raw-record"><summary>完整原始记录与代码</summary><pre>${esc(item.content)}</pre></details>` : ''}
     <details class="raw-record"><summary>计算参数与来源标识</summary><pre>${esc(raw)}</pre></details>`;
 }

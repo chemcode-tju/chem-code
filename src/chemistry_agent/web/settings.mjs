@@ -7,6 +7,7 @@ let polling;
 let busy = false;
 let savedSettings = null;
 let models = [];
+let manualModel = false;
 let lastAuth = null;
 let chatgptAuthenticated = false;
 let accounts = [];
@@ -54,8 +55,9 @@ function notice(text, error = false) {
 function showModels() {
   fillModelOptions($("model-choice"), models, $("model").value.trim(), {
     defaultLabel: $("provider").value === "chatgpt" ? "自动选择" : "请选择模型",
-    manual: $("provider").value !== "chatgpt",
+    manual: true,
   });
+  $("model-advanced").hidden = !manualModel && (($("provider").value === "chatgpt" && !$("model").value) || models.some(item => item.id === $("model").value));
 }
 function togglePanels() {
   const chatgpt = $("provider").value === "chatgpt";
@@ -71,6 +73,7 @@ function togglePanels() {
   showModels();
 }
 function displaySettings(data) {
+  manualModel = false;
   savedSettings = data;
   document.dispatchEvent(new CustomEvent("chem:model-settings", {detail:{provider:data.provider,model:data.model,configured:data.provider === "chatgpt" ? undefined : Boolean(data.model && (data.has_api_key || data.provider === "openai-compatible"))}}));
   $("provider").value = data.provider;
@@ -78,8 +81,7 @@ function displaySettings(data) {
   $("model").value = data.model;
   $("thinking").checked = data.thinking;
   $("api-key").value = "";
-  $("key-status").textContent = data.has_api_key ? "已保存密钥。" : "尚未保存 API Key。";
-  $("model-advanced").open = data.provider !== "chatgpt" && !data.model;
+  $("api-key").placeholder = data.has_api_key ? "已保存（留空保留）" : "输入 API Key";
   togglePanels();
 }
 async function refreshModels(manual = false) {
@@ -131,7 +133,7 @@ async function refreshLogin() {
   const labels = { starting: "正在启动授权…", waiting: "请在官方页面完成授权。", complete: "授权完成。", failed: "登录失败，请重新授权。", expired: "授权已超时，请重新登录。", cancelled: "已取消登录。", idle: "尚未登录 ChatGPT。" };
   const pending = ["starting", "waiting"].includes(data.login.state);
   $("chatgpt-status").textContent = pending ? labels[data.login.state] : data.authenticated
-    ? data.authentication_mode === "codex" ? "已通过 Codex 连接。" : "已登录 ChatGPT。"
+    ? data.authentication_mode === "codex" ? "已连接（旧授权）" : "已登录 ChatGPT。"
     : labels[data.login.state] || "尚未登录。";
   if (data.login.state === "failed" && data.login.error) notice(data.login.error, true);
   $("chatgpt-logout").hidden = !data.authenticated;
@@ -154,26 +156,28 @@ async function refreshLogin() {
   lastAuth = identity;
 }
 $("provider").addEventListener("change", () => {
+  manualModel = false;
   models = [];
   $("api-key").value = "";
   $("model").value = $("provider").value === "deepseek" ? "deepseek-flash" : "";
   if ($("provider").value === "deepseek") $("base-url").value = "https://api.deepseek.com";
   else if ($("provider").value === "openai-compatible") $("base-url").value = "";
-  $("model-advanced").open = $("provider").value !== "chatgpt" && !$("model").value;
   $("catalog-status").textContent = "请先保存连接设置。";
-  $("key-status").textContent = "更换服务时，请填写对应 API Key。";
+  $("api-key").placeholder = "输入 API Key";
   togglePanels();
 });
 $("base-url").addEventListener("input", () => { models = []; showModels(); $("catalog-status").textContent = "请先保存连接设置。"; });
 $("model-choice").addEventListener("change", () => {
-  if ($("model-choice").value === "__manual__") { $("model-advanced").open = true; $("model").focus(); return; }
+  if ($("model-choice").value === "__manual__") { manualModel = true; $("model-advanced").hidden = false; $("model").focus(); return; }
+  manualModel = false;
   $("model").value = $("model-choice").value;
+  $("model-advanced").hidden = Boolean($("model").value) || $("provider").value === "chatgpt";
 });
 $("model").addEventListener("input", showModels);
 $("refresh-models").addEventListener("click", () => action(() => refreshModels(true)));
 $("model-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  action(async () => { await save(); notice("已保存。返回研究空间即可使用新的模型设置。"); await refreshModels(); });
+  action(async () => { await save(); notice("已保存"); await refreshModels(); });
 });
 $("test-model").addEventListener("click", () => action(async () => {
   await save(); notice("设置已保存，正在测试 AI 响应…");
@@ -233,7 +237,8 @@ api("/auth/status").then((data) => {
   if (data.user) $("settings-username").setAttribute("data-no-i18n", "");
   $("settings-username").textContent = name;
   $("settings-avatar").textContent = data.user ? name.slice(0, 1).toUpperCase() : "C";
-  $("settings-account-note").textContent = data.enabled ? "个人工作空间 · 已登录" : "本地单用户模式";
+  $("settings-account-note").textContent = data.enabled ? "个人工作空间" : "";
+  $("settings-account-note").hidden = !data.enabled;
   $("settings-logout").hidden = !data.enabled;
 }).catch((error) => notice(error.message, true));
 $("settings-logout").addEventListener("click", () => action(async () => {

@@ -22,25 +22,25 @@ export function planMap(layers, key, attribute, title = '', controls = '') {
     ${caption?`<span class="map-card-caption" data-no-i18n title="${esc(caption)}">${esc(caption)}</span>`:''}
     <button type="button" class="map-node" ${attribute}="${esc(n.id)}" data-kind="${esc(kind)}" data-state="${esc(n.state)}" aria-label="${esc([label,n.status].filter(Boolean).join(' · '))}" title="${esc([kindName(kind),caption,label,n.status,n.description,n.jobSummary].filter(Boolean).join(' · '))}" tabindex="-1">
       <strong data-no-i18n>${esc(split<0?label:label.slice(split+3))}</strong><small class="map-card-status"><i aria-hidden="true"></i>${esc(n.status)}${attribute==='data-open-step'?'<span data-ionic-step></span>':''}</small>
-    </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" title="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
+    </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
-    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-subtools"><select data-groups aria-label="按分支查看"></select></div>${controls}<div class="map-actions">
+    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="已展开 / 总步骤"></span></div><div class="map-subtools"><select data-groups aria-label="按分支查看"></select></div>${controls}<div class="map-actions">
       ${tool('data-command="find" aria-expanded="false"','查找步骤',icon('find'))}
       ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more'))}
       ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
     </div></div>
-    <div class="map-pop map-search" data-pop="find" hidden><input type="search" placeholder="查找名称或步骤 ID" aria-label="查找名称或步骤 ID" autocomplete="off"><div data-results></div></div>
+    <div class="map-pop map-search" data-pop="find" hidden><input type="search" placeholder="搜索步骤…" aria-label="搜索步骤…" autocomplete="off"><div data-results></div></div>
     <div class="map-pop" data-pop="options" hidden>
       <label data-board-option><input type="checkbox" data-board-rows> 上下两行</label>
       <button type="button" class="map-direction" data-command="direction" title="切换布局方向">从上到下 ↓</button>
       <label data-aux-option><input type="checkbox" data-all> 显示建模与分析步骤</label>
       <label><input type="checkbox" data-all-arrows> 显示全部方向箭头</label>
       <button type="button" data-command="overview">分支概览</button><button type="button" data-command="unfold">展开全部节点</button>
-      <button type="button" data-command="arrange">恢复自动布局</button><label class="map-nav-option"><input type="checkbox" data-show-nav> 全屏缩略导航</label></div>
+      <button type="button" data-command="arrange">恢复自动布局</button><label class="map-nav-option"><input type="checkbox" data-show-nav> 缩略图</label></div>
     ${planKanban(nodes,attribute)}
     <div class="map-window" tabindex="0" aria-label="计算依赖图"><div class="map-size"><div class="map-world"><svg class="map-edges" aria-hidden="true"></svg>${cards}</div></div></div>
-    <button type="button" class="map-navigator" title="点击或拖动缩略图定位" aria-label="缩略图导航"><svg preserveAspectRatio="none" aria-hidden="true"><path/><rect/></svg></button>
+    <button type="button" class="map-navigator" title="缩略图导航" aria-label="缩略图导航"><svg preserveAspectRatio="none" aria-hidden="true"><path/><rect/></svg></button>
     <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}${tool('data-command="arrange"','恢复自动布局',icon('reset'))}</div></div>
     <div class="map-pop map-help" data-pop="keys" hidden>
       ${shortcut('← / →','收起 / 展开分支')}${shortcut('↑ / ↓','上一个 / 下一个节点')}${shortcut('Enter','查看步骤详情')}${shortcut('/','查找步骤')}${shortcut('R','恢复这张卡片原位')}${shortcut('F','切换全屏')}${shortcut('0','适应画布')}${shortcut('Esc','关闭浮层或全屏')}${shortcut('Space + 拖动','平移画布')}
@@ -209,7 +209,6 @@ function mount(map, previous) {
         if(!row.hidden) count++;
       }
       column.querySelector('[data-column-count]').textContent=count;
-      column.querySelector('.kanban-empty').hidden=Boolean(count);
       column.hidden=!count && ['ended','other'].includes(column.dataset.column);
       total+=count;
     }
@@ -290,6 +289,7 @@ function mount(map, previous) {
   function showPop(name) {
     if(pop===name) {closePop(true);return;}
     closePop();pop=name;$(`[data-pop="${name}"]`).hidden=false;
+    if(name==='options') $('.map-nav-option').hidden=!dialog.open || viewMode!=='canvas';
     if(name!=='keys') $(`[data-pop="${name}"]`).style.top=$('.map-tools').offsetHeight+4+'px';
     $(`[data-command="${name}"]`).setAttribute('aria-expanded','true');
     if(name==='find'){find.value='';search();find.focus();}
@@ -315,7 +315,7 @@ function mount(map, previous) {
     const rows=hits.slice(0,30);
     results.innerHTML=rows.map(n=>`<button type="button" data-hit="${esc(n.id)}"><strong>${esc(n.title)}</strong><small>${esc(n.id)}</small></button>`).join('') ||
       '<p>'+t('没有匹配的步骤')+'</p>';
-    if(hits.length>rows.length) results.insertAdjacentHTML('beforeend','<p>'+cnEn('仅显示前 30 项，请继续输入','First 30 matches; keep typing to narrow the list')+'</p>');
+    if(hits.length>rows.length) results.insertAdjacentHTML('beforeend','<p>'+cnEn('仅显示前 30 项','First 30 matches; keep typing to narrow the list')+'</p>');
   }
   function jump(id) {
     if(!byId.has(id)) return;

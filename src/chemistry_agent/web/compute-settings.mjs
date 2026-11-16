@@ -94,7 +94,7 @@ export function createComputeSettings(selectTab) {
       const needed=keys.filter(key=>missing.has(key));
       let detail='';
       if(panel==='automation') detail=needed.length ? needed.map(k=>t(localLabels[k])).join(' · ') : aiida.profile || 'AiiDA';
-      if(panel==='model') detail=modelReady===null ? t('尚未核实') : t(modelReady?'已配置':'模型未配置');
+      if(panel==='model') detail=modelReady===null ? t('未检测') : t(modelReady?'已配置':'模型未配置');
       if(panel==='servers') {
         const check=server()?.last_connection_test;
         detail=[server()?.label, server() && t(!check?'尚未测试连接':check.ok?'上次连接测试通过':'上次连接测试未通过')].filter(Boolean).join(' · ');
@@ -114,7 +114,7 @@ export function createComputeSettings(selectTab) {
   function drawInventory() {
     const codes=config?.codes.filter(c=>c.server_id===selected && !isProbe(c)) || [];
     $('software-list').innerHTML=codes.map(c=>record(codeName(c),[
-      ['远端可执行文件',c.executable],['远端环境脚本（可选）',c.environment_script],
+      ['远端可执行文件',c.executable],['远端环境脚本',c.environment_script],
     ])).join('') || empty('当前服务器尚未登记软件。');
     $('potential-list').innerHTML=usableSources().map(s=>record(s.id,[['赝势库绝对路径',s.root],['赝势族',s.family],['泛函',s.functional]])).join('') || empty('当前服务器尚未关联赝势目录。');
     replaceOptions(field(envForm,'code_id'),usableCodes().map(c=>[c.id,codeName(c)]),'选择 VASP 版本');
@@ -125,8 +125,8 @@ export function createComputeSettings(selectTab) {
       return record(name,[['软件版本',software?codeName(software):env.code_id],
         ['赝势目录',usableSources().find(s=>s.id===env.potential_source_id)?.root],['队列名称',res.queue],
         ['节点数',res.nodes],['每节点进程数',res.ranks_per_node],['时限（分钟）',res.wallclock_seconds/60],
-        ['内存（MB）',res.memory_mb],['每节点 GPU 数',res.gpus_per_node],['GPU 类型（可选）',res.gpu_type],['调度账户（可选）',res.account],
-        ['备用队列（可选）',env.quota_fallback?.target]],`<button type="button" data-edit-target="${esc(env.id)}">${esc(t('编辑'))}</button>`);
+        ['内存（MB）',res.memory_mb],['每节点 GPU 数',res.gpus_per_node],['GPU 类型',res.gpu_type],['调度账户',res.account],
+        ['备用队列',env.quota_fallback?.target]],`<button type="button" data-edit-target="${esc(env.id)}">${esc(t('编辑'))}</button>`);
     }).join('') || empty('尚未建立执行环境。');
     const protocols=config?.protocols.filter(p=>p.server_id===selected) || [];
     $('legacy-environments').hidden=!protocols.length;
@@ -261,13 +261,18 @@ export function createComputeSettings(selectTab) {
       $('compute-scope').hidden=true;notify();
       $('setup-local').hidden=true;$('setup-default').replaceChildren();
       if(panel==='servers') localSSH.activate();
-      if(panel==='automation') $('compute-steps').innerHTML=[
-        ['Agent',health?.model_configured?'已配置':'未配置','agent','model',Boolean(health?.model_configured)],
-        ['服务器','本机 SSH 主机与连接验证','servers','servers',null],
-        ['计算平台',health?.automation_enabled?'Slurm 作业监控与持久等待':'计算服务尚未启用',null,'automation',Boolean(health?.automation_enabled)],
+      if(panel==='automation') {
+        const inventory=await computeRequest('ssh/local-aliases').catch(()=>null);
+        if(active!==panel) return;
+        const serverSummary=inventory ? `已启用 ${inventory.servers.filter(row=>row.enabled).length} 台` : '无法读取服务器';
+        $('compute-steps').innerHTML=[
+        ['Agent 与模型',health?.model_configured?'已配置':'未配置','agent','model',Boolean(health?.model_configured)],
+        ['服务器',serverSummary,'servers','servers',null],
+        ['计算平台',health?.automation_enabled?'Slurm 作业监控':'计算服务尚未启用',null,'automation',Boolean(health?.automation_enabled)],
       ].map(([name,detail,target,icon,ready])=>`<li class="overview-item"><svg class="icon overview-icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${icon}"/></svg>
         <div class="overview-description"><strong>${esc(t(name))}</strong><small>${esc(t(detail))}</small></div>
         ${target?`<button type="button" class="secondary overview-action" data-generic-setting="${target}">${esc(t('设置'))}<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`:`<span class="overview-state" data-ready="${ready}">${esc(t(ready?'已启用':'未启用'))}</span>`}</li>`).join('');
+      }
       $('compute-steps').onclick=event=>{const button=event.target.closest('[data-generic-setting]');if(button) selectTab(button.dataset.genericSetting);};
       if(['software','potentials','queues','environments'].includes(panel)) selectTab('servers');
       return;

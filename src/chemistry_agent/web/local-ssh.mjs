@@ -28,13 +28,13 @@ export function createLocalSSH() {
     $('local-ssh-list').innerHTML=servers.filter(row=>shown.has(row.alias)).map(row=>{
       const address=[row.user,row.hostname || row.alias].filter(Boolean).join('@')+(row.port?':'+row.port:'');
       const check=checks.get(row.alias);
-      const checkLabel=check ? t(check.ok?'上次测试通过':'上次测试失败') : t('尚未测试连接');
+      const checkLabel=check ? t(check.ok?'上次测试通过':'上次测试失败') : row.enabled ? t('尚未测试连接') : '';
       return `<article class="server-card">
         <header><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-servers"/></svg>
           <div class="server-identity"><strong data-no-i18n>${esc(row.alias)}</strong><div class="server-subtitle"><span class="server-address" data-no-i18n title="${esc(address)}">${esc(address)}</span><span class="server-check-state${check && !check.ok?' error':''}" data-ssh-result="${esc(row.alias)}" role="status">${esc(checkLabel)}</span></div></div>
-          <div class="server-card-actions"><button type="button" class="secondary" data-local-ssh-test="${esc(row.alias)}">${esc(t('测试连接'))}</button><label class="server-activation"><span>${esc(t(row.enabled?'已启用':'未启用'))}</span><input type="checkbox" role="switch" class="settings-switch" data-ssh-alias="${esc(row.alias)}" aria-label="${esc(t('允许 Agent 使用')+' '+row.alias)}" ${row.enabled?'checked':''}></label></div>
+          <div class="server-card-actions"><button type="button" class="secondary" data-local-ssh-test="${esc(row.alias)}">${esc(t('测试连接'))}</button><label class="server-activation"><input type="checkbox" role="switch" class="settings-switch" data-ssh-alias="${esc(row.alias)}" aria-label="${esc(t('允许 Agent 使用')+' '+row.alias)}" ${row.enabled?'checked':''}></label></div>
         </header>
-        <details class="server-source"><summary>${esc(t('连接信息'))}</summary>${facts([['配置文件',row.source]])}${check?.message?`<pre data-no-i18n>${esc(check.message)}</pre>`:''}</details>
+        ${check?.message?`<details class="server-source"><summary>${esc(t('连接信息'))}</summary>${facts([['配置文件',row.source]])}<pre data-no-i18n>${esc(check.message)}</pre></details>`:''}
       </article>`;
     }).join('') || `<p class="server-empty">${esc(t('尚未启用服务器'))}</p>`;
     const available=servers.filter(row=>!shown.has(row.alias));
@@ -57,7 +57,7 @@ export function createLocalSSH() {
     // Keep the last confirmed server set until PUT succeeds; failures restore the switch.
     try {
       render(await computeRequest('ssh/local-aliases','PUT',{hosts}));
-      status(t(enabled?'已允许 Agent 使用此服务器':'已停用此服务器；正在运行的计算不受影响'));
+      status(enabled?'':t('已停用此服务器；正在运行的计算不受影响'));
     } catch(error) {render();throw error;}
   }
   $('local-ssh-refresh').onclick=()=>run(refresh);

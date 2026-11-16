@@ -6,14 +6,14 @@ let sequence=0,playing=false,releaseSeek;
 const element=id=>{
   if(!elements.has(id)) {
     const classes=new Set(),attributes=new Map();
-    elements.set(id,{value:0,events:new Map(),addEventListener(name,callback){this.events.set(name,callback);},
+    elements.set(id,{value:0,parentElement:{hidden:false},events:new Map(),addEventListener(name,callback){this.events.set(name,callback);},
       getAttribute:name=>attributes.get(name),setAttribute:(name,value)=>attributes.set(name,String(value)),
       classList:{contains:name=>classes.has(name),toggle(name,enabled){enabled?classes.add(name):classes.delete(name);}}});
   }
   return elements.get(id);
 };
 const doc={count:100,setPlayback(){},prefetch(){}};
-const context=vm.createContext({$:element,doc,frameIndex:2,timer:null,readGeneration:1,
+const context=vm.createContext({StructureControls:require('../../src/chemistry_agent/web/structure/controls.js'),$:element,doc,frameIndex:2,timer:null,readGeneration:1,
   playbackGeneration:0,timelineSeek:null,resumeWhenVisible:false,viewVisible:true,streamComplete:true,views:null,
   playback:{fps:60,speed:1,step:1,loop:true},performance:{now:()=>0},
   window:{addEventListener:(name,callback)=>windowEvents.set(name,callback)},
@@ -123,11 +123,13 @@ const event=name=>element('timeline').events.get(name);
   changeDisplay();assert(playing);assert.equal(context.playbackGeneration,playbackRun);assert(repaints>displayIds.length);
   await advance();
   element('drift-settings').onclick();assert(element('drift-dialog').open);
-  element('drift-reference').value=0;element('drift-source').value='all';element('drift-enabled').checked=true;
+  element('drift-reference').value=1;element('drift-source').value='all';element('drift-enabled').checked=true;
   let releaseReference;context.doc.get=()=>new Promise(resolve=>{releaseReference=resolve;});
   const applying=element('drift-apply').onclick();await advance();
   releaseReference({frame:context.frameData});await applying;
-  assert.equal(element('drift-error').textContent,'');assert(context.drift);assert(playing);
+  assert.equal(element('drift-error').textContent,'');assert(context.drift);assert.equal(context.drift.reference,0);assert(playing);
+  assert.equal(element('drift-atoms').parentElement.hidden,true);
+  element('drift-source').value='indices';element('drift-source').onchange();assert.equal(element('drift-atoms').parentElement.hidden,false);
   assert.equal(context.playbackGeneration,playbackRun);
   element('drift-enabled').checked=false;await element('drift-apply').onclick();assert.equal(context.drift,null);
   context.stop();changeDisplay();element('playback-speed').events.get('input')();assert(!playing);assert.equal(context.timer,null);

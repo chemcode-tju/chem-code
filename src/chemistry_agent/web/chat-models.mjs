@@ -11,7 +11,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     const current = selection || {backend:state.health?.agent_backend || 'builtin', model:state.health?.model || '', effort:'', permission:'user'};
     const models = catalogs[current.backend]?.models || [];
     const model = models.find(item => item.id === current.model)?.name || current.model || models.find(item => item.default)?.name || names[current.backend];
-    $('agent-picker-label').textContent = `${model} · ${t(effortLabel(current.effort))}`;
+    $('agent-picker-label').textContent = `${model}${current.effort ? " · " + t(effortLabel(current.effort)) : ""}`;
     $('agent-picker-label').dataset.noI18n = '';
     picker.querySelector('.agent-logo').outerHTML = current.backend === 'antigravity'
       ? '<img class="icon agent-logo" src="/assets/antigravity.svg" alt="">'

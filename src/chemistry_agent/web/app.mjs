@@ -1,7 +1,7 @@
 import { externalContextView } from "./external-context.mjs";
 import {createWorkspaceFiles} from "./workspace-files.mjs";
 import {userQuestions} from './user-questions.mjs';
-import {activity, activityOpen, activitySteps, answerBox, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
+import {visibleReference, activity, activityOpen, activitySteps, answerBox, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
 import { initSettingsDialog } from "./settings-dialog.mjs";
@@ -233,7 +233,7 @@ async function refreshHealth() {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = "远程终端 · " + host;
-      button.title = "允许本轮对话使用 " + host + " 的终端";
+      button.title = "使用 " + host + " 的终端";
       button.onclick = () => {
         const field = $("message-input");
         field.value = "/shell " + host + "\n" + field.value.replace(/^\/shell[ \t]+[^\n]*\n?/, "");
@@ -284,7 +284,7 @@ const uploads = createFileUploads({ state, toast, updateControls, onChange: () =
 
 function renderSessions() {
   const chats = state.sessions.filter((session) => !projectNavigation.includes(session.id));
-  $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无聊天</p>';
+  $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无对话</p>';
   $("load-more").hidden = !state.hasMore;
   projectNavigation.render();
   updateControls();
@@ -306,6 +306,7 @@ const workspaceFiles=createWorkspaceFiles({api,session:()=>state.sessionId,viewe
 
 function renderUser(text, context, files = [], structures = []) {
   const attachedFiles = files.length ? files : contextFiles(context);
+  context = visibleReference(context);
   return `<div class="user-message"><div class="user-bubble"><span data-no-i18n>${escapeHtml(text)}</span>${renderFiles(attachedFiles)}${structures.map(s => structureButton("artifact",s.id,s.name+".extxyz","查看 "+s.name)).join("")}${context && !attachedFiles.length ?
     `<details class="attached-reference"><summary>${icon("document")} ${t("附件与上下文")}</summary><pre>${escapeHtml(context)}</pre></details>` : ""}</div></div>`;
 }
@@ -537,7 +538,7 @@ function restoreDraft() {
     state.pending = draft.pending ? {
       message:draft.pending.message, context:draft.pending.context || "",
       files:[], structures:[], request:draft.pending,
-      error:"正在核对发送记录；若尚未收到，可用同一编号重试。",
+      error:"发送状态未确认，可重试。",
     } : null;
   } catch { state.pending = null; }
 }
@@ -680,6 +681,7 @@ function metric(label, value, unit = "") {
 
 const emptyResult = $("result-panel").innerHTML;
 function renderResult(call) {
+  $("result-section").hidden = !call;
   if (!call) {
     $("result-panel").innerHTML = emptyResult;
     $("result-badge").textContent = "暂无记录";
@@ -689,7 +691,7 @@ function renderResult(call) {
   if (!call.success) {
     $("result-section").open = true;
     $("result-panel").innerHTML = `<div class="tool-failure">${escapeHtml(call.result?.message || "计算未完成，请检查输入的分子结构。")}</div>`;
-    $("result-badge").textContent = "请检查输入";
+    $("result-badge").textContent = "未完成";
     return;
   }
   $("result-section").open = true;
@@ -701,11 +703,11 @@ function renderResult(call) {
   } else if (call.name === "molecular_similarity") {
     const score = Number(result.tanimoto_similarity);
     const percent = Number.isFinite(score) ? Math.max(0, Math.min(100, score * 100)) : 0;
-    body = `<div class="calculation-title"><strong>结构相似度</strong><span>TANIMOTO</span></div><div class="canonical-smiles">${escapeHtml(result.canonical_smiles_a)} ↔ ${escapeHtml(result.canonical_smiles_b)}</div><div class="similarity-score"><strong>${escapeHtml(metricValue(score, 6))}</strong><div class="score-track"><span style="width:${percent}%"></span></div><small>0 无指纹重叠 · 1 指纹相同</small></div><div class="result-source">Morgan 指纹 · radius=2 · 2048 bits<br>结构相似度不代表生物活性。</div>`;
+    body = `<div class="calculation-title"><strong>结构相似度</strong><span>TANIMOTO</span></div><div class="canonical-smiles">${escapeHtml(result.canonical_smiles_a)} ↔ ${escapeHtml(result.canonical_smiles_b)}</div><div class="similarity-score"><strong>${escapeHtml(metricValue(score, 6))}</strong><div class="score-track"><span style="width:${percent}%"></span></div></div><div class="result-source">Morgan (r=2, 2048 bit) · Tanimoto</div>`;
   } else {
     body = `<div class="calculation-title"><strong>${escapeHtml(call.name)}</strong></div>`;
   }
-  $("result-panel").innerHTML = `<div class="calculation-card">${body}<div class="result-source">${escapeHtml(result.source || "")}</div><details class="raw-result"><summary>查看参数与完整结果</summary><pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, result }, null, 2))}</pre></details></div>`;
+  $("result-panel").innerHTML = `<div class="calculation-card">${body}<details class="raw-result"><summary>参数与原始输出</summary><div class="result-source" data-no-i18n>${escapeHtml(result.source || "")}</div>${call.name === "molecular_similarity" ? "<p>结构相似度不代表生物活性。</p>" : ""}<pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, result }, null, 2))}</pre></details></div>`;
 }
 
 async function runLocalTool(name, form) {
@@ -995,8 +997,9 @@ async function refreshContext() {
     const percent = Math.round(100 * info.estimated_input_tokens / Math.max(1, info.input_budget_tokens));
     setMeter(percent);
     $("context-status").textContent = `会话记忆 · 已摘要 ${info.covered_messages} / ${info.original_messages} 条消息`;
-    $("context-budget").textContent = `估算输入 ${info.estimated_input_tokens.toLocaleString()} / ${info.input_budget_tokens.toLocaleString()} tokens（${info.tokenizer}）；自动触发 ${info.trigger_tokens.toLocaleString()}，保留最近 ${info.recent_turns} 轮。`;
-    $("context-summary").textContent = info.summary || t("尚未生成历史摘要。");
+    $("context-budget").textContent = `≈ ${info.estimated_input_tokens.toLocaleString()} / ${info.input_budget_tokens.toLocaleString()} tokens (${percent}%)`;
+    $("context-summary").textContent = info.summary || "";
+    $("context-summary").hidden = !info.summary;
   } catch (error) {
     if (id !== state.sessionId || generation !== contextGeneration) return;
     setMeter();
@@ -1015,7 +1018,7 @@ $("compact-context").onclick = async () => {
     const result = await api(`/sessions/${encodeURIComponent(id)}/context/compact?operation_id=${contextRequest.id}`, { method: "POST" });
     contextRequest = null;
     if (state.sessionId === id) await refreshContext();
-    toast(external ? "已交给 Agent 压缩。" : result.context.summary_calls ? "历史摘要已更新，原文和计算产物完整保留。" : "暂无需要进一步压缩的历史，保留最近对话。");
+    toast(external ? "已交给 Agent 压缩。" : result.context.summary_calls ? "历史已压缩" : "当前无需压缩");
   } catch (error) { toast(error.message); }
   finally { state.busy = false; updateControls(); }
 };

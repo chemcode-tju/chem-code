@@ -15,3 +15,7 @@ assert.equal(endpoints[0].tickX,6);
 assert.equal(endpoints.at(-1).tickX,294);
 assert.ok(endpoints.at(-1).x < endpoints.at(-1).tickX);
 console.log('Atom range validation and nonoverlapping ticks at 30–700 px passed.');
+
+assert.equal(C.referenceIndex('1',12),0);
+assert.equal(C.referenceIndex('12',12),11);
+for(const value of ['0','','13','1.5','-1','no'])assert.throws(()=>C.referenceIndex(value,12));

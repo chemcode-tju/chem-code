@@ -60,7 +60,7 @@
         </div>
 
         <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">管理 ChatGPT 用量</a></p>
-        <details><summary>兼容旧 Codex 登录</summary><button id="device-login" class="secondary" type="button">使用设备码登录</button></details>
+        <details><summary>设备码登录</summary><button id="device-login" class="secondary" type="button">使用设备码登录</button></details>
       </section>
       <section id="api-panel" hidden>
 
@@ -69,21 +69,20 @@
 
         <label for="api-key">API Key</label>
         <input id="api-key" type="password" maxlength="8192" autocomplete="new-password" placeholder="输入 API Key" spellcheck="false">
-        <p id="key-status" class="hint"></p>
         <button id="clear-key" class="secondary" type="button">删除已保存的 API Key</button>
         <label id="thinking-label" class="checkbox"><input id="thinking" type="checkbox">启用 DeepSeek 思考模式</label>
       </section>
       <label for="model-choice">默认模型</label><div class="model-choice-row"><select id="model-choice"><option value="">自动选择</option></select><button id="refresh-models" class="secondary" type="button">刷新模型</button></div><p id="catalog-status" class="hint" role="status"></p>
 
-      <details id="model-advanced"><summary>高级选项</summary>
+      <div id="model-advanced" hidden>
       <label for="model">模型 ID <span id="model-optional">（可选）</span></label>
       <input id="model" type="text" maxlength="160" autocomplete="off" placeholder="留空自动选择可用模型">
 
-      </details>
+      </div>
 
       <div class="actions footer">
         <button id="test-model" type="button" class="secondary">保存并测试连接</button>
-        <button type="submit">保存 API 配置</button>
+        <button type="submit">保存 Chem Agent 配置</button>
       </div>
         </form>
         <div class="agent-card-actions builtin-actions"><button type="button" class="secondary" data-use-backend="builtin">设为新对话默认</button></div>
@@ -106,7 +105,7 @@
       </details>
       </div>
       <div hidden><label for="agent-backend">默认 Agent</label><select id="agent-backend"><option value="builtin">Chem Agent</option><option value="codex">Codex</option><option value="antigravity">Antigravity</option></select></div>
-      <div class="actions footer agent-save-actions"><p id="agent-notice" role="status" aria-live="polite"></p><button id="agent-save" type="button">保存模型设置</button></div>
+      <div class="actions footer agent-save-actions"><p id="agent-notice" role="status" aria-live="polite"></p><button id="agent-save" type="button">保存 Codex / Antigravity 配置</button></div>
     </section>
     <div id="compute-scope" class="compute-scope" hidden>
       <label for="active-server">当前服务器</label><select id="active-server" data-no-i18n></select>
@@ -122,7 +121,6 @@
     </section>
     <section class="settings-panel compute-panel" id="servers" data-panel="servers" role="tabpanel" aria-labelledby="tab-servers" hidden>
       <h2>服务器连接</h2>
-      <p class="hint">选择允许 Agent 使用的服务器，连接状态通过测试确认。</p>
       <div id="local-ssh-list" class="server-cards"></div>
       <div class="server-management"><p id="local-ssh-status" role="status" aria-live="polite"></p>
       <details id="local-ssh-picker" class="config-editor server-picker"><summary>添加服务器</summary>
@@ -208,7 +206,7 @@
       <label>服务器登录密码<input id="ssh-password" type="password" maxlength="1024" required autocomplete="new-password" spellcheck="false"></label>
       <p id="secret-notice" class="hint" role="status"></p>
       <div class="compute-actions"><button type="submit" class="primary">保存密码</button><button type="button" id="secret-cancel">关闭</button></div>
-      <details id="secret-removal"><summary>清除已保存的密码</summary><button type="button" id="secret-clear">确认清除密码</button></details>
+      <details id="secret-removal"><summary>清除密码</summary><button type="button" id="secret-clear" aria-label="确认清除密码">确认清除</button></details>
     </form></dialog>
     <p id="notice" role="status" aria-live="polite"></p>
   </main>

@@ -55,7 +55,7 @@ export function nebSelection(data,step,image,mode) {
     const unit=mode==='force-history'?'eV/Å':'eV',index=historyImage(row,mode);
     return `${prefix} · ${label} ${Number.isFinite(value)?value.toFixed(4)+' '+unit:'暂无记录'}${index!==null?' · 对应像 '+index:''}`;
   }
-  if(!selected)return `${prefix} · 点击曲线点选择路径像`;
+  if(!selected)return prefix;
   if(mode==='image-force')return `${prefix} · 像 ${image} · 投影最大力 ${Number.isFinite(selected.force)?selected.force.toFixed(4)+' eV/Å':'无记录'}`;
   if(mode==='endpoint-force') {
     const ref=selected.endpoint_reference;
@@ -122,14 +122,14 @@ export function createRegisteredResults(host,{api,openStructure,onStructures=()=
     const structures=row?row.images.map(item=>`<button type="button" data-image="${item.index}" aria-pressed="${image===item.index}" aria-label="像 ${item.index}" title="像 ${item.index} · ${esc(item.path)}">${String(item.index).padStart(2,'0')}</button>`).join(''):(data?.structures || []).map((item,i)=>`<button type="button" data-image="${i}">${esc(item.label || item.path)}</button>`).join('');
     host.querySelector(':scope > summary').innerHTML=`${icon('compare')}${data?.kind==='neb'?'NEB 路径与收敛':'计算结果'}`;
     content.innerHTML=`<div class="result-controls">${context.datasets.length>1?`<select data-dataset aria-label="结果数据集">${options}</select>`:''}${controls}</div>
-      ${data?.stale?'<p class="result-note result-warning" role="status">当前源读取失败，正在显示缓存结果。</p>':''}
+      ${data?.stale?`<p class="result-note result-warning" role="status"><span>读取失败，正显示缓存结果</span>${data.observed_at?`（<time datetime="${esc(data.observed_at)}" title="${esc(data.observed_at)}">${esc(resultTimestamp(data.observed_at))}</time>）`:''}</p>`:''}
       ${row?`<dl class="conv-metrics"><div><dt>路径像</dt><dd>${row.images.length}</dd></div><div><dt>相对能量峰值</dt><dd>${row.peak_energy.toFixed(4)}<small>eV</small></dd></div>${Number.isFinite(row.force)?`<div><dt>NEB 投影 Fmax</dt><dd>${row.force.toFixed(4)}<small>eV/Å</small></dd></div>`:''}</dl>
       <div class="conv-toolbar"><div class="conv-modes" role="group" aria-label="NEB 视图">${plot.modes.map(([key,label])=>`<button type="button" data-neb-mode="${key}" aria-pressed="${key===mode}">${label}</button>`).join('')}</div></div>`:`<div class="step-file-options">${structures}</div>`}
       <div class="result-plots">${row?chart(plot,plot.action,plot.action==='image'?image:step,plot.target,plotWidth):
         (data?.series || []).map(s=>chart(s,'',null,null,plotWidth)).join('') || '<p class="result-empty">等待完整结果快照</p>'}</div>
       ${row?`<p class="result-selection">${esc(nebSelection(data,step,image,mode))}</p><div class="result-images" role="group" aria-label="路径像">${structures}${selected?`<a href="${esc(resultURL(context.base,context.job,key,selected.path))}" download="${esc(selected.path.split('/').at(-1))}" title="下载所选像结构" aria-label="下载所选像结构">${icon('download')}</a>`:''}</div>${plot.action==='image'&&selected?.endpoint_reference?`<details class="result-reference"><summary>端点参考</summary><p>TOTEN ${selected.endpoint_reference.energy.toFixed(6)} eV · 原始全原子 Fmax ${selected.endpoint_reference.atomic_fmax.toFixed(4)} eV/Å</p><p>${esc(selected.endpoint_reference.source)}</p></details>`:''}`:''}
       ${data?.skipped?.length?`<details class="result-note"><summary>${data.skipped.length} 个快照暂未读取</summary>${data.skipped.map(s=>`<p>${esc(s.path)}: ${esc(s.reason)}</p>`).join('')}</details>`:''}
-      ${data?.observed_at?`<p class="result-note result-updated">${data.stale?'缓存时间':'更新于'} <time datetime="${esc(data.observed_at)}" title="${esc(data.observed_at)}">${esc(resultTimestamp(data.observed_at))}</time></p>`:''}`;
+      ${data?.observed_at&&!data.stale?`<p class="result-note result-updated">更新于 <time datetime="${esc(data.observed_at)}" title="${esc(data.observed_at)}">${esc(resultTimestamp(data.observed_at))}</time></p>`:''}`;
     if(focusAttribute) [...host.querySelectorAll(`[${focusAttribute}]`)].find(element=>element.tagName===focusTag && element.getAttribute(focusAttribute)===focusValue)?.focus({preventScroll:true});
   }
   if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{
@@ -183,7 +183,7 @@ export function createRegisteredResults(host,{api,openStructure,onStructures=()=
   }
   host.addEventListener('click',activate);
   host.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)&&event.target.matches('circle')){event.preventDefault();activate(event);}});
-  return {refresh,reset,selectImage:showStructure,reopenSelection(){if(opened)showStructure(image,false);},viewerSlot:()=>host.querySelector('.result-viewer-slot'),syncFrame(frameIndex){
+  return {refresh,reset,isStale:()=>Boolean(data?.stale),selectImage:showStructure,reopenSelection(){if(opened)showStructure(image,false);},viewerSlot:()=>host.querySelector('.result-viewer-slot'),syncFrame(frameIndex){
     const row=selectedPath(data,step),item=row?.images[frameIndex];
     if(!item)return null;image=item.index;render();
     return {name:item.path.split('/').at(-1),url:resultURL(context.base,context.job,key,item.path),label:`路径优化步 ${step} · 像 ${image} · ${data.energy_label} ${item.energy.toFixed(6)} eV`};

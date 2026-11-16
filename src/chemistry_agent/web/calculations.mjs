@@ -115,7 +115,7 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
     }).join('');
     const panelTop = panel.parentElement.parentElement.scrollTop;
     const mapViews = captureMaps(panel,{suspend:true,dispose:true});
-    panel.innerHTML = graphs + (cards && activePlan ? `<details class="legacy-calculations"><summary>其他计算记录</summary>${cards}</details>` : cards) || '<p class="empty-result">本对话暂无计算方案</p>';
+    panel.innerHTML = graphs + (cards && activePlan ? `<details class="legacy-calculations"><summary>其他计算记录</summary>${cards}</details>` : cards) || '<p class="empty-result">暂无计算方案</p>';
     mountMaps(panel,mapViews);
     panel.parentElement.parentElement.scrollTop = panelTop;
     for (const [id,value] of knownSteps) displayCount(...id.split('/'),value.count);

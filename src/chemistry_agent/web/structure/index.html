@@ -23,9 +23,9 @@
           <div class="card-actions card-divider"><button data-close-menu id="display-settings"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-appearance"/></svg>显示设置</button><button data-close-menu id="drift-settings" disabled><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-drift"/></svg>质心漂移校正</button></div>
         </section>
       </details>
-      <details id="export-menu" class="header-menu"><summary role="button" title="导出" aria-label="导出" aria-controls="export-card"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-snapshot"/></svg></summary>
+      <details id="export-menu" class="header-menu"><summary role="button" aria-disabled="true" tabindex="-1" title="导出" aria-label="导出" aria-controls="export-card"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-snapshot"/></svg></summary>
         <section id="export-card" class="tool-card" aria-label="导出选项"><h2>导出</h2>
-          <p class="empty-export">请先打开结构</p><div class="card-actions"><button data-close-menu id="snapshot"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-snapshot"/></svg>快照</button></div>
+          <div class="card-actions"><button data-close-menu id="snapshot" disabled><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-snapshot"/></svg>快照</button></div>
         </section>
       </details>
       <details id="interface-settings" class="header-menu"><summary role="button" title="界面设置" aria-label="界面设置" aria-controls="settings-card"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-settings"/></svg></summary>
@@ -40,7 +40,7 @@
   <div id="status" role="alert" hidden></div>
   <div id="viewports" class="viewports" data-layout="single" data-mode="rotate"><section id="atom-panel" hidden><strong id="atom-title"></strong><output id="measurement"></output><span id="atom-list"></span><button id="clear-selection" disabled>清除选择</button></section><button id="open-empty" type="button"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg>打开结构文件</button></div>
 
-  <section id="source-panel" hidden><div class="section-head"><strong id="source-title">当前帧源码</strong></div><p id="import-note"></p><textarea id="source" readonly spellcheck="false" aria-label="当前结构源码"></textarea></section>
+  <section id="source-panel" hidden><div class="section-head"><strong id="source-title">当前帧源码</strong></div><textarea id="source" readonly spellcheck="false" aria-label="当前结构源码"></textarea></section>
   <footer>
     <section id="structure-inspector" hidden aria-label="结构信息">
       <div class="inspector-heading"><div role="tablist" aria-label="结构信息分类">
@@ -48,7 +48,8 @@
         <button id="types-tab" role="tab" aria-selected="false" aria-controls="inspector-content" data-inspector-tab="types" tabindex="-1">类型</button>
         <button id="cell-tab" role="tab" aria-selected="false" aria-controls="inspector-content" data-inspector-tab="cell" tabindex="-1">晶胞</button>
       </div><span id="inspector-frame"></span><button id="inspector-close" aria-label="关闭结构信息" title="关闭结构信息"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></div>
-      <div class="inspector-filters"><input id="particle-filter" type="search" placeholder="筛选编号、类型、元素、原子名" aria-label="筛选粒子"><label><input id="inspector-selected" type="checkbox">仅选中</label>
+      <p id="import-note"></p>
+      <div class="inspector-filters"><input id="particle-filter" type="search" placeholder="筛选原子…" aria-label="筛选粒子"><label><input id="inspector-selected" type="checkbox">仅选中</label>
         <select id="cell-mode" aria-label="晶胞显示方式" hidden><option value="vectors">晶胞向量</option><option value="parameters">晶胞参数</option></select>
         <span id="inspector-count" data-no-i18n></span>
         <button id="inspector-previous" aria-label="上一页" title="上一页"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron-left"/></svg></button><button id="inspector-next" aria-label="下一页" title="下一页"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
@@ -69,7 +70,7 @@
         <section id="playback-dialog" class="tool-card"><h2>播放设置</h2>
           <label class="card-field">每秒帧数 <input id="animation-fps" type="number" min="1" max="120" step="1" value="60"></label>
           <label class="card-field">播放速度 <select id="playback-speed"><option value="0.25">× 0.25</option><option value="0.5">× 0.5</option><option value="1" selected>× 1</option><option value="2">× 2</option><option value="5">× 5</option><option value="10">× 10</option><option value="20">× 20</option></select></label>
-          <label class="card-field">每隔 N 帧播放 <input id="playback-step" type="number" min="1" max="10000" step="1" value="1"></label>
+          <label class="card-field">帧步长 <input id="playback-step" type="number" min="1" max="10000" step="1" value="1"></label>
           <label class="check-row"><input id="playback-loop" type="checkbox" checked>循环播放</label>
         </section></details></div>
         </div>
@@ -91,8 +92,8 @@
             <option value="yz" data-shortcut="⌥X" aria-label="Left · YZ (−X)">Left · YZ</option>
             <option value="perspective">Perspective</option>
           </select><kbd id="orientation-key" class="view-shortcut" aria-hidden="true">⌥Y</kbd></span><select id="layout" aria-label="视图布局"><option value="single">单视图</option><option value="dual">双视图</option><option value="quad">四视图</option></select></div>
-            <label class="card-field">鼠标操作 <select id="navigation-mode"><option value="rotate">旋转</option><option value="pan">平移</option><option value="zoom">缩放</option><option value="select">选择原子</option><option value="box">框选原子</option></select></label>
-            <div class="card-actions"><button id="view-reset">适应视图</button><button type="button" id="expand" aria-label="展开 / 恢复多视图" title="展开 / 恢复多视图"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-expand"/></svg><span>展开 / 恢复多视图</span></button></div>
+            <label class="card-field compact-navigation">鼠标操作 <select id="navigation-mode"><option value="rotate">旋转</option><option value="pan">平移</option><option value="zoom">缩放</option><option value="select">选择原子</option><option value="box">框选原子</option></select></label>
+            <div class="card-actions"><button class="compact-navigation" id="view-reset">适应视图</button><button type="button" id="expand" aria-label="展开 / 恢复多视图" title="展开 / 恢复多视图"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-expand"/></svg><span>展开 / 恢复多视图</span></button></div>
           </section></details>
           <button id="inspector-toggle" title="结构信息" aria-label="结构信息" aria-expanded="false" aria-controls="structure-inspector"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-info"/></svg></button>
         </div>
@@ -101,11 +102,11 @@
   </footer>
 </main>
 <dialog id="drift-dialog" class="floating-panel"><h2>质心漂移校正</h2><fieldset>
-<label class="check-row"><input id="drift-enabled" type="checkbox">移除轨迹的质心漂移</label>
-<label>参考帧编号（从 0 开始）<input id="drift-reference" type="number" min="0" value="0"></label>
+<label class="check-row"><input id="drift-enabled" type="checkbox">启用校正</label>
+<label>参考帧<input id="drift-reference" type="number" min="1" value="1"></label>
 <label>计算范围<select id="drift-source"><option value="all">全部原子</option><option value="indices">指定原子</option></select></label>
-<label>原子序号（从 1 开始）<input id="drift-atoms" placeholder="1, 3, 5-12"></label>
-<button id="drift-use-selection">填入当前选择</button><output id="drift-state">未启用</output>
+<label>原子序号<input id="drift-atoms" placeholder="1, 3, 5-12"></label>
+<button id="drift-use-selection">填入当前选择</button><output id="drift-state" hidden></output>
 </fieldset>
 <output id="drift-error" role="alert"></output><div class="dialog-actions"><button id="drift-close">关闭</button><button id="drift-apply">应用</button></div></dialog>
 
@@ -116,16 +117,16 @@
     <label>显示方式 <select id="selection-style"><option value="">保持原样</option><option value="sphere">原子球</option><option value="ballstick">球棍</option><option value="stick">线棒</option></select></label>
     <label>配色 <select id="selection-palette"><option value="">保持原样</option><option value="jmol">Jmol</option><option value="rasmol">RasMol / CPK</option><option value="vesta">VESTA</option><option value="custom">自定义</option></select><input id="selection-color" type="color" value="#38a5dd" aria-label="选中原子颜色"></label>
     <label>显隐 <select id="selection-visible"><option value="">保持原样</option><option value="show">显示</option><option value="hide">隐藏</option></select></label>
-    <button id="apply-display">应用到选中原子</button><button id="reset-selected-style">恢复选中原子默认</button>
+    <button id="apply-display">应用</button><button id="reset-selected-style">重置选中</button>
   </fieldset>
-  <div class="dialog-actions"><button id="reset-display">恢复所有显示设置</button><button id="display-close">关闭</button></div>
+  <div class="dialog-actions"><button id="reset-display">全部重置</button><button id="display-close">关闭</button></div>
 </dialog>
 <dialog id="snapshot-dialog">
   <h2>保存快照</h2>
   <div class="snapshot-preview"><img id="snapshot-preview" alt="当前构型快照" hidden></div>
   <div class="export-fields"><label>文件名 <input id="snapshot-name" value="structure" maxlength="80"></label><label>格式 <select id="snapshot-format"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="pdf">PDF</option></select></label>
   <label>DPI <select id="snapshot-dpi"><option value="96">96</option><option value="150">150</option><option value="300" selected>300</option><option value="600">600</option></select></label>
-  <label class="check-row"><input id="snapshot-transparent" type="checkbox" checked>透明背景（PNG）</label><label class="check-row"><input id="snapshot-crop" type="checkbox">裁去四周空白</label></div>
+  <label class="check-row"><input id="snapshot-transparent" type="checkbox" checked>透明背景</label><label class="check-row"><input id="snapshot-crop" type="checkbox">裁去四周空白</label></div>
 
   <output id="snapshot-result"></output><div class="dialog-actions"><button id="snapshot-close">关闭</button><button id="snapshot-save">保存</button></div>
 </dialog>

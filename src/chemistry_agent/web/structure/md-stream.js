@@ -163,7 +163,7 @@
       note=`自动识别 ${mappings.join('、')||'dump 内的元素列'}${source.metadata.warnings.length?' · '+source.metadata.warnings.join('；'):''}`;
     }
     const store=new StructureTrajectory.FrameStore('preview.extxyz',source);await store.get(0);
-    return {store,note:`本地逐帧读取 · 未上传文件 · ${note}`};
+    return {store,note};
   }
   const api={MDSource,parseGro,parseDump,dumpMetadata,open};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.StructureMD=api;

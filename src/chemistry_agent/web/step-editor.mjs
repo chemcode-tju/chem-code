@@ -13,7 +13,8 @@ export function createTextEditor(host,{label,direct=false,prose=false,save}) {
     const active=editing || (direct && editable);
     area.readOnly=!active || !editable || busy;
     area.hidden=prose && !active;
-    preview.hidden=!prose || active;preview.textContent=text || '尚未填写步骤说明。';
+    preview.hidden=!prose || active || (!text && !editable);preview.textContent=text || '尚未填写步骤说明。';
+    host.hidden=prose && !text && !editable && !active;
     button('edit').hidden=direct || editing || !editable;
     button('save').hidden=!active;
     button('save').disabled=busy || !editable || !dirty();

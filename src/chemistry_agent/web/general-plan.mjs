@@ -51,7 +51,7 @@ export function renderGeneralPlan(plan) {
     id:node.id, title:node.title, groupPath:node.group_path, dependencies:node.depends_on, auxiliary:!['vasp','job','task'].includes(node.kind),
     kind:node.kind, jobSummary:childJobSummary(plan,view.children.get(node.id)),
     searchText:(view.children.get(node.id) || []).map(child=>[child.id,child.title,plan.runtime[child.id]?.job?.scheduler_job_id].filter(Boolean).join(' ')).join(' '),
-    description:node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):node.title,
+    description:node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):'',
     boardState:plan.status==='draft'?'draft':plan.runtime[node.id].status==='running' && plan.runtime[node.id].job?.paused?'paused':plan.runtime[node.id].status,
     state:plan.runtime[node.id].status, status:(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
   })));

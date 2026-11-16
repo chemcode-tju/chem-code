@@ -1499,3 +1499,5 @@ body.inspector-open .topbar #tools-toggle { display:none; }
 
 .activity-item > summary > .icon {width:14px;height:14px;margin-left:auto;align-self:center;}
 .activity-item[open] > summary > .icon {transform:rotate(90deg);}
+
+.activity-duration {margin:12px 0;color:var(--muted);font-size:13px;}

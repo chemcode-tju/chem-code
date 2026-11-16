@@ -103,7 +103,7 @@
       this.$('particle-filter').hidden=!isParticles;this.$('inspector-selected').parentElement.hidden=!isParticles;
       this.$('cell-mode').hidden=!isCell;
       this.$('inspector-frame').textContent=`第 ${this.index+1} 帧`;
-      let headings,rows,indices=null,note='原始坐标（Å），不包含 Wrap 或质心校正。质量 * 表示元素参考值。';
+      let headings,rows,indices=null,note=this.transformed?'原始坐标（未含 Wrap/校正）':'';
       if(isCell){
         const cell=cellData(this.frame);headings=['属性','X / a','Y / b','Z / c'];rows=[];
         if(cell){
@@ -111,12 +111,12 @@
             [['长度（Å）',...cell.lengths.map(number)],['角度 α / β / γ（°）',...cell.angles.map(number)]]:
             cell.vectors.map((v,i)=>[['a（Å）','b（Å）','c（Å）'][i],...v.map(number)]);
           rows.push(['原点（Å）',...cell.origin.map(number)],['包围盒（Å）',...cell.bounds.map(number)],['周期边界',...cell.pbc.map(v=>v?'✓':'—')],['体积（Å³）',number(cell.volume),'','']);
-          note='晶胞和周期边界来自当前帧。';
+          note='';
         }else note='当前帧没有晶胞信息。';
       }else if(this.tab==='types'){
         headings=['类型','类型名称','元素','数量','质量（u）','显示半径（Å）'];
         rows=types(this.frame.atoms).map(group=>[group.type,group.name||'—',[...group.elements].join(' / '),group.count,[...group.masses].join(' / '),[...group.elements].map(elem=>number(StructureAppearance.radius(elem))).join(' / ')]);
-        note='类型按源文件保留；未提供类型时按元素归类。质量 * 为元素参考值；半径为默认显示半径。';
+        note='';
       }else{
         const atomList=this.frame.atoms,origin=this.frame.origin||[0,0,0];
         indices=particles(this.frame,this.$('particle-filter').value,this.$('inspector-selected').checked?new Set(this.selection):null);
@@ -136,6 +136,7 @@
       this.$('inspector-count').textContent=total?`${this.page*this.limit+1}–${Math.min(total,(this.page+1)*this.limit)} / ${total}`:'0';
       for(const id of ['inspector-previous','inspector-next'])this.$(id).hidden=this.tab==='cell'||total<=this.limit;
       this.$('inspector-previous').disabled=this.page===0;this.$('inspector-next').disabled=(this.page+1)*this.limit>=total;
+      if(this.tab!=='cell' && rows.some(row=>String(row[this.tab==='types'?4:7]).includes('*')))note=[note,'* 元素参考质量'].filter(Boolean).join(' · ');
       this.$('inspector-note').textContent=note;
     }
   }

@@ -54,10 +54,10 @@
     const other=files.filter(item=>item!==file);
     if(other.length && !selectedFormat.startsWith('lammps'))throw Error('配套文件联合读取目前用于 LAMMPS；其他格式请一次选择一个结构文件。');
     const name=localName(file.name,selectedFormat==='local'?'auto':selectedFormat);
-    if(name)return {name:file.name,store:await StructureTrajectory.local(file,name),note:'本地浏览器读取 · 坐标单位 Å · 未上传文件'};
+    if(name)return {name:file.name,store:await StructureTrajectory.local(file,name),note:''};
     const companions=await companionsText(other);
     if(['gromacs','lammps-dump-text'].includes(selectedFormat))return {name:file.name,...await StructureMD.open(file,selectedFormat,companions)};
-    if(file.size>32*1024*1024)throw Error('单个 data/PDB/CIF 转换上传上限为 32 MiB；GRO、dump、XYZ、VASP、ASE .traj 可本地逐帧读取。');
+    if(file.size>32*1024*1024)throw Error('此格式单文件转换上限为 32 MiB。');
     let metadata=null,typeMap='';
     if(selectedFormat==='lammps-data') {
       const all=[...companions,{name:file.name,text:await file.text()}];
@@ -75,10 +75,10 @@
       throw Error(response.status===401?'登录已过期，请返回 Chem Code 重新登录。':result.error?.message||`读取失败（HTTP ${response.status}）`);
     }
     let blob=await response.blob();
-    let note='当前服务转换 · 坐标单位 Å · 未发送给模型';
+    let note='';
     if(metadata) {
       if(metadata.pbc)blob=new Blob([(await blob.text()).replace(/pbc="[TF ]+"/g,`pbc="${metadata.pbc.map(value=>value?'T':'F').join(' ')}"`)]);
-      note+=` · 自动识别 ${typeMap} · ${metadata.pbc?'使用配套文件的边界条件':'data 未包含边界条件，按三维周期显示'}`;
+      note+=`自动识别 ${typeMap} · ${metadata.pbc?'使用配套文件的边界条件':'data 未包含边界条件，按三维周期显示'}`;
       if(metadata.warnings.length)note+=' · '+metadata.warnings.join('；');
     }
     return {name:file.name,store:await StructureTrajectory.local(blob,'converted.extxyz'),note};

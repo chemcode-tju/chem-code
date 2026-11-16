@@ -16,11 +16,12 @@ export function createNotifications({api, selectSession}) {
     all.disabled = !count;
   }
   function group(events, title, total) {
+    if (!events.length && !total) return "";
     const rows = events.map(item => {
       const time = new Date(item.created_at);
-      return `<a class="notification-row" href="/?session=${encodeURIComponent(item.session_id)}" data-notice="${esc(item.id)}"${item.read_at?'':' data-unread'}><span class="read-dot"></span><span class="notice-name">${esc(item.title)}</span><time datetime="${esc(item.created_at)}" title="${esc(time.toLocaleString())}">${esc(time.toLocaleTimeString(getLanguage(), {hour:'2-digit',minute:'2-digit'}))}</time></a>`;
+      return `<a class="notification-row" href="/?session=${encodeURIComponent(item.session_id)}" data-notice="${esc(item.id)}"${item.read_at?'':' data-unread'}><span class="read-dot"></span><span class="notice-name" data-no-i18n>${esc(item.title)}</span><time datetime="${esc(item.created_at)}" title="${esc(time.toLocaleString())}">${esc(time.toLocaleTimeString(getLanguage(), {hour:'2-digit',minute:'2-digit'}))}</time></a>`;
     }).join('');
-    return `<section class="notice-group"><h3>${t(title)}<small>${total}</small></h3><div class="notice-rows">${rows || '<p>'+t('暂无通知')+'</p>'}${total>events.length?'<button data-more-notices>'+t('查看更多')+'</button>':''}</div></section>`;
+    return `<section class="notice-group"><h3>${t(title)}<small>${total}</small></h3><div class="notice-rows">${rows}${total>events.length?'<button data-more-notices>'+t('查看更多')+'</button>':''}</div></section>`;
   }
   async function refresh() {
     if (!enabled) return;
@@ -35,7 +36,7 @@ export function createNotifications({api, selectSession}) {
       if (next === signature) return;
       signature = next;
       const normal = data.events.filter(e=>e.kind==='completed'), other = data.events.filter(e=>e.kind!=='completed');
-      list.innerHTML = group(other,'异常结束',data.totals?.exception ?? other.length) + group(normal,'正常结束',data.totals?.normal ?? normal.length);
+      list.innerHTML = group(other,'异常结束',data.totals?.exception ?? other.length) + group(normal,'正常结束',data.totals?.normal ?? normal.length) || '<p>'+t('暂无通知')+'</p>';
     } catch (error) { if(token===generation) {status.hidden=false;status.textContent=error.message;} }
   }
   all.onclick = async () => {

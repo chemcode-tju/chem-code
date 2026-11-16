@@ -70,13 +70,13 @@ export function createProgressFeed({api,getSession,markdown,onFinal}) {
     };
     const updates=rows.filter(row=>row.kind!=='plan').slice().reverse();
     const items=updates.slice(0,visibleRows).map(item);
-    if(updates.length>visibleRows) items.push('<button class="view-result" data-earlier>查看更早的进度</button>');
+    if(updates.length>visibleRows) items.push('<button class="view-result" data-earlier>加载更多</button>');
     const related=rows.filter(row=>row.plan_id===step.dataset.planId && row.node_id===step.dataset.nodeId);
     document.getElementById('step-replies').hidden=!related.length;
     document.getElementById('step-reply-list').innerHTML=related.map(item).join('');
     const messages=new Set(rows.map(row=>row.message));
     for(const turn of history) if(!finals.has(turn.event) && !turn.event.startsWith('plan:') && !messages.has(turn.answer)) {
-      items.push(`<article><small>Agent · 历史步骤回复</small>${progressMarkdown(markdown,turn.answer)}</article>`);
+      items.push(`<article><small>历史步骤回复</small>${progressMarkdown(markdown,turn.answer)}</article>`);
     }
     const latest=currentStepProgress(rows,plans);
     const fold=(key,title,body,count,open)=>`<details class="progress-group" data-progress-group="${key}"${(folds.get(key) ?? open)?' open':''}><summary><span>${title}</span><span class="progress-count">${count}</span></summary>${body}</details>`;
@@ -85,7 +85,7 @@ export function createProgressFeed({api,getSession,markdown,onFinal}) {
       return records.length?fold(key,title,records.map(item).join(''),records.length,open):'';
     }).join('');
     const historyMarkup=items.length?fold('history','更新记录',items.join(''),updates.length,false):'';
-    list.innerHTML=groups ? groups+historyMarkup : items.join('') || '<p class="inspector-empty">暂无步骤回复</p>';
+    list.innerHTML=groups ? groups+historyMarkup : items.join('') || '<p class="inspector-empty">暂无计算进度</p>';
   }
   function reset(id=null) {
     session=id; generation++; cursor=0; visibleRows=40; rows=[]; history=[]; plans=[];planSignature='';finals.clear();folds.clear();loading=false;draw();

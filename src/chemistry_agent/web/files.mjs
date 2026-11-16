@@ -43,7 +43,7 @@ export function createFileUploads({ state, toast, updateControls, onChange, onUn
   function render() {
     const files=active?.files || [], uploading=active?.loading;
     $("attachment-list").hidden = !files.length && !uploading;
-    $("attachment-list").innerHTML = files.map((file) => `<div class="attachment-chip"><a href="/api/files/${file.id}" download data-no-i18n>${escapeHtml(file.name)}</a>${fileViewer(file)}<small>${t(file.text_available ? "文本可读取" : "已上传，未解析")}</small><button type="button" data-remove-file="${file.id}" aria-label="${escapeHtml(t("移除附件"))}"${state.busy ? " disabled" : ""}><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></div>`).join("") + (uploading ? `<span class="upload-progress">${t("正在上传…")}</span>` : "");
+    $("attachment-list").innerHTML = files.map((file) => `<div class="attachment-chip"><a href="/api/files/${file.id}" download data-no-i18n>${escapeHtml(file.name)}</a>${fileViewer(file)}<button type="button" data-remove-file="${file.id}" aria-label="${escapeHtml(t("移除附件"))}"${state.busy ? " disabled" : ""}><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></div>`).join("") + (uploading ? `<span class="upload-progress">${t("正在上传…")}</span>` : "");
     updateControls(); onChange?.();
   }
   $("attachment-list").addEventListener("click", (event) => {

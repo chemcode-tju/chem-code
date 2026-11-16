@@ -34,6 +34,6 @@ test('board keeps exact labels and detail action, escapes titles, and represents
   assert.match(html,/&lt;long title&gt;/);
   assert.match(html,/等待依赖/);
   assert.match(html,/data-column="ended"[^>]*hidden/);
-  assert.match(html,/<p class="kanban-empty" >暂无步骤<\/p>/);
+  assert.doesNotMatch(html,/kanban-empty|暂无步骤/);
   assert.equal((html.match(/data-board-node=/g)||[]).length,1);
 });

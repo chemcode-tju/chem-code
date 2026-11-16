@@ -26,6 +26,6 @@ export function planKanban(nodes, attribute) {
         return `<li data-board-node="${esc(node.id)}"><button type="button" class="kanban-card" ${attribute}="${esc(node.id)}" title="${esc([title,group,node.status].filter(Boolean).join(' · '))}">
           <strong data-no-i18n>${esc(title)}</strong>${group?`<span class="kanban-group" data-no-i18n>${esc(group)}</span>`:''}
           <span class="kanban-status">${esc(node.status)}</span></button></li>`;
-      }).join('')}</ul><p class="kanban-empty" ${members.length?'hidden':''}>暂无步骤</p></section>`;
+      }).join('')}</ul></section>`;
   }).join('')}</div>`;
 }

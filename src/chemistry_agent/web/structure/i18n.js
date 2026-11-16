@@ -41,7 +41,6 @@
   "帧号": "Frame number",
   "轨迹帧滑块": "Trajectory timeline",
   "第一帧": "First frame",
-  "第 {0} 帧": "Frame {0}",
   "上一帧": "Previous frame",
   "播放轨迹": "Play trajectory",
   "暂停轨迹": "Pause trajectory",
@@ -384,8 +383,6 @@
   "格式识别": "File format",
   "请先打开结构": "Open a structure first",
   "收起轨迹与视图": "Collapse trajectory and view",
-  "收起轨迹工具": "Collapse trajectory controls",
-  "展开轨迹工具": "Expand trajectory controls",
   "导出": "Export",
   "视图方向与布局": "View orientation and layout",
   "结构信息": "Structure information",
@@ -422,7 +419,23 @@
   "原始坐标（Å），不包含 Wrap 或质心校正。质量 * 表示元素参考值。": "Source coordinates (Å), before Wrap or drift correction. Mass * denotes an elemental reference value.",
   "晶胞和周期边界来自当前帧。": "Cell and periodic boundaries are from the current frame.",
   "当前帧没有晶胞信息。": "No cell information in this frame.",
-  "类型按源文件保留；未提供类型时按元素归类。质量 * 为元素参考值；半径为默认显示半径。": "Source types are retained; missing types are grouped by element. Mass * is an elemental reference; radii are default display radii."
+  "类型按源文件保留；未提供类型时按元素归类。质量 * 为元素参考值；半径为默认显示半径。": "Source types are retained; missing types are grouped by element. Mass * is an elemental reference; radii are default display radii.",
+  "展开轨迹工具": "Expand trajectory controls",
+  "收起轨迹工具": "Collapse trajectory controls",
+  "第 {0} 帧": "Frame {0}",
+  "筛选原子…": "Filter atoms…",
+  "帧步长": "Frame stride",
+  "启用校正": "Enable correction",
+  "参考帧": "Reference frame",
+  "原子序号": "Atom indices",
+  "重置选中": "Reset selected",
+  "全部重置": "Reset all",
+  "透明背景": "Transparent background",
+  "已开始下载": "Download started",
+  "此格式单文件转换上限为 32 MiB。": "This format has a 32 MiB conversion limit per file.",
+  "原始坐标（未含 Wrap/校正）": "Source coordinates (before Wrap/correction)",
+  "* 元素参考质量": "* Elemental reference mass",
+  "原始坐标（未含 Wrap/校正） · * 元素参考质量": "Source coordinates (before Wrap/correction) · * Elemental reference mass"
 }
 ;
   const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

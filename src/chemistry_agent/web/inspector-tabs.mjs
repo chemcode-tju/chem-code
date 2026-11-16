@@ -41,8 +41,8 @@ export function initInspectorTabs(setVisible) {
     document.getElementById("dock-count").textContent = String(opened.length);
     const toggle = document.getElementById("tools-toggle");
     toggle.title = document.documentElement.lang === "en"
-      ? `Expand research panel (${opened.length} ${opened.length === 1 ? "tab" : "tabs"})`
-      : `展开研究面板（${opened.length} 个标签页）`;
+      ? "Expand research panel"
+      : "展开研究面板";
     toggle.setAttribute("aria-label", toggle.title);
   }
 

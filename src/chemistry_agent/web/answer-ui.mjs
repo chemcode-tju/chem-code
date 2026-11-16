@@ -19,7 +19,7 @@ export function activitySteps(steps=[], calls=[], {deferDetails=false} = {}) {
     if (step.type === 'commentary') return `<div class="activity-commentary" data-no-i18n>${esc(step.text)}</div>`;
     const call = step.call_id ? byId.get(step.call_id) || step : step;
     const name = esc(t(TOOL_LABELS[step.name] || step.name || '工具'));
-    const status = t(({running:'执行中',completed:'已完成',failed:'需调整输入',uncertain:'结果待核对'})[step.status] || '结果待核对');
+    const status = t(({running:'执行中',completed:'已完成',failed:'未完成',uncertain:'结果待核对'})[step.status] || '结果待核对');
     if (call.arguments===undefined && call.result===undefined) return `<div class="activity-item" data-status="${esc(step.status)}">${name}<small>${status}</small></div>`;
     const detail = deferDetails ? '' : activityDetail(steps,calls,index);
     return `<details class="activity-item"${deferDetails ? ` data-deferred-call="${index}"` : ''}><summary>${name}<small>${status}</small>${icon('chevron')}</summary>${detail}</details>`;
@@ -63,6 +63,7 @@ export function activity({id,start,end,calls=[],steps=[],running=false,draftRequ
   if (!start && !calls.length && !steps.length && !draftRequest) return '';
   const clock = duration(start,end || new Date().toISOString());
   const label = clock ? t(running?'已用时':'用时')+' '+clock : '';
+  if (!running && !calls.length && !steps.length && !draftRequest) return label ? `<div class="activity-duration">${esc(label)}</div>` : "";
   const rows = deferred ? "" : activitySteps(steps,calls);
   const draft = draftRequest ? `<div class="answer-output activity-draft" hidden>${liveCopyButton()}<div class="markdown" data-live-request="${esc(draftRequest)}"></div></div>` : '';
   return `<details class="turn-activity" data-activity="${esc(id)}" data-running="${running}"${deferred ? ' data-deferred-activity' : ''}${running?' open':''}><summary aria-label="${t('处理过程')}"><span${running && start?' data-clock="'+esc(start)+'"':''}>${esc(label)}</span>${icon('chevron')}</summary><div class="activity-log"><div data-activity-steps>${rows}</div><p data-activity-placeholder${rows?' hidden':''}>${t(running?'正在生成下一步…':'未调用工具')}</p>${draft}</div></details>`;
@@ -116,4 +117,11 @@ export function initAnswerControls({root, answer, toast}) {
   setInterval(()=>{for(const el of root.querySelectorAll('[data-clock]')) {
     el.textContent=t('已用时')+' '+duration(el.dataset.clock,new Date().toISOString());
   }},1000);
+}
+
+/** Hide only the application's own revision envelope; preserve actual references. */
+export function visibleReference(context = '') {
+  if (/^修改方案\/步骤：[\s\S]*；先读取 calculation_plan_get，再用 calculation_plan_save 修改 plan_id=[\w-]+，expected_revision=\d+。$/.test(context) ||
+      /^修改步骤：[\s\S]*；用 calculation_prepare\.revises_preview_id 替换草案 [\w-]+$/.test(context)) return '';
+  return context;
 }

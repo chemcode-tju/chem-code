@@ -74,7 +74,7 @@
         <div id="structure-attachments" class="structure-attachments"></div>
         <div id="attachment-list" class="attachment-list" aria-live="polite" hidden></div>
         <label class="sr-only" for="message-input">输入化学问题</label>
-        <textarea id="message-input" rows="1" maxlength="20000" placeholder="输入问题，或描述你的研究任务…" required></textarea>
+        <textarea id="message-input" rows="1" maxlength="20000" placeholder="输入研究问题…" required></textarea>
         <div class="composer-toolbar"><div class="composer-left"><div class="add-menu"><button type="button" class="icon-button" id="composer-add" aria-label="添加附件或工具" title="添加附件或工具" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-plus"/></svg></button><div class="upload-menu" id="composer-upload-menu" hidden><button type="button" data-upload>上传文件</button><div id="shell-options"></div></div></div></div><div class="composer-right"><button id="context-ring" type="button" data-dialog="context-panel" aria-haspopup="dialog" aria-controls="context-panel" aria-expanded="false" aria-label="上下文用量" title="上下文用量"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><circle class="context-used" cx="8" cy="8" r="5.8" pathLength="100" transform="rotate(-90 8 8)"/></svg></button><div class="agent-composer-controls">
           <button type="button" id="agent-picker" class="agent-picker" aria-haspopup="menu" aria-expanded="false" title="Agent、模型与推理强度"><svg class="icon agent-logo"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span id="agent-picker-label">选择模型</span><svg class="icon small-chevron"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
           <button type="button" id="permission-picker" class="permission-picker" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-shield"/></svg><span id="permission-label">批准</span><svg class="icon small-chevron"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
@@ -126,7 +126,7 @@
     <nav id="inspector-launcher" class="inspector-launcher" aria-label="研究工具"></nav>
     <section class="inspector-scroll" id="inspector-panel-calculation" hidden role="tabpanel" aria-labelledby="inspector-tab-calculation" tabindex="0">
       <div id="plan-overview"><div id="calculation-cards" class="calculation-workspace" hidden></div>
-      <p class="inspector-empty">此对话暂无计算方案。</p></div>
+      <p class="inspector-empty">暂无计算方案</p></div>
       <section id="step-screen" hidden aria-label="步骤详情">
         <nav class="step-tools" aria-label="步骤导航">
           <button type="button" id="step-back"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>返回方案</button>
@@ -137,7 +137,7 @@
           <div class="step-kicker"><span id="step-kind"></span><span id="step-index"></span></div>
           <div id="step-group-path" class="step-group-path" aria-label="所属分支" hidden></div>
           <h2 id="step-title"></h2>
-          <details class="step-description"><summary>步骤说明</summary><code id="step-key"></code><div id="step-purpose"></div></details>
+          <div id="step-purpose"></div><details class="step-description"><summary>技术信息</summary><span>步骤 ID</span> <code id="step-key"></code></details>
           <div class="step-meta"><span class="step-status" id="step-status"></span><span id="step-progress" role="status"></span>
             <button type="button" id="step-refresh">刷新</button></div>
         </header>
@@ -168,23 +168,23 @@
       <details id="structure-library" class="structure-library" open><summary>结构文件 <span id="structure-file-count"></span></summary><div class="structure-library-list"><div id="workspace-structures"></div><div id="structure-list"></div></div></details>
       <div class="structure-viewer-shell"><iframe id="structure-viewer-frame" data-src="/structures?embed=1" title="结构查看器"></iframe></div>
     </section>
-    <section class="inspector-scroll" id="inspector-panel-events" role="tabpanel" aria-labelledby="inspector-tab-events" hidden><div id="progress-events" aria-live="polite">暂无步骤回复</div></section>
+    <section class="inspector-scroll" id="inspector-panel-events" role="tabpanel" aria-labelledby="inspector-tab-events" hidden><div id="progress-events" aria-live="polite">暂无计算进度</div></section>
     <section class="inspector-scroll" id="inspector-panel-tools" role="tabpanel" aria-labelledby="inspector-tab-tools" tabindex="0" hidden>
-      <div class="section-heading"><h2>分子工具</h2><span>本地计算</span></div>
+      <div class="section-heading"><h2>分子工具</h2></div>
       <details class="tool-form-card"><summary><span class="tool-icon"><svg class="icon"><use href="/assets/ui-icons.svg#i-flask"/></svg></span><span><strong>分子属性</strong><small>分子量 · LogP · 氢键 · TPSA</small></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <form id="properties-form"><label for="properties-smiles">分子 SMILES</label><input id="properties-smiles" name="smiles" type="text" placeholder="例如 CCO（乙醇）" maxlength="2000" required autocomplete="off" spellcheck="false"><button class="tool-submit" type="submit">计算分子属性 <svg class="icon"><use href="/assets/ui-icons.svg#i-arrow-right"/></svg></button></form>
       </details>
       <details class="tool-form-card"><summary><span class="tool-icon"><svg class="icon"><use href="/assets/ui-icons.svg#i-compare"/></svg></span><span><strong>结构相似度</strong><small>Morgan 指纹 · Tanimoto</small></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <form id="similarity-form"><label for="similarity-a">分子 A · SMILES</label><input id="similarity-a" name="smiles_a" type="text" placeholder="例如 CCO" maxlength="2000" required autocomplete="off" spellcheck="false"><label for="similarity-b">分子 B · SMILES</label><input id="similarity-b" name="smiles_b" type="text" placeholder="例如 CO" maxlength="2000" required autocomplete="off" spellcheck="false"><button class="tool-submit" type="submit">比较结构相似度 <svg class="icon"><use href="/assets/ui-icons.svg#i-arrow-right"/></svg></button></form>
       </details>
-      <details class="result-section" id="result-section"><summary>工具结果 <span id="result-badge">暂无记录</span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary><div id="result-panel" class="result-panel"><p class="empty-result">运行工具后，在这里查看结果。</p></div></details>
+      <details class="result-section" id="result-section" hidden><summary>工具结果 <span id="result-badge">暂无记录</span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary><div id="result-panel" class="result-panel"><p class="empty-result">运行工具后，在这里查看结果。</p></div></details>
     </section>
   </aside>
   <dialog id="notification-panel" data-workspace-dialog><header><h2 id="notification-title">通知</h2><button type="button" id="notification-read-all">全部已读</button><button data-close aria-label="关闭通知"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header><p id="monitor-status"></p><div id="notification-list"></div></dialog>
   <dialog id="context-panel" data-workspace-dialog aria-labelledby="context-status"><header><h2 id="context-status">上下文用量</h2><button data-close aria-label="关闭上下文"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header>
       <p id="context-budget">暂无对话记录。</p><pre id="context-summary"></pre>
     <dl id="native-context-details" hidden></dl><button type="button" id="compact-context">立即压缩历史</button></dialog>
-  <dialog id="project-dialog" aria-labelledby="project-dialog-title"><form id="project-form"><h2 id="project-dialog-title">新建项目</h2><label for="project-name">项目名称</label><input id="project-name" maxlength="80" required autocomplete="off"><p class="hint" id="project-hint" hidden>删除文件夹会保留所有对话，并将它们移回聊天列表。</p><div class="dialog-actions"><button id="delete-project" type="button" hidden>删除文件夹</button><button id="cancel-project" type="button">取消</button><button class="primary" type="submit">保存</button></div><p id="project-error" role="alert"></p></form></dialog>
+  <dialog id="project-dialog" aria-labelledby="project-dialog-title"><form id="project-form"><h2 id="project-dialog-title">新建项目</h2><label for="project-name">项目名称</label><input id="project-name" maxlength="80" required autocomplete="off"><div class="dialog-actions"><button id="delete-project" type="button" hidden>删除文件夹</button><button id="cancel-project" type="button">取消</button><button class="primary" type="submit">保存</button></div><p id="project-error" role="alert"></p></form></dialog>
   <div class="toast" id="toast" role="status" hidden></div>
   <noscript>此页面需要启用 JavaScript 才能使用聊天和分子工具。</noscript>
   <section class="auth-screen" id="login-screen" aria-labelledby="login-title" hidden>
@@ -196,9 +196,9 @@
         <label for="login-username">用户名</label>
         <input id="login-username" name="username" type="text" maxlength="32" placeholder="例如 researcher" autocomplete="username" required>
         <label for="login-password">密码</label>
-        <input id="login-password" name="password" type="password" maxlength="256" placeholder="请输入密码" autocomplete="current-password" required>
+        <input id="login-password" name="password" type="password" maxlength="256" autocomplete="current-password" required>
         <p class="auth-error" id="login-error" role="alert" hidden></p>
-        <button class="auth-submit" id="login-submit" type="submit">登录工作空间 <svg class="icon"><use href="/assets/ui-icons.svg#i-arrow-right"/></svg></button>
+        <button class="auth-submit" id="login-submit" type="submit">登录 <svg class="icon"><use href="/assets/ui-icons.svg#i-arrow-right"/></svg></button>
       </form>
     </div>
   </section>

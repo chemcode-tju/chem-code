@@ -74,3 +74,7 @@ dialog { width:min(640px,calc(100% - 32px)); max-height:90dvh; overflow:auto; bo
 .version-row a { text-decoration:underline; }
 @media(max-width:1050px) { body { grid-template-columns:210px minmax(0,1fr); } #detail { padding:24px 20px; } .memory-columns { grid-template-columns:240px minmax(0,1fr); } }
 @media(max-width:800px) { body { display:block; overflow:auto; height:auto; } .memory-sidebar { gap:10px; padding:14px 16px; } .brand { font-size:16px; } .memory-sidebar nav { display:flex; } .source-controls { display:grid; grid-template-columns:80px minmax(0,1fr); gap:8px; align-items:center; } .source-controls label { margin:0; } .source-controls .hint { grid-column:1/-1; margin:0; } .sidebar-bottom { display:flex; } .page-header { padding:12px 20px; } .page-header span { display:none; } .search-bar { padding:16px 20px 8px; flex-wrap:wrap; } .search-field { flex-basis:100%; } .memory-columns { display:block; } .result-pane { max-height:330px; border-right:0; border-bottom:1px solid var(--border); } #detail { padding:24px 20px; } .field-pair { grid-template-columns:1fr; } }
+
+.source-controls > div {display:grid;gap:8px;min-width:0;}
+.source-controls > div select {width:100%;min-width:0;}
+@media(max-width:800px) { .source-controls > div {grid-column:1/-1;grid-template-columns:80px minmax(0,1fr);align-items:center;} .source-controls > div button {grid-column:2;} }

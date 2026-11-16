@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createRequire} from 'node:module';
 import {createMarkdownRenderer} from '../src/chemistry_agent/web/core.mjs';
-import {documentBody, resultCard, scopeDescription} from '../src/chemistry_agent/web/memory-view.mjs';
+import {documentBody, resultCard, memoryScope} from '../src/chemistry_agent/web/memory-view.mjs';
 
 const require=createRequire(import.meta.url);
 const markdown=createMarkdownRenderer(require('../src/chemistry_agent/web/vendor/markdown-it.min.js'));
@@ -36,6 +36,21 @@ test('untrusted memory fields, source names and Markdown never become active HTM
 
 test('legacy lesson prose renders as Markdown rather than failing JSON parsing',()=>{
   assert.match(documentBody({...item,content:'**检查 SCF**'},'source',markdown),/<strong>检查 SCF<\/strong>/);
-  assert.match(scopeDescription('project'),/同一项目内切换对话，结果可能相同/);
-  assert.match(scopeDescription('session'),/仅检索所选对话/);
+
+});
+
+
+test('memory scope drops inactive filters so hidden selectors cannot override searches',()=>{
+  assert.deepEqual(memoryScope('personal','old-chat','old-project'),{scope:'personal',session:'',project_id:''});
+  assert.deepEqual(memoryScope('project','old-chat','selected-project'),{scope:'project',session:'',project_id:'selected-project'});
+  assert.deepEqual(memoryScope('session','selected-chat','old-project'),{scope:'session',session:'selected-chat',project_id:''});
+});
+
+test('scientific caveats appear with their evidence rather than on every document',()=>{
+  const lesson=documentBody(item,'source',markdown);
+  assert.match(lesson,/参数变化不等于已证实的报错根因/);
+  const ordinary=documentBody({...item,kind:'document',content:'Research note'},'source',markdown);
+  assert.doesNotMatch(ordinary,/参数变化不等于|复用前核对|收敛记录不代表/);
+  assert.match(ordinary,/<td>科学精度<\/td><td>未验证<\/td>/);
+  assert.match(documentBody({...item,applicability:'Only Cu(111)'},'source',markdown),/data-no-i18n>Only Cu\(111\)/);
 });

@@ -73,7 +73,7 @@ export function workflowPlan(item,job,sessionPath='') {
   const heading = active<0 ? `共 ${groups.length} 步` : `进行到第 ${active+1} / ${groups.length} 步`;
   return `<div class="workflow-plan" aria-label="计算流程"><div class="plan-heading"><strong>执行方案</strong><small>${heading}</small></div>`+groups.map((steps,i)=>{
     const parallel = steps[0].parallel;
-    return '<div class="plan-group"'+(active===i?' aria-current="step"':'')+'><span class="plan-number">'+(i+1)+'</span><div class="plan-nodes">'+(parallel?'<small>并行 · 独立提交</small>':'')+steps.map(step=>{
+    return '<div class="plan-group"'+(active===i?' aria-current="step"':'')+'><span class="plan-number">'+(i+1)+'</span><div class="plan-nodes">'+(parallel?'<small>并行</small>':'')+steps.map(step=>{
       const {key,child,title,status,tone,rows} = describeStep(item,job,step);
       if (sessionPath) {
         const count = child?.results?.run_status?.last_iteration_index?.[0];

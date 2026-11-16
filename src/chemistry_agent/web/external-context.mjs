@@ -15,7 +15,7 @@ export function externalContextView(info, locale = 'zh-CN') {
   const labels = {running:'正在压缩', completed:'压缩完成', failed:'压缩失败', interrupted:'压缩连接中断'};
   if (labels[compact.status]) rows.push(['压缩', labels[compact.status]]);
   if (compact.status === 'completed' && number(compact.before_tokens) && number(compact.after_tokens)) {
-    rows.push(['原生用量', `${format(compact.before_tokens)} → ${format(compact.after_tokens)} tokens`]);
+    rows.push(['压缩前后', `${format(compact.before_tokens)} → ${format(compact.after_tokens)} tokens`]);
   }
   const date = compact.finished_at || compact.started_at || (used !== null ? info.updated_at : null);
   if (date && !Number.isNaN(Date.parse(date))) rows.push(['更新于', new Date(date).toLocaleString(locale)]);

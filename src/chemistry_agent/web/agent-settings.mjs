@@ -43,6 +43,7 @@ export function createAgentSettings(api) {
       connection.textContent = currentProbe ? t(currentProbe.authenticated ? '已验证登录' : currentProbe.available ? '未通过验证' : '未安装')
         : edited !== executable ? t('程序路径已修改 · 需要重新检测') : status;
       connection.dataset.state = currentProbe && !currentProbe.authenticated ? 'failed' : '';
+      connection.hidden = connection.textContent === status;
     }
   }
   function builtinSummary(data) {

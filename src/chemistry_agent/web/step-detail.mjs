@@ -38,7 +38,7 @@ export function createStepDetail({api,rememberCount}) {
     bridge.reset();bridge.open(sequence?`NEB 路径 · 优化步 ${sequence.step}`:name,async()=>{
       if(sequence){
         const data=await api(sequence.url);
-        if(data.stale && registeredSelection?.sequence?.id===sequence.id)$('step-note').textContent=`缓存路径 · ${resultTimestamp(data.observed_at)}`;
+        if(data.stale && !results.isStale() && registeredSelection?.sequence?.id===sequence.id)$('step-note').textContent=`缓存路径 · ${resultTimestamp(data.observed_at)}`;
         if(data.kind!=='neb_sequence'||!data.files?.length)throw Error('尚无完整路径结构');
         return data.files.map(item=>new File([item.content],item.name));
       }
@@ -247,14 +247,7 @@ export function createStepDetail({api,rememberCount}) {
     const source = info.files[name], view = current;
     activeFile=name;activeSnapshot=info.ionic_step; drawFiles(); $('step-note').textContent='';
     let caption = source;
-    if (name === 'POSCAR' && (source === '方案预览' || source === '实际提交')) {
-      if (view.key === 'surface') caption += source === '方案预览'
-        ? ' · 切面示意。正式输入由收敛后的体相晶格生成'
-        : ' · 由收敛后的体相晶格切面生成';
-      if (['top','bridge','hollow'].includes(view.key)) caption += source === '方案预览'
-        ? ' · 位点示意。洁净表面优化通过后，再用其末态放置 CO'
-        : ' · 在优化后的洁净表面上放置 CO';
-    }
+    if (name === 'POSCAR' && source === '方案预览' && ['surface','top','bridge','hollow'].includes(view.key)) caption='示意结构（确认后按收敛结果生成）';
     $('step-file-source').textContent=caption;
     bridge.reset();
     bridge.open(name,async () => {
@@ -308,14 +301,13 @@ export function createStepDetail({api,rememberCount}) {
       $('step-note').textContent=next.note || '';
       $('step-monitor-label').textContent=t(next.monitor?.kind==='md'?'分子动力学':'离子步收敛');
       $('step-progress').textContent=next.ionic_step!=null
-        ? next.monitor?.kind==='md'?`${next.ionic_step} MD 步`:`已完成 ${next.ionic_step} 个离子步${view.nsw>0?' · NSW 上限 '+view.nsw:''}`
-        : next.monitor?.kind==='md'?t(next.monitor.stage==='minimization'?'正在准备：能量最小化':'等待首个完整 MD 记录'):next.pk?'等待首个完整离子步记录':'尚无离子步记录';
+        ? next.monitor?.kind==='md'?`${next.ionic_step} MD 步`:`${next.ionic_step}${view.nsw>0?' / '+view.nsw:''} 步` : '';
       convergence.update({...next,nsw:view.nsw},view.id+':'+view.key+':'+(next.selected_job_id || next.pk || ''));
       if(view.genericJob) $('step-energies').hidden=!!registered;
       $('step-structures').hidden=registered?.kind==='neb' || view.plan?.nodes.find(item=>item.id===view.key)?.kind==='analysis';
       if(registered?.kind==='neb') {
         const latest=registered.snapshots?.at(-1);
-        $('step-progress').textContent=latest?`最新完整路径 · 优化步 ${latest.step} · ${latest.images.length} 个像`:'等待完整路径快照';
+        $('step-progress').textContent=latest?`优化步 ${latest.step}`:'';
       }
       if (!registeredFiles.length && !registeredSelection && (!activeFile || sourceChanged)) {
         const nextFile=next.files[activeFile]?activeFile:availableFiles(next)[0];
@@ -338,7 +330,7 @@ export function createStepDetail({api,rememberCount}) {
     if(!current) return;
     current={...current,selectedJob:$('step-job-select').value,loading:false};
     results.reset();registeredSelection=null;activeFile='';info=null;bridge.reset();$('step-viewer-shell').hidden=true;
-    $('step-progress').textContent='读取执行记录…';$('step-note').textContent='';
+    $('step-progress').textContent='';$('step-note').textContent='';
     convergence.reset();selectedParameter='';$('step-actual-parameters').replaceChildren();$('step-code').replaceChildren();
     for(const key of [...editors.keys()])if(key!=='purpose')editors.delete(key);
     refresh();
@@ -367,7 +359,7 @@ export function createStepDetail({api,rememberCount}) {
     $('step-config').open=false;
     $('step-structures').open=!job; $('step-energies').open=!aggregate && !!job;
     $('step-investigation').hidden=true; $('step-investigation-log').replaceChildren();
-    $('step-progress').textContent='读取离子步…'; $('step-note').textContent='';
+    $('step-progress').textContent=''; $('step-note').textContent='';
     $('step-file-source').textContent=''; convergence.reset();
     info={files:current.preview?{POSCAR:'方案预览'}:{},points:[]};
     drawFiles();
