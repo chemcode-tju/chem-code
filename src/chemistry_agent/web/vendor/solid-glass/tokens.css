@@ -1,0 +1,235 @@
+/* Solid Glass material tokens, adapted from deeplethe/solid-glass.
+ * Copyright (c) 2026 DeepLethe — MIT; see LICENSE.
+ * Source commit: 6e8903e494a15491ceda38fafea5056c95a74d44
+ * Only changes: --sg- namespace and the host's data-theme selector.
+ */
+
+:root {
+  --sg-radius: 0.875rem;
+  /* What a control is rounded by: a step down from a pane. */
+  --sg-radius-control: 0.7rem;
+
+  /* The page is opaque, a cool grey deep enough for a pane to stand out on;
+     the panes on it are smoked white glass, not paper. */
+  --sg-background: oklch(0.925 0.007 265);
+  --sg-foreground: oklch(0.16 0 0);
+
+  /* Thickness: panel < card < popover. */
+  --sg-panel: oklch(0.975 0.004 265 / 44%);
+  --sg-card: oklch(0.98 0.004 265 / 60%);
+  --sg-card-foreground: oklch(0.16 0 0);
+  --sg-popover: oklch(0.985 0.003 265 / 96%);
+  --sg-popover-foreground: oklch(0.16 0 0);
+
+  --sg-primary: oklch(0.2 0 0);
+  --sg-primary-foreground: oklch(0.985 0 0);
+  --sg-secondary: oklch(0.3 0.02 265 / 9%);
+  --sg-secondary-foreground: oklch(0.2 0 0);
+  --sg-muted: oklch(0.3 0.02 265 / 7%);
+  --sg-muted-foreground: oklch(0.47 0 0);
+  --sg-accent: oklch(0.3 0.02 265 / 9%);
+  --sg-accent-foreground: oklch(0.2 0 0);
+  --sg-destructive: oklch(0.577 0.245 27.325);
+  --sg-border: oklch(0.3 0.02 265 / 13%);
+  --sg-input: oklch(0.3 0.02 265 / 15%);
+  --sg-ring: oklch(0.7 0 0);
+
+  /* The finish. Rim: the line of light on a pane's top edge. Inner: a faint
+     second line inside it. Edge: the hairline round the outside. Shade: the
+     shadow underneath. */
+  --sg-glass-rim: oklch(1 0 0 / 90%);
+  --sg-glass-inner: oklch(1 0 0 / 35%);
+  --sg-glass-edge: oklch(0.38 0.03 265 / 10%);
+  /* The thickest pane, nearly white on a pale page, would lose its edge in
+     the light: it keeps it by a firmer hairline and a shade along its foot. */
+  --sg-popover-edge: oklch(0.38 0.03 265 / 22%);
+  --sg-popover-under: oklch(0.38 0.03 265 / 16%);
+  --sg-glass-shade: oklch(0.3 0.06 265 / 28%);
+  --sg-glass-contact: oklch(0.25 0.03 265 / 6%);
+  --sg-glass-lift: oklch(0.25 0.03 265 / 14%);
+  /* Clear glass, for small things and for the one state. */
+  --sg-glass-control: oklch(1 0 0 / 55%);
+  --sg-glass-control-rim: oklch(1 0 0 / 80%);
+  /* The one state. On white panes a pane of clear glass would be white on
+     white, so here it is the smoked kind: a grey tint, still lit along its
+     top edge, with a hairline dark enough to find. */
+  --sg-glass-state: oklch(0.3 0.02 265 / 9%);
+  --sg-glass-state-rim: oklch(1 0 0 / 85%);
+  --sg-glass-state-edge: oklch(0.3 0.02 265 / 13%);
+  --sg-glass-state-armed: oklch(0.3 0.02 265 / 26%);
+  /* Under the pointer. The greys shadcn/ui hovers with are tuned for a dark
+     page, where 7% of white shows; on white panes the same step vanishes. */
+  --sg-hover: oklch(0.3 0.02 265 / 10%);
+  --sg-hover-faint: oklch(0.3 0.02 265 / 5.5%);
+  /* The primary button is a solid pane the colour of the ink: lit along its
+     top edge, shaded along its bottom one, a hairline round it. */
+  --sg-primary-solid: 88%;
+  --sg-primary-rim: oklch(1 0 0 / 30%);
+  --sg-primary-under: oklch(0 0 0 / 45%);
+  --sg-primary-inner: oklch(1 0 0 / 7%);
+  --sg-primary-edge: oklch(0.2 0 0 / 30%);
+  /* A field is a pane of clear glass to type on: its fill, and the line of
+     light along its top edge. */
+  --sg-field: oklch(1 0 0 / 60%);
+  --sg-field-rim: oklch(1 0 0);
+  --sg-field-edge: oklch(0.3 0.02 265 / 14%);
+  /* A track a knob runs in is a groove: shaded under its upper lip, lit along
+     its lower one. */
+  --sg-well-shade: oklch(0.3 0.06 265 / 14%);
+  --sg-well-rim: oklch(1 0 0 / 85%);
+  /* The line a field is drawn in while it is being typed into. */
+  --sg-focus-line: oklch(0.2 0 0 / 50%);
+  /* A knob — a switch's thumb, a slider's — is the brightest pane there is. */
+  --sg-knob: oklch(1 0 0);
+  --sg-knob-shade: oklch(0.3 0.06 265 / 30%);
+  /* A mark in a chart is a pane standing on its edge. */
+  --sg-mark-solid: 84%;
+  --sg-mark-rim: oklch(1 0 0);
+  --sg-mark-edge: oklch(0.3 0.02 265 / 22%);
+  /* The same hairline where it is a stroke in a chart: half of a stroke falls outside the shape. */
+  --sg-mark-line: oklch(0.3 0.02 265 / 30%);
+  --sg-glass-blur: blur(26px) saturate(180%);
+  --sg-glass-blur-control: blur(14px);
+
+  /* Three sources of light under the glass, kept faint enough that the page
+     still reads as one even surface. Dark has none. */
+  --sg-light-1: oklch(0.68 0.13 165 / 7%);
+  --sg-light-2: oklch(0.75 0.08 240 / 11%);
+  --sg-light-3: oklch(0.68 0.13 165 / 4%);
+
+  --sg-brand: oklch(0.68 0.13 165);
+  --sg-brand-foreground: oklch(0.99 0 0);
+  --sg-brand-muted: oklch(0.68 0.13 165 / 12%);
+
+  /* Motion means running; hue means finished or stopped. */
+  --sg-status-running: oklch(0.52 0 0);
+  --sg-status-done: oklch(0.56 0.16 248);
+  --sg-success: oklch(0.58 0.15 152);
+  --sg-status-interrupted: oklch(0.66 0.16 58);
+
+  /* Links, a name in running text, and the few colours code is set in. */
+  --sg-link: oklch(0.5 0.17 255);
+  --sg-code-inline: oklch(0.53 0.17 22);
+  --sg-syn-keyword: oklch(0.45 0.13 255);
+  --sg-syn-string: oklch(0.5 0.12 160);
+  --sg-syn-number: oklch(0.55 0.14 60);
+  --sg-syn-name: oklch(0.47 0.15 310);
+
+  /* Charts are drawn in greys, like the rest: no hue of their own. The first is the one most
+     charts lead with and the second is what it is set against, so the first is a mid-tone that
+     still reads on a card and the widest step is between those two; the rest close up from there. */
+  --sg-chart-1: oklch(0.7 0 0);
+  --sg-chart-2: oklch(0.54 0 0);
+  --sg-chart-3: oklch(0.44 0 0);
+  --sg-chart-4: oklch(0.35 0 0);
+  --sg-chart-5: oklch(0.27 0 0);
+
+  --sg-sidebar: oklch(0.975 0.004 265 / 44%);
+  --sg-sidebar-foreground: oklch(0.25 0 0);
+  --sg-sidebar-primary: oklch(0.2 0 0);
+  --sg-sidebar-primary-foreground: oklch(0.985 0 0);
+  --sg-sidebar-accent: oklch(0.3 0.02 265 / 9%);
+  --sg-sidebar-accent-foreground: oklch(0.16 0 0);
+  --sg-sidebar-border: oklch(0.3 0.02 265 / 12%);
+  --sg-sidebar-ring: oklch(0.7 0 0);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --sg-background: oklch(0.16 0 0);
+  --sg-foreground: oklch(0.985 0 0);
+
+  --sg-panel: oklch(1 0 0 / 4.5%);
+  --sg-card: oklch(0.31 0 0 / 46%);
+  --sg-card-foreground: oklch(0.985 0 0);
+  --sg-popover: oklch(0.22 0 0 / 96%);
+  --sg-popover-foreground: oklch(0.985 0 0);
+
+  --sg-primary: oklch(0.94 0 0);
+  --sg-primary-foreground: oklch(0.18 0 0);
+  --sg-secondary: oklch(1 0 0 / 10%);
+  --sg-secondary-foreground: oklch(0.985 0 0);
+  --sg-muted: oklch(1 0 0 / 7%);
+  --sg-muted-foreground: oklch(0.72 0 0);
+  --sg-accent: oklch(1 0 0 / 8%);
+  --sg-accent-foreground: oklch(0.98 0 0);
+  --sg-destructive: oklch(0.704 0.191 22.216);
+  --sg-border: oklch(1 0 0 / 11%);
+  --sg-input: oklch(1 0 0 / 13%);
+  --sg-ring: oklch(0.52 0 0);
+
+  --sg-glass-rim: oklch(1 0 0 / 16%);
+  --sg-glass-inner: oklch(1 0 0 / 4%);
+  --sg-glass-edge: oklch(1 0 0 / 6%);
+  --sg-popover-edge: var(--sg-glass-edge);
+  --sg-popover-under: oklch(0 0 0 / 0%);
+  --sg-glass-shade: oklch(0 0 0 / 60%);
+  --sg-glass-contact: oklch(0 0 0 / 10%);
+  --sg-glass-lift: oklch(0 0 0 / 22%);
+  --sg-glass-control: oklch(1 0 0 / 7%);
+  --sg-glass-control-rim: oklch(1 0 0 / 11%);
+  --sg-glass-state: var(--sg-glass-control);
+  --sg-glass-state-rim: var(--sg-glass-control-rim);
+  --sg-glass-state-edge: var(--sg-glass-edge);
+  --sg-glass-state-armed: var(--sg-glass-control-rim);
+  --sg-hover: oklch(1 0 0 / 8%);
+  --sg-hover-faint: oklch(1 0 0 / 4%);
+  --sg-primary-solid: 86%;
+  --sg-primary-rim: oklch(1 0 0);
+  --sg-primary-under: oklch(0 0 0 / 22%);
+  --sg-primary-inner: oklch(0 0 0 / 7%);
+  --sg-primary-edge: oklch(1 0 0 / 26%);
+  --sg-field: oklch(1 0 0 / 6%);
+  --sg-field-rim: oklch(1 0 0 / 15%);
+  --sg-field-edge: oklch(1 0 0 / 8%);
+  --sg-well-shade: oklch(0 0 0 / 38%);
+  --sg-well-rim: oklch(1 0 0 / 9%);
+  --sg-focus-line: oklch(1 0 0 / 40%);
+  --sg-knob: oklch(0.97 0 0);
+  --sg-knob-shade: oklch(0 0 0 / 55%);
+  --sg-mark-solid: 68%;
+  --sg-mark-rim: oklch(1 0 0);
+  --sg-mark-edge: oklch(1 0 0 / 22%);
+  --sg-mark-line: oklch(1 0 0 / 46%);
+  /* Neutral grey, like the page: no tint of its own, and it blurs what is
+     behind it without boosting its colour. A pane that leans blue beside a
+     grey one reads as a second palette. */
+  --sg-glass-blur: blur(26px);
+
+  --sg-light-1: transparent;
+  --sg-light-2: transparent;
+  --sg-light-3: transparent;
+
+  --sg-brand: oklch(0.78 0.13 166);
+  --sg-brand-foreground: oklch(0.2 0.03 166);
+  --sg-brand-muted: oklch(0.78 0.13 166 / 15%);
+
+  --sg-status-running: oklch(0.72 0 0);
+  --sg-status-done: oklch(0.68 0.15 250);
+  --sg-success: oklch(0.74 0.16 152);
+  --sg-status-interrupted: oklch(0.77 0.15 62);
+
+  --sg-link: oklch(0.76 0.12 250);
+  --sg-code-inline: oklch(0.73 0.13 20);
+  --sg-syn-keyword: oklch(0.78 0.1 250);
+  --sg-syn-string: oklch(0.8 0.11 160);
+  --sg-syn-number: oklch(0.8 0.12 80);
+  --sg-syn-name: oklch(0.78 0.11 305);
+
+  --sg-chart-1: oklch(0.94 0 0);
+  --sg-chart-2: oklch(0.83 0 0);
+  --sg-chart-3: oklch(0.69 0 0);
+  --sg-chart-4: oklch(0.56 0 0);
+  --sg-chart-5: oklch(0.44 0 0);
+
+  --sg-sidebar: oklch(0.11 0 0 / 50%);
+  --sg-sidebar-foreground: oklch(0.9 0 0);
+  --sg-sidebar-primary: oklch(0.95 0 0);
+  --sg-sidebar-primary-foreground: oklch(0.18 0 0);
+  --sg-sidebar-accent: oklch(1 0 0 / 8%);
+  --sg-sidebar-accent-foreground: oklch(0.98 0 0);
+  --sg-sidebar-border: oklch(1 0 0 / 10%);
+  --sg-sidebar-ring: oklch(0.48 0 0);
+}
+

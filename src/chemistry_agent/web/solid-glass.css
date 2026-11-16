@@ -1,0 +1,131 @@
+/* Native-component adapter for Solid Glass. Material recipes are adapted from
+ * deeplethe/solid-glass (MIT, Copyright 2026 DeepLethe).
+ * See vendor/solid-glass/ORIGIN.md. Layout, scientific colours and actions stay
+ * owned by the existing components. Load after their stylesheets. */
+
+/* Thin panes frame the workspace. Avoid backdrop filters on large ancestors:
+   they would capture fixed menus and repeatedly composite the 3D viewport. */
+.sidebar,.memory-sidebar {background:var(--sidebar-fill);border-right:0;box-shadow:inset -1px 0 0 var(--sg-glass-edge),inset 0 1px 0 var(--sg-glass-inner);}
+.inspector-open .inspector {background:var(--panel);border-left:0;box-shadow:inset 1px 0 0 var(--sg-glass-edge);}
+.topbar,.inspector-strip,.page-header {background:var(--panel);box-shadow:inset 0 1px 0 var(--sg-glass-inner),0 1px 0 var(--sg-glass-edge);border-bottom:0;}
+.inspector-strip {background:var(--panel);}
+.settings-sheet {background:var(--panel);box-shadow:var(--glass-shadow);}
+body:has(>.settings-sheet) {background:var(--surface);}
+.settings-header {border-bottom:1px solid var(--border);padding-bottom:10px;}
+.settings-sidebar {background:var(--panel);border-right:1px solid var(--border);}
+.embedded-settings .settings-sheet,.compact-settings .settings-sheet {box-shadow:none;}
+
+/* Card thickness: no second border between the inset rim and outer hairline.
+   Repeated graph/list cards use the same material without per-card blur. */
+.map-board,.agent-service-list,.server-cards,.setup-list,.config-editor,.compatibility,
+.agent-approval,.task-notifications {
+  background:var(--card);border:0;border-radius:var(--radius-panel);box-shadow:var(--glass-shadow);
+}
+.map-board .map-node,.map-board .kanban-card {
+  background:color-mix(in srgb,var(--card),var(--surface));
+  border:0;border-radius:var(--radius-panel);box-shadow:var(--glass-shadow);
+}
+.map-board .kanban-card:hover,.map-position:is(.is-neighbor,:hover) .map-node {
+  background:color-mix(in srgb,var(--card) 85%,var(--hover));box-shadow:var(--glass-shadow),inset 0 0 0 1px var(--sg-glass-state-edge);
+}
+.map-position:is(.is-current,:focus-within) .map-node {box-shadow:var(--glass-shadow),0 0 0 2px var(--accent);}
+.map-window,.plan-kanban {background-color:var(--surface);}
+.map-tools,.map-foot {background:var(--panel);}
+.plan-kanban {border-radius:0 0 var(--radius-panel) var(--radius-panel);}
+.map-dialog>.map-board {border-radius:0;box-shadow:none;}
+.map-dialog .plan-kanban {border-radius:0;}
+.kanban-empty {border-color:var(--border);}
+.map-grip {background:var(--panel);}
+
+/* The composer and user bubble are small, tangible panes. Long assistant
+   answers remain on the quiet page, without another enclosing card. */
+.composer {background:var(--card);border:0;border-radius:var(--radius-dialog);box-shadow:var(--glass-shadow);}
+.composer:focus-within {box-shadow:var(--glass-shadow),0 0 0 1px var(--sg-focus-line);}
+.user-bubble {background:var(--sg-glass-control);box-shadow:var(--control-shadow);border-radius:var(--radius-dialog);}
+.composer>textarea {background:transparent;border:0;box-shadow:none;}
+.new-chat {background:var(--sg-glass-control);border:0;box-shadow:var(--control-shadow);border-radius:var(--radius-control);}
+.assistant-update {border-left-color:var(--strong-border);}
+
+/* The thickest panes: popup content remains almost opaque over dense text. */
+.choice-menu,.agent-menu,.upload-menu,.map-pop,.tool-card,.floating-panel,
+dialog:not(.map-dialog),#atom-panel {
+  color:var(--text);background:var(--raised);border:0;border-radius:var(--radius-panel);
+  box-shadow:var(--floating-shadow);-webkit-backdrop-filter:var(--sg-glass-blur);backdrop-filter:var(--sg-glass-blur);
+}
+dialog:not(.map-dialog) {border-radius:var(--radius-dialog);}
+dialog.map-dialog {background:var(--surface);}
+
+/* One state: hovered, selected and held-open controls share one material.
+   Actual status colours and keyboard focus remain independent. */
+.session-button:is(:hover,.active),.settings-sidebar nav button:is(:hover,[aria-selected=true]),
+.memory-sidebar nav a:is(:hover,[aria-current=page]),.result-card:is(:hover,[aria-pressed=true]),
+.agent-picker:is(:hover,[aria-expanded=true]),.permission-picker:is(:hover,[aria-expanded=true]),
+.choice-menu [role=option]:is(:hover,[data-active],[aria-selected=true]),
+.agent-menu button:is(:hover,[data-active=true]),.upload-menu button:hover,
+.map-board .plan-view-switch button:is(:hover,[aria-pressed=true]),
+.dock-tab:has([role=tab][aria-selected=true]),.dock-tab:hover,
+.header-menu:is([open],:hover)>summary,.bottom-menu:is([open],:hover)>summary {
+  background:var(--sg-glass-state);box-shadow:var(--state-shadow);color:var(--text);border-radius:var(--radius-control);
+}
+.plan-view-switch {background:var(--subtle);border-radius:var(--radius-control);box-shadow:inset 0 1px 2px var(--sg-well-shade),inset 0 -1px 0 var(--sg-well-rim);}
+.map-board .plan-view-switch button {border-radius:calc(var(--radius-control) - 2px);}
+.session-button {border-radius:var(--radius-control);}
+.dock-tab {border-radius:var(--radius-control);}
+
+/* Fields and disclosure bars use the same quiet edge; a pressed button loses
+   its lift instead of changing hue or shifting its label. */
+input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not(.search-field input),select,textarea,
+.agent-fields input:not([type=checkbox]),.agent-fields select,
+#model-form input:not([type=checkbox]),#model-form select,.search-field {
+  background-color:var(--sg-field);border-color:transparent;box-shadow:var(--field-shadow);border-radius:var(--radius-control);
+}
+.composer>textarea,.search-field input,.map-subtools select {background:transparent;border:0;box-shadow:none;}
+.map-subtools select {border-radius:var(--radius-control);}
+.step-sections>details>summary,#step-dependencies>summary,.config-editor>summary,.compatibility>summary {
+  background:var(--panel);border:0;border-radius:var(--radius-control);box-shadow:var(--control-shadow);
+}
+.step-sections>details[open]>summary,#step-dependencies[open]>summary {background:var(--sg-glass-state);box-shadow:var(--state-shadow);}
+.agent-fields,.builtin-actions {background:transparent;}
+.agent-row[open]>summary {background:var(--sg-glass-state);}
+.theme-options button[aria-pressed=true] {border-color:transparent;box-shadow:var(--state-shadow),0 0 0 1px var(--accent);}
+
+.primary,.composer .send-button:not(:disabled),.tool-submit,#model-form button:not(.secondary),
+#snapshot-save:not(:disabled) {
+  color:var(--on-primary);background:color-mix(in oklab,var(--primary) var(--sg-primary-solid),transparent);
+  border-color:color-mix(in oklab,var(--primary) 55%,var(--sg-primary-edge));
+  box-shadow:inset 0 1px 0 var(--sg-primary-rim),inset 0 -1px 0 var(--sg-primary-under),inset 0 0 0 1px var(--sg-primary-inner),0 1px 2px var(--sg-glass-contact),0 8px 18px -9px var(--sg-glass-shade);
+}
+.primary:hover,.composer .send-button:not(:disabled):hover,.tool-submit:hover,#model-form button:not(.secondary):hover,#snapshot-save:not(:disabled):hover {
+  background:color-mix(in oklab,var(--primary) calc(var(--sg-primary-solid) - 10%),transparent);
+}
+.primary:active,.composer .send-button:not(:disabled):active,.tool-submit:active {
+  box-shadow:inset 0 1px 0 var(--sg-primary-rim),inset 0 -1px 0 var(--sg-primary-under),0 1px 1px var(--sg-glass-contact);
+}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible {
+  outline-color:var(--sg-focus-line);
+}
+
+/* Viewer chrome follows the material, while atom/element colours, the WebGL
+   background and scientific plot series keep their existing semantics. */
+.viewports {border:0;box-shadow:var(--glass-shadow);border-radius:var(--radius-panel);}
+.bottom-toolbar {background:var(--panel);border-radius:var(--radius-panel);box-shadow:var(--glass-shadow);padding:8px;}
+.header-tools {border-radius:var(--radius-control);background:var(--panel);box-shadow:var(--control-shadow);padding:2px;}
+#structure-inspector {background:var(--panel);border-radius:var(--radius-panel);}
+.settings-switch {box-shadow:inset 0 1px 2px var(--sg-well-shade),inset 0 -1px 0 var(--sg-well-rim);}
+.settings-switch::after {background:var(--sg-knob);box-shadow:0 1px 3px var(--sg-knob-shade);}
+
+/* Same edges without transparency. Fallback also avoids a browser having to
+   blur thousands of graph cards or redraw a live trajectory behind a pane. */
+@supports not (backdrop-filter:blur(1px)) {
+  :root {--panel:var(--opaque-panel);--card:var(--opaque-card);--raised:var(--opaque-popover);}
+}
+@media(prefers-reduced-transparency:reduce) {
+  :root,:root[data-theme="dark"] {--panel:var(--opaque-panel);--card:var(--opaque-card);--raised:var(--opaque-popover);--sidebar-fill:var(--opaque-panel);--bubble:var(--opaque-card);--sg-glass-blur:none;--sg-glass-blur-control:none;--sg-field:var(--opaque-card);}
+}
+@media(forced-colors:active) {
+  .map-board,.map-board .map-node,.map-board .kanban-card,.composer,.user-bubble,
+  .choice-menu,.agent-menu,.map-pop,.tool-card,.settings-sheet,.agent-service-list,.server-card {
+    background:Canvas;color:CanvasText;border:1px solid CanvasText;box-shadow:none;backdrop-filter:none;
+  }
+  button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible {outline:2px solid Highlight;}
+}
