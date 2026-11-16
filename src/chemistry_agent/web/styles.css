@@ -1481,9 +1481,9 @@ body.inspector-open .topbar #tools-toggle { display:none; }
 #context-ring[hidden], #native-context-details[hidden] { display:none; }
 
 /* Tabs shrink together, then wrap; an opened surface never disappears off-strip. */
-.inspector-strip {height:auto;min-height:44px;}
-.inspector-strip .inspector-tabs {flex:1;flex-wrap:wrap;overflow:visible;}
-.inspector-strip .dock-tab {flex:1 1 76px;width:auto;min-width:68px;max-width:216px;}
+.inspector-strip {height:44px;min-height:44px;container: dockchrome / inline-size;}
+.inspector-strip .inspector-tabs {flex:1;flex-wrap:nowrap;overflow:hidden;}
+.inspector-strip .dock-tab {flex:1 1 0;width:auto;min-width:0;max-width:216px;}
 .inspector-strip .dock-tab [role=tab] {padding-left:6px;}
 .inspector-strip .dock-tab .tab-close {flex:none;}
 

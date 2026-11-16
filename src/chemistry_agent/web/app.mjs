@@ -1,7 +1,7 @@
 import { externalContextView } from "./external-context.mjs";
 import {createWorkspaceFiles} from "./workspace-files.mjs";
 import {userQuestions} from './user-questions.mjs';
-import {visibleReference, activity, activityOpen, activitySteps, answerBox, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
+import {visibleReference, activity, activityOpen, activitySteps, answerBox, answerFooter, liveAnswerFooter, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
 import { initSettingsDialog } from "./settings-dialog.mjs";
@@ -333,7 +333,7 @@ const questionCard = userQuestions({root:$("conversation"), session:()=>state.se
   api, sync:()=>syncChat(), toast});
 function turnAnswer(turn,index) {
   const ask = turn.calls.find(call=>call.name==="ask_user_question" && call.success && call.result?.status==="awaiting_user");
-  if (!ask) return answerBox(markdown.render(turn.answer),index);
+  if (!ask) return answerBox(markdown.render(turn.answer));
   const active=!state.turns.slice(index+1).some(other=>!other.event) && !state.outbox.length && !state.pending;
   return questionCard(ask.result,active);
 }
@@ -354,7 +354,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn"><div class="assistant-message"><div class="assistant-body"><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</div></div></article>` : `<article class="turn">${turn.background ? '' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div></div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn"><div class="assistant-message"><div class="assistant-body"><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer))}${answerFooter(index)}</div></div></article>` : `<article class="turn">${turn.background ? '' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div>${turn.answer ? answerFooter(index) : ''}</div></div></article>`
 
   ).join("");
   calculations.drawReportFigures();
@@ -364,7 +364,7 @@ function renderConversation(scroll = true) {
     const failed = ["failed","uncertain"].includes(item.status);
     const label = failed ? item.error || "处理失败" : item.status==="queued" ? "等待上一条回复" : "";
     article.innerHTML = renderUser(item.body.message, item.body.context || "") +
-      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
+      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}${liveAnswerFooter(item.id)}</div></div>`;
     $("conversation").append(article);
   }
   for (const el of $("conversation").querySelectorAll("[data-activity]")) el.open=activityOpen(el.dataset.running==='true',expanded.get(el.dataset.activity));
@@ -559,6 +559,8 @@ const streamed = liveAnswer({
       el.innerHTML = text ? (markdown.renderPartial?.(text) ?? markdown.render(text)) : "";
     }
     el.parentElement.hidden = !text;
+    const footer=el.closest('.assistant-body')?.querySelector(`[data-live-footer="${CSS.escape(request)}"]`);
+    if(footer) footer.hidden=!text;
     activity.querySelector('[data-activity-placeholder]').hidden = Boolean(text || activity.querySelector('[data-activity-steps]').childElementCount);
     if (pinned) scroll.scrollTop = scroll.scrollHeight;
   },
@@ -790,7 +792,6 @@ try {
   setSidebarCollapsed(saved === null ? innerWidth >= 768 && innerWidth < 1024 : saved === "true", false, false);
 } catch { /* Use the desktop navigation by default. */ }
 $("sidebar-collapse").addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"), true));
-$("rail-projects").addEventListener("click", () => { setSidebarCollapsed(false, true); $("new-project").focus(); });
 $("menu-toggle").addEventListener("click", () => { setInspectorOpen(false, {persist:false, focus:false}); setDrawer("sidebar", !document.body.classList.contains("sidebar-open")); });
 $("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false); setInspectorOpen(true); });
 $("inspector-close").addEventListener("click", () => setDrawer("inspector", false));

@@ -27,6 +27,7 @@ export function initInspectorTabs(setVisible) {
   function render() {
     launcher.hidden = opened.length > 0;
     tablist.hidden = opened.length === 0;
+    tablist.dataset.count = String(opened.length);
     for (const name of opened) tablist.append(tabs.get(name).closest(".dock-tab"));
     for (const [name, tab] of tabs) {
       const selected = active === name, chip = tab.closest(".dock-tab");

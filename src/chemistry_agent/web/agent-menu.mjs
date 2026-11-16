@@ -36,6 +36,21 @@ export function createCascadeMenu(anchor) {
         back.onclick = () => goBack(); pane.append(back);
       }
       const title = document.createElement('div'); title.className = 'agent-menu-title'; title.textContent = column.title; pane.append(title);
+      let search;
+      if (column.search) {
+        search = document.createElement('input'); search.type = 'search'; search.className = 'menu-model-search';
+        search.placeholder = column.search; search.setAttribute('aria-label', column.search);
+        search.value = column.query || '';
+        search.oninput = () => {
+          column.query = search.value;
+          for (const item of pane.querySelectorAll('[data-search]')) item.hidden = !item.dataset.search.includes(search.value.trim().toLocaleLowerCase());
+        };
+        search.onkeydown = event => {
+          if (event.key === 'ArrowDown') {event.preventDefault();pane.querySelector('button[data-row]:not([hidden]):not(:disabled)')?.focus();}
+          if (event.key === 'ArrowLeft' && !search.value) {event.preventDefault();goBack();}
+        };
+        pane.append(search);
+      }
       column.rows.forEach((row, index) => {
         if (row.message) { const note = document.createElement('div'); note.className = 'menu-message'; note.textContent = row.message; pane.append(note); return; }
         const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role', row.branch ? 'menuitem' : 'menuitemradio');
@@ -50,9 +65,22 @@ export function createCascadeMenu(anchor) {
         // Selection is a check mark; only the currently open branch gets a fill.
         button.dataset.active = String(Boolean(columns[depth + 1] && column.activeRow === index));
         const label = document.createElement('span'); label.textContent = row.label;
+        label.className = 'menu-label';
         if (row.noTranslate) label.dataset.noI18n = '';
         const trailing = document.createElement('span'); trailing.className = 'menu-trailing'; trailing.innerHTML = (row.selected ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg>' : '') + (row.branch ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>' : '');
-        button.append(label, trailing); button.onclick = () => { column.activeRow = index; row.action?.(); }; pane.append(button);
+        button.append(label);
+        if (row.value !== undefined) {
+          button.classList.add('menu-setting-row');
+          const value = document.createElement('span'); value.className = 'menu-current-value'; value.textContent = row.value;
+          value.title = row.value;if(row.valueNoTranslate) value.dataset.noI18n = '';
+          button.append(value);
+        }
+        button.append(trailing);
+        if (row.searchText !== undefined) {
+          button.dataset.search = row.searchText.toLocaleLowerCase();
+          button.hidden = Boolean(column.query && !button.dataset.search.includes(column.query.trim().toLocaleLowerCase()));
+        }
+        button.onclick = () => { column.activeRow = index; row.action?.(); }; pane.append(button);
       });
       if (column.extra) pane.append(column.extra());
       menu.append(pane);
@@ -69,7 +97,7 @@ export function createCascadeMenu(anchor) {
     if (columns.length < 2) return;
     columns.pop(); draw(true, columns.at(-1).activeRow ?? null);
   }
-  function column(depth, title, rows, extra) { columns.splice(depth, columns.length, {title, rows, extra}); draw(true); }
+  function column(depth, title, rows, extra, search) { columns.splice(depth, columns.length, {title, rows, extra, search}); draw(true); }
   function open(title, rows) {
     document.dispatchEvent(new CustomEvent('chem:menu-open', {detail:anchor}));
     menu.hidden = false; if (menu.showPopover) menu.showPopover();
@@ -78,7 +106,7 @@ export function createCascadeMenu(anchor) {
   menu.addEventListener('keydown', event => {
     if (event.key === 'Escape') { event.preventDefault(); close(true); return; }
     const pane = event.target.closest('.agent-menu-column'); if (!pane || event.target.matches('input')) return;
-    const buttons = [...pane.querySelectorAll('button:not(:disabled)')], index = buttons.indexOf(document.activeElement);
+    const buttons = [...pane.querySelectorAll('button:not(:disabled):not([hidden])')], index = buttons.indexOf(document.activeElement);
     if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
       event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length-1 : (index + (event.key==='ArrowDown'?1:-1) + buttons.length) % buttons.length; buttons[next]?.focus();
     } else if (event.key === 'ArrowRight') { event.preventDefault(); if (event.target.hasAttribute('aria-haspopup')) event.target.click(); }

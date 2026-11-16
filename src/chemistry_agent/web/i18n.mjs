@@ -204,6 +204,7 @@ const messages = {
   "上次测试通过":"Last test passed",
   "上次测试失败":"Last test failed",
   "测试时间":"Checked at",
+  "模型选择":"Model selection", "推理":"Reasoning", "搜索模型":"Search models", "返回":"Back",
   "未启用":"Disabled",
   "尚未启用服务器":"No servers enabled",
   "选择服务器":"Select server",

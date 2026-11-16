@@ -54,10 +54,27 @@ body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;transit
 }
 .workspace-shell:not(.inspector-open) .sidebar-header {height:44px;min-height:44px;}
 .workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close) {
-  width:32px;height:32px;border-radius:10px;background:var(--sg-glass-control);box-shadow:var(--control-shadow);
+  width:32px;height:32px;border:0;background:transparent;box-shadow:none;
 }
 .workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close):hover {background:var(--hover);}
 .workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close) .icon {width:18px;height:18px;}
+.workspace-shell #new-chat {
+  position:relative;align-self:flex-start;justify-content:center;flex:none;width:32px;height:36px;min-height:36px;
+  margin:0 0 8px 4px;padding:0;background:transparent;border:0;box-shadow:none;
+}
+.workspace-shell #new-chat:hover {background:var(--hover);}
+.workspace-shell #new-chat>.nav-label {position:absolute;left:40px;white-space:nowrap;}
+.workspace-shell .inspector-launcher {gap:8px;}
+.workspace-shell .inspector-launcher button {border:1px solid var(--border);background:var(--panel);border-radius:var(--radius-control);}
+.workspace-shell .inspector-launcher button:hover {background:var(--selected);}
+.dock-add .icon {width:18px;height:18px;}
+@container dockchrome (max-width:520px) {
+  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab [role=tab] {justify-content:center;padding-inline:4px;gap:0;}
+  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab [role=tab] span {display:none;}
+  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab .tab-close {display:none;}
+  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab:has([aria-selected=true]) {flex-grow:1.7;}
+  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab:has([aria-selected=true]) .tab-close {display:grid;width:18px;margin-right:2px;}
+}
 svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
 @media(max-width:767px) {
   body.workspace-shell {padding:0 6px 6px;}
@@ -91,7 +108,7 @@ svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
 }
 .map-position:is(.is-current,:focus-within) .map-node {box-shadow:var(--glass-shadow),0 0 0 2px var(--accent);}
 .map-window,.plan-kanban {background-color:var(--surface);}
-.map-tools,.map-foot {background:var(--panel);}
+.map-tools,.map-foot {background:var(--opaque-panel);}
 .plan-kanban {border-radius:0 0 var(--radius-panel) var(--radius-panel);}
 .map-dialog>.map-board {border-radius:0;box-shadow:none;}
 .map-dialog .plan-kanban {border-radius:0;}

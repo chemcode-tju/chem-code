@@ -38,6 +38,7 @@ class StructureViews {
   createPane(preset, index) {
     const element = document.createElement("section");
     element.className = "viewport";
+    element.dataset.viewIndex = String(index);
     element.tabIndex = -1;
     element.innerHTML = '<button class="view-title" type="button"></button><div class="view-canvas"></div><div class="pointer-layer"><div class="selection-rectangle" hidden></div></div><div class="selection-rectangle shortcut-rectangle" hidden></div><svg class="axis-gizmo" viewBox="0 0 78 78" aria-label="坐标轴"></svg>';
     this.container.append(element);

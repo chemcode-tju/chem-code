@@ -56,7 +56,7 @@ console.log('Selection updates preserve the atom model and camera, including cle
  const canvas={clientWidth:400,clientHeight:600};
  const layer={querySelector:()=>({hidden:true,style:{}}),addEventListener:()=>{},setPointerCapture:()=>{},getBoundingClientRect:()=>({left:0,top:0})};
  const title={};
- const element={hidden:false,focus(){},querySelector:selector=>selector==='.view-canvas'?canvas:selector==='.pointer-layer'?layer:title,
+ const element={hidden:false,dataset:{},focus(){},querySelector:selector=>selector==='.view-canvas'?canvas:selector==='.pointer-layer'?layer:title,
    addEventListener:(name,fn)=>{(handlers[name]??=[]).push(fn);},setPointerCapture:()=>{}};
  let resizeCallback;
  const fakeViewer={setViewChangeCallback:()=>{},resize:()=>resizes.push([canvas.clientWidth,canvas.clientHeight]),render:()=>paints.push(1),translateScene:(dx,dy)=>translations.push([dx,dy])};

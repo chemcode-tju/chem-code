@@ -11,7 +11,7 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-code: ui-monospace, Menlo, Monaco, Consolas, monospace;
   --font-brand: "Montserrat", var(--font-ui);
-  --surface: var(--sg-background);
+  --surface: #fff;
   --panel: var(--sg-panel);
   --card: var(--sg-card);
   --raised: var(--sg-popover);
@@ -56,7 +56,7 @@
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-:root[data-theme="dark"] { color-scheme: dark;--opaque-panel:oklch(0.205 0 0);--opaque-card:oklch(0.22 0 0);--opaque-popover:oklch(0.22 0 0); }
+:root[data-theme="dark"] { color-scheme: dark;--surface:var(--sg-background);--opaque-panel:oklch(0.205 0 0);--opaque-card:oklch(0.22 0 0);--opaque-popover:oklch(0.22 0 0); }
 /* Compatibility for components that still consume the original Harness names.
    Their semantics stay stable; Solid Glass is now the palette source. */
 :root,:root[data-theme="dark"] {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {activity, activitySteps, answerBox, progressMarkdown, visibleReference} from '../src/chemistry_agent/web/answer-ui.mjs';
+import {activity, activitySteps, answerBox, answerFooter, liveAnswerFooter, progressMarkdown, visibleReference} from '../src/chemistry_agent/web/answer-ui.mjs';
 
 test('only generated revision envelopes are omitted from chat presentation', () => {
   const generated = '修改方案/步骤：Cu(100) 优化；先读取 calculation_plan_get，再用 calculation_plan_save 修改 plan_id=abc-123，expected_revision=3。';
@@ -22,12 +22,16 @@ test('tool failure does not assume incorrect user input', () => {
   assert.match(html,/未完成/); assert.match(html,/timeout/); assert.doesNotMatch(html,/需调整输入/);
 });
 
-test('answer copy controls follow completed, progress and streaming text without losing their sources', () => {
-  const completed=answerBox('<p>Energy = -12.35 eV</p>',3);
-  assert.ok(completed.indexOf('</p>')<completed.indexOf('data-copy="3"'));
+test('message footer can follow attachments while preserving completed and streaming copy sources', () => {
+  const completed=answerBox('<p>Energy = -12.35 eV</p>');
+  assert.doesNotMatch(completed,/data-copy/);
+  const withFiles=completed+'<div data-generated-run="run-1">result.xyz</div>'+answerFooter(3);
+  assert.ok(withFiles.indexOf('result.xyz')<withFiles.indexOf('data-copy="3"'));
   const progress=progressMarkdown({render:source=>`<p>${source}</p>`},'Energy = -12.35 eV');
   assert.match(progress,/data-source="Energy = -12.35 eV"/);
   assert.ok(progress.indexOf('</p>')<progress.indexOf('data-copy-markdown'));
   const live=activity({id:'live',running:true,draftRequest:'request-1'});
-  assert.ok(live.indexOf('data-live-request="request-1"')<live.indexOf('data-copy-live'));
+  assert.doesNotMatch(live,/data-copy-live/);
+  assert.match(liveAnswerFooter('request-1'),/data-copy-live="request-1"/);
+  assert.match(liveAnswerFooter('request-1'),/data-live-footer="request-1" hidden/);
 });

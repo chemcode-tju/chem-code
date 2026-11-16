@@ -66,6 +66,16 @@
 .agent-menu button:disabled { opacity:.45; cursor:default; }
 .agent-menu .icon {width:16px;height:16px;}
 .agent-menu .menu-trailing {display:inline-flex;align-items:center;gap:6px; flex:none; margin-left:auto; min-width:12px; color:var(--muted); }
+.agent-menu button[hidden] {display:none;}
+.agent-menu-column:has(.menu-setting-row) {width:min(280px,calc(100vw - 30px));min-width:0;flex:none;}
+.agent-menu .menu-setting-row {gap:12px;}
+.agent-menu .menu-setting-row .menu-label {flex:none;}
+.agent-menu .menu-setting-row .menu-trailing {margin-left:0;}
+.agent-menu .menu-current-value {margin-left:auto;min-width:0;max-width:176px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);}
+.agent-menu input.menu-model-search {display:block;width:calc(100% - 12px);margin:4px 6px 8px;min-height:34px;}
+.agent-menu:has(.menu-setting-row) {align-items:flex-end;gap:6px;padding:0;background:transparent;border:0;box-shadow:none;backdrop-filter:none;overflow:visible;}
+.agent-menu:has(.menu-setting-row) .agent-menu-column {padding:4px;background:var(--opaque-popover);border:1px solid var(--border);border-radius:var(--radius-panel);box-shadow:var(--floating-shadow);}
+.agent-menu:has(.menu-setting-row) .agent-menu-column + .agent-menu-column {width:248px;flex:none;}
 .agent-menu .menu-message { white-space:normal; max-width:260px; padding:8px 10px; color:var(--muted); line-height:1.5; }
 .agent-menu .menu-manual { display:flex; gap:6px; padding:6px; }
 .agent-menu input { width:180px; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-control); padding:6px; }

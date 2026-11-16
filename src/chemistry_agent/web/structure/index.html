@@ -48,14 +48,13 @@
         <button id="types-tab" role="tab" aria-selected="false" aria-controls="inspector-content" data-inspector-tab="types" tabindex="-1">类型</button>
         <button id="cell-tab" role="tab" aria-selected="false" aria-controls="inspector-content" data-inspector-tab="cell" tabindex="-1">晶胞</button>
       </div><span id="inspector-frame"></span><button id="inspector-close" aria-label="关闭结构信息" title="关闭结构信息"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></div>
-      <p id="import-note"></p>
       <div class="inspector-filters"><input id="particle-filter" type="search" placeholder="筛选原子…" aria-label="筛选粒子"><label><input id="inspector-selected" type="checkbox">仅选中</label>
         <select id="cell-mode" aria-label="晶胞显示方式" hidden><option value="vectors">晶胞向量</option><option value="parameters">晶胞参数</option></select>
         <span id="inspector-count" data-no-i18n></span>
         <button id="inspector-previous" aria-label="上一页" title="上一页"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron-left"/></svg></button><button id="inspector-next" aria-label="下一页" title="下一页"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
       </div>
       <div id="inspector-content" role="tabpanel" aria-labelledby="particles-tab" tabindex="0"></div>
-      <p id="inspector-note"></p>
+      <details id="structure-notes"><summary>读取说明</summary><p id="import-note"></p><p id="inspector-note"></p></details>
     </section>
     <div id="trajectory-toolbar" class="bottom-toolbar">
       <div id="trajectory-tools">
@@ -146,7 +145,7 @@
 <script src="/assets/structure/controls.js"></script>
 <script src="/assets/structure/lammps-metadata.js"></script>
 <script src="/assets/structure/md-stream.js"></script>
-<script src="/assets/structure/import.js"></script>
+<script src="/assets/structure/import.js?v=viewer-chrome-20261117"></script>
 <script src="/assets/structure/inspector.js?v=locale-20261117"></script>
 <script src="/assets/structure/app.js"></script>
 <script src="/assets/structure/embed.js"></script>

@@ -6,6 +6,7 @@
   const catalog = typeof module !== 'undefined' && module.exports
     ? require('./locales.json') : {
   "结构与轨迹": "Structures & trajectories",
+  "读取说明": "Import notes",
   "轨迹与视图": "Trajectory & view",
   "轨迹播放": "Playback",
   "视图方向": "Orientation",

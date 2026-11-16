@@ -1,10 +1,12 @@
-/* Answer actions follow the text; code-block copy actions keep their own corner. */
+/* Message actions follow the answer and every attached result/file. */
 .answer-output {padding-inline-end:0;}
-.answer-output>.copy-action {
-  position:static;inset:auto;display:grid;margin:6px 0 0;width:26px;height:26px;padding:5px;
+.message-actions {display:flex;align-items:center;gap:4px;margin-top:10px;}
+.message-actions>.copy-action,.answer-output>.copy-action {
+  position:static;inset:auto;display:grid;margin:0;width:32px;height:32px;padding:8px;
   color:var(--muted);
 }
-.answer-output>.copy-action .icon {width:14px;height:14px;}
+.answer-output>.copy-action {margin-top:6px;}
+.message-actions>.copy-action .icon,.answer-output>.copy-action .icon {width:16px;height:16px;}
 .plan-entry {
   display:flex;align-items:center;gap:8px;width:100%;min-height:42px;
   margin:12px 0 0;padding:10px 12px;text-align:start;
@@ -14,4 +16,4 @@
 .plan-entry>.icon {width:16px;height:16px;flex:none;color:var(--muted);}
 .plan-entry>.icon:last-child {margin-left:auto;width:14px;height:14px;}
 .plan-entry:hover {background:var(--hover);}
-@media(pointer:coarse) {.answer-output>.copy-action {width:44px;height:44px;}.plan-entry {min-height:44px;}}
+@media(pointer:coarse) {.message-actions>.copy-action,.answer-output>.copy-action {width:44px;height:44px;}.plan-entry {min-height:44px;}}
