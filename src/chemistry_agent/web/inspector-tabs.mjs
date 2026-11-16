@@ -14,6 +14,8 @@ export function initInspectorTabs(setVisible) {
   const tablist = document.querySelector(".inspector-tabs");
   const launcher = document.getElementById("inspector-launcher");
   for (const [name, tab] of tabs) {
+    tab.title = tab.textContent.trim();
+    tab.setAttribute("aria-label", tab.textContent.trim());
     const choice = document.createElement("button");
     choice.type = "button";
     choice.dataset.launchTab = name;

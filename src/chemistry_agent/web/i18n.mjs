@@ -1,5 +1,7 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "返回方案":"Back to plan",
+  "上下两行":"Two rows", "确认并执行":"Confirm and run", "暂停推进":"Pause next steps", "选择方案":"Choose plan", "其他计算记录":"Other calculation records", "从左到右":"Left to right", "从上到下":"Top to bottom",
   "刷新":"Refresh", "参数文件":"Parameter files", "提交脚本":"Submission script", "步骤":"Step",
   "查看方案":"View plan", "方案":"Plan", "已完成":"Completed", "等待依赖":"Waiting for dependencies",
   "已停止":"Stopped", "已暂停推进":"Progression paused", "停止中":"Stopping", "有步骤失败":"Some steps failed",

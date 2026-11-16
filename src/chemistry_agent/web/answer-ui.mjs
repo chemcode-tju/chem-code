@@ -22,7 +22,7 @@ export function activitySteps(steps=[], calls=[], {deferDetails=false} = {}) {
     const status = t(({running:'执行中',completed:'已完成',failed:'需调整输入',uncertain:'结果待核对'})[step.status] || '结果待核对');
     if (call.arguments===undefined && call.result===undefined) return `<div class="activity-item" data-status="${esc(step.status)}">${name}<small>${status}</small></div>`;
     const detail = deferDetails ? '' : activityDetail(steps,calls,index);
-    return `<details class="activity-item"${deferDetails ? ` data-deferred-call="${index}"` : ''}><summary>${name}<small>${status}</small></summary>${detail}</details>`;
+    return `<details class="activity-item"${deferDetails ? ` data-deferred-call="${index}"` : ''}><summary>${name}<small>${status}</small>${icon('chevron')}</summary>${detail}</details>`;
   }).join('');
 }
 

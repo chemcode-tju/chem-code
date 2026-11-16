@@ -60,3 +60,8 @@
 @media(pointer:coarse) {
   #step-refresh,.step-file-options button,.step-file-options a,#step-job-select {min-height:44px;}
 }
+
+/* Nested disclosures use the same Lucide affordance as their parent sections. */
+.param-list>summary,.relation-chips details>summary {cursor:pointer;}
+.param-list>summary::after,.relation-chips details>summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;margin-left:8px;vertical-align:-2px;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;}
+.param-list[open]>summary::after,.relation-chips details[open]>summary::after {transform:rotate(90deg);}

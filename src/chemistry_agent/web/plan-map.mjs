@@ -11,7 +11,7 @@ const tool = (attr,label,content) => `<button type="button" ${attr} aria-label="
 const shortcut = (keys,label) => `<span><kbd>${keys}</kbd> <span>${label}</span></span>`;
 const serial = value => esc(JSON.stringify(value));
 
-export function planMap(layers, key, attribute, title = '') {
+export function planMap(layers, key, attribute, title = '', controls = '') {
   const nodes = layers.flat();
   if (!nodes.length) return '';
   const cards = nodes.map(n => {
@@ -25,13 +25,14 @@ export function planMap(layers, key, attribute, title = '') {
     </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" title="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
-    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-subtools"><select data-groups aria-label="按分支查看"></select></div><div class="map-actions">
+    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-subtools"><select data-groups aria-label="按分支查看"></select></div>${controls}<div class="map-actions">
       ${tool('data-command="find" aria-expanded="false"','查找步骤',icon('find'))}
       ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more'))}
       ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
     </div></div>
     <div class="map-pop map-search" data-pop="find" hidden><input type="search" placeholder="查找名称或步骤 ID" aria-label="查找名称或步骤 ID" autocomplete="off"><div data-results></div></div>
     <div class="map-pop" data-pop="options" hidden>
+      <label data-board-option><input type="checkbox" data-board-rows> 上下两行</label>
       <button type="button" class="map-direction" data-command="direction" title="切换布局方向">从上到下 ↓</button>
       <label data-aux-option><input type="checkbox" data-all> 显示建模与分析步骤</label>
       <label><input type="checkbox" data-all-arrows> 显示全部方向箭头</label>
@@ -60,6 +61,10 @@ function mount(map, previous) {
   const board=$('.map-board'), view=$('.map-window'), world=$('.map-world'), size=$('.map-size'), svg=$('.map-edges');
   const kanban=$('.plan-kanban');
   let viewMode=saved.viewMode==='canvas'?'canvas':'kanban';
+  let boardRows=saved.boardRows!==false;
+  kanban.dataset.rows=boardRows?'two':'one';
+  $('[data-board-rows]').checked=boardRows;
+  $('[data-board-rows]').onchange=event=>{boardRows=event.target.checked;kanban.dataset.rows=boardRows?'two':'one';persist();save();};
   let canvasCamera={left:saved.left,top:saved.top};
   let boardScroll={left:saved.boardLeft || 0,top:saved.boardTop || 0};
   const dialog=$('.map-dialog'), select=$('[data-groups]'), find=$('.map-search input'), results=$('[data-results]'), grip=$('.map-grip');
@@ -96,7 +101,7 @@ function mount(map, previous) {
   function snapshot() {
     modes[all]={folds:[...folds],moves:[...moves],group};
     const focused=board.contains(document.activeElement);
-    return {layoutVersion:6,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,
+    return {layoutVersion:6,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,boardRows,
       ...(viewMode==='canvas'?camera():canvasCamera),viewMode,
       boardLeft:viewMode==='kanban'?kanban.scrollLeft:boardScroll.left,
       boardTop:viewMode==='kanban'?kanban.scrollTop:boardScroll.top,full:dialog.open,focused};
@@ -159,7 +164,9 @@ function mount(map, previous) {
     const first=layout.points.keys().next().value;
     if (!layout.points.has(active)) active=first;
     board.dataset.direction=orientation();
-    $('[data-command="direction"]').textContent=orientation()==='LR'?cnEn('从左到右 →','Left to right →'):cnEn('从上到下 ↓','Top to bottom ↓');
+    const directionButton=$('[data-command="direction"]');
+    directionButton.innerHTML=`<span>${esc(t(orientation()==='LR'?'从左到右':'从上到下'))}</span>${icon('arrow-right')}`;
+    directionButton.querySelector('svg').style.transform=orientation()==='LR'?'':'rotate(90deg)';
     paths=[];incident=new Map();
     const captions=new Set();
     for (const n of nodes) {
@@ -206,8 +213,9 @@ function mount(map, previous) {
       column.hidden=!count && ['ended','other'].includes(column.dataset.column);
       total+=count;
     }
+    kanban.style.setProperty('--board-columns',Math.ceil([...kanban.querySelectorAll('.kanban-column')].filter(column=>!column.hidden).length/2));
     if(viewMode==='kanban') $('[data-map-count]').textContent=t(total+' 步');
-    $('[data-command="options"]').hidden=viewMode==='kanban' && $('[data-aux-option]').hidden;
+    $('[data-command="options"]').hidden=false;
   }
   function showView(mode) {
     if(viewMode==='canvas') canvasCamera=camera();
@@ -220,7 +228,8 @@ function mount(map, previous) {
     $('.map-grip').hidden=mode!=='canvas';
     for(const button of board.querySelectorAll('[data-plan-view]')) button.setAttribute('aria-pressed',String(button.dataset.planView===mode));
     // The auxiliary-step filter is shared; geometry controls belong to the canvas.
-    for(const control of board.querySelectorAll('[data-pop="options"] > :not([data-aux-option])')) control.hidden=mode!=='canvas';
+    for(const control of board.querySelectorAll('[data-pop="options"] > :not([data-aux-option]):not([data-board-option])')) control.hidden=mode!=='canvas';
+    $('[data-board-option]').hidden=mode!=='kanban';
     const full=$('[data-command="full"]'),label=dialog.open?'退出全屏':mode==='kanban'?'全屏看板':'全屏画布';
     full.title=label;full.setAttribute('aria-label',label);
     const options=$('[data-command="options"]'),optionsLabel=mode==='kanban'?'看板选项':'画布选项';

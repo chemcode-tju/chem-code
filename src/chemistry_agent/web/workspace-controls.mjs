@@ -9,17 +9,17 @@ export function initWorkspaceControls({closeInspector}) {
     grip.setAttribute('aria-valuenow',String(width));
   }
   function remember() {
-    try {localStorage.setItem('chemistry.dockWidth',String(dock.offsetWidth));} catch {}
+    try {localStorage.setItem('chemistry.dockWidth',String(parseFloat(body.style.getPropertyValue('--dock-width')) || dock.offsetWidth));} catch {}
   }
   try {const saved=Number(localStorage.getItem('chemistry.dockWidth'));if(saved>0) resize(saved);} catch {}
   new ResizeObserver(()=>{
-    grip.setAttribute('aria-valuemin','0');grip.setAttribute('aria-valuemax',String(innerWidth));
+    grip.setAttribute('aria-valuemin','300');grip.setAttribute('aria-valuemax',String(innerWidth));
     grip.setAttribute('aria-valuenow',String(dock.offsetWidth));
   }).observe(dock);
   let drag=null;
   function preview(x) {
-    const width=innerWidth-x;
-    body.dataset.dockSnap=width<=72?'close':x<=sidebarWidth()+24?'full':'resize';
+    const width=drag.width+drag.x-x;
+    body.dataset.dockSnap=width<240?'close':x<=sidebarWidth()+24?'full':'resize';
     if(body.classList.contains('dock-max') && body.dataset.dockSnap!=='full') setMaximized(false);
     if(body.dataset.dockSnap==='resize') resize(width);
   }
@@ -47,10 +47,11 @@ export function initWorkspaceControls({closeInspector}) {
   grip.onkeydown=e=>{
     if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
     e.preventDefault();
-    if(e.key==='Home') {closeInspector();return;}
-    if(e.key==='End' || (e.key==='ArrowLeft' && dock.offsetWidth>=maximumWidth())) {setMaximized(true);return;}
-    if(e.key==='ArrowRight' && dock.offsetWidth<=300) {closeInspector();return;}
-    const width=body.classList.contains('dock-max')?maximumWidth():dock.offsetWidth;
+    if(e.key==='Home') {setMaximized(false);resize(300);remember();return;}
+    const requestedWidth=parseFloat(body.style.getPropertyValue('--dock-width')) || dock.offsetWidth;
+    if(e.key==='End' || (e.key==='ArrowLeft' && requestedWidth>=maximumWidth())) {setMaximized(true);return;}
+    if(e.key==='ArrowRight' && requestedWidth<=300) {closeInspector();return;}
+    const width=body.classList.contains('dock-max')?maximumWidth():requestedWidth;
     setMaximized(false);resize(width+(e.key==='ArrowLeft'?32:-32));remember();
   };
   function setMaximized(active) {

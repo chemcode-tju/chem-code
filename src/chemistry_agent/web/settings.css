@@ -93,3 +93,8 @@ button.secondary:hover { background:var(--hover); }
   .model-choice-row select { flex-basis:150px; }
   .settings-panel .actions.footer { justify-content:flex-start; }
 }
+
+/* Nested disclosures use the same Lucide affordance as their parent sections. */
+#model-form details>summary {cursor:pointer;}
+#model-form details>summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;margin-left:8px;vertical-align:-2px;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;}
+#model-form details[open]>summary::after {transform:rotate(90deg);}

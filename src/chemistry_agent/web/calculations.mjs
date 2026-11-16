@@ -50,6 +50,8 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   }
   const detail = createStepDetail({api,reviseStep,rememberCount});
   const attachments = document.getElementById("structure-attachments");
+  let selectedPlan = null, selectedPlanSession = null;
+  panel.addEventListener('change', event=>{if(event.target.matches('[data-plan-select]')){selectedPlan=event.target.value;try{sessionStorage.setItem('chemistry.selectedPlan.'+session,selectedPlan);}catch{}detail.close();render();}});
   let enabled = false, session = null, selected = [], records = null, pending = false;
   const path = (id) => `/api/automation/chat/${encodeURIComponent(id)}`;
 
@@ -97,7 +99,14 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
     const approved = new Set([...panel.querySelectorAll('[data-auto-recovery]:checked')].map(el => el.dataset.autoRecovery));
     const limits = new Map([...panel.querySelectorAll("[data-retry-limit]")].map(e => [e.dataset.retryLimit,e.value]));
     panel.hidden = !enabled;
-    const graphs = (records?.plans || []).map(plan=>{detail.updateGeneral(plan);return renderGeneralPlan(plan);}).join('');
+    const plans=records?.plans || [];
+    if(selectedPlanSession!==session){selectedPlanSession=session;selectedPlan=null;try{selectedPlan=sessionStorage.getItem('chemistry.selectedPlan.'+session);}catch{}}
+    if(!plans.some(plan=>plan.id===selectedPlan)) selectedPlan=plans[0]?.id;
+    for(const plan of plans) detail.updateGeneral(plan);
+    const activePlan=plans.find(plan=>plan.id===selectedPlan);
+    const picker=plans.length>1?`<div class="plan-selector"><select data-plan-select aria-label="选择方案">${plans.map(plan=>`<option data-no-i18n value="${esc(plan.id)}" ${plan.id===selectedPlan?'selected':''}>${esc(plan.title)}</option>`).join('')}</select></div>`:'';
+    const graphs=activePlan?picker+renderGeneralPlan(activePlan):'';
+    panel.classList.toggle('has-plan-surface', Boolean(activePlan));
     const cards = (records?.previews || []).filter(item=>!item.plan_id).map(item => {
       const ref = records.submissions[item.preview_id]?.job;
       const job = ref ? (records.live_jobs?.[ref.id] || ref) : null;
@@ -106,7 +115,7 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
     }).join('');
     const panelTop = panel.parentElement.parentElement.scrollTop;
     const mapViews = captureMaps(panel,{suspend:true,dispose:true});
-    panel.innerHTML = graphs + cards || '<p class="empty-result">本对话暂无计算方案</p>';
+    panel.innerHTML = graphs + (cards && activePlan ? `<details class="legacy-calculations"><summary>其他计算记录</summary>${cards}</details>` : cards) || '<p class="empty-result">本对话暂无计算方案</p>';
     mountMaps(panel,mapViews);
     panel.parentElement.parentElement.scrollTop = panelTop;
     for (const [id,value] of knownSteps) displayCount(...id.split('/'),value.count);
@@ -145,7 +154,7 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   async function onAction(event) {
     const target = event.target.closest("button");
     if (!target || target.dataset.openKind) return;
-    if (target.closest('.map-board') && !target.matches('.map-node,.kanban-card')) return;
+    if (target.closest('.map-board') && !target.matches('.map-node,.kanban-card,[data-confirm-plan],[data-control-plan],[data-revise-plan]')) return;
     if(target.dataset.generalStep) {
       const plan=records.plans.find(p=>p.id===target.closest('[data-general-plan]').dataset.generalPlan);
       detail.openGeneral(plan,plan.nodes.find(n=>n.id===target.dataset.generalStep),path(session)); return;
