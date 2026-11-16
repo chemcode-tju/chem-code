@@ -77,7 +77,7 @@ export function workflowPlan(item,job,sessionPath='') {
       const {key,child,title,status,tone,rows} = describeStep(item,job,step);
       if (sessionPath) {
         const count = child?.results?.run_status?.last_iteration_index?.[0];
-        return `<button class="plan-entry" type="button" data-open-step="${esc(key)}" data-state="${tone}"><span>${esc(title)}</span><small>${esc(status)}<span data-ionic-step>${count ? ' · '+esc(String(count))+' 步' : ''}</span></small><span aria-hidden="true">›</span></button>`;
+        return `<button class="plan-entry" type="button" data-open-step="${esc(key)}" data-state="${tone}"><span>${esc(title)}</span><small>${esc(status)}<span data-ionic-step>${count ? ' · '+esc(String(count))+' 步' : ''}</span></small><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`;
       }
       return `<details data-fold="step-${esc(key)}" class="plan-step" data-state="${tone}"><summary><span>${esc(title)}</span><small>${status}</small></summary><dl>${rows.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>${!job?`<button type="button" data-revise-step="${esc(title)}">提出修改</button>`:''}</details>`;
     }).join('')+'</div></div>';

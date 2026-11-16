@@ -80,7 +80,7 @@ export function createWorkspaceFiles({api, session, viewer, attach, changed, toa
       const blob=await getFileBlob(file.download_url);
       const url=URL.createObjectURL(blob), dialog=document.createElement('dialog');
       dialog.className='output-image-dialog';
-      dialog.innerHTML=`<button type="button" aria-label="关闭">×</button><img alt="${esc(file.name)}" src="${url}">`;
+      dialog.innerHTML=`<button type="button" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button><img alt="${esc(file.name)}" src="${url}">`;
       dialog.querySelector('button').onclick=()=>dialog.close();
       dialog.onclose=()=>{URL.revokeObjectURL(url);dialog.remove();};
       document.body.append(dialog);dialog.showModal();

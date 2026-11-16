@@ -1,5 +1,6 @@
 /* Loaded before styles so navigation does not flash the wrong theme. */
 (() => {
+  try { document.documentElement.lang = localStorage.getItem('chemistry.language') === 'en' ? 'en' : 'zh-CN'; } catch { /* Optional storage. */ }
   const defaults = { mode: "system", fontSize: 16 };
   function normalize(value) {
     return { mode: ["light", "dark", "system"].includes(value?.mode) ? value.mode : defaults.mode,

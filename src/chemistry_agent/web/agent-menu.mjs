@@ -1,9 +1,9 @@
 export const effortLabel = value => ({'':'默认', none:'无', minimal:'极低', low:'低', medium:'中', high:'高', xhigh:'极高', extra:'极高', max:'最高', ultra:'Ultra', enabled:'思考', disabled:'关闭思考'}[value] || value);
-export const permissionLabel = value => ({user:'批准', auto_review:'帮我批准', full:'Full access'}[value] || value);
+export const permissionLabel = value => ({user:'批准', auto_review:'帮我批准', full:'完全访问'}[value] || value);
 
 export function createCascadeMenu(anchor) {
   const menu = document.createElement('div');
-  menu.className = 'agent-menu'; menu.hidden = true; menu.dataset.noI18n = '';
+  menu.className = 'agent-menu'; menu.hidden = true;
   if (menu.showPopover) menu.setAttribute('popover', 'manual');
   document.body.append(menu);
   let columns = [], compact = false;
@@ -31,7 +31,7 @@ export function createCascadeMenu(anchor) {
     columns.forEach((column, depth) => {
       const pane = document.createElement('div'); pane.className = 'agent-menu-column'; pane.tabIndex = -1; pane.setAttribute('role', 'menu'); pane.setAttribute('aria-label', column.title);
       if (depth && compact) {
-        const back = document.createElement('button'); back.type = 'button'; back.textContent = '‹ 返回';
+        const back = document.createElement('button'); back.type = 'button'; back.innerHTML = '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron-left"/></svg><span>返回</span>';
         back.setAttribute('role', 'menuitem');
         back.onclick = () => goBack(); pane.append(back);
       }
@@ -48,7 +48,8 @@ export function createCascadeMenu(anchor) {
         button.disabled = Boolean(row.disabled); button.title = row.title || '';
         button.dataset.active = String(Boolean(row.active || (columns[depth + 1] && column.activeRow === index)));
         const label = document.createElement('span'); label.textContent = row.label;
-        const trailing = document.createElement('span'); trailing.className = 'menu-trailing'; trailing.textContent = row.branch ? '›' : row.selected ? '✓' : '';
+        if (row.noTranslate) label.dataset.noI18n = '';
+        const trailing = document.createElement('span'); trailing.className = 'menu-trailing'; trailing.innerHTML = row.branch ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>' : row.selected ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg>' : '';
         button.append(label, trailing); button.onclick = () => { column.activeRow = index; row.action?.(); }; pane.append(button);
       });
       if (column.extra) pane.append(column.extra());

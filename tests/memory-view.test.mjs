@@ -15,8 +15,8 @@ const item={title:'BRMIX', kind:'lesson', version:1, session_id:'source', update
 test('repair details retain direction, unknown values, and evidence limits',()=>{
   const html=documentBody(item,'Cu111 source',markdown);
   assert.match(html,/修复前 → 修复后/);
-  assert.match(html,/<td>incar.AMIX<\/td><td>0.1<\/td><td>0.02<\/td>/);
-  assert.match(html,/<td>incar.IMIX<\/td><td>未显式记录<\/td><td>1<\/td>/);
+  assert.match(html,/<td data-no-i18n>incar.AMIX<\/td><td data-no-i18n>0.1<\/td><td data-no-i18n>0.02<\/td>/);
+  assert.match(html,/<td data-no-i18n>incar.IMIX<\/td><td>未显式记录<\/td><td data-no-i18n>1<\/td>/);
   assert.match(html,/<td>电子收敛<\/td><td>通过<\/td>/);
   assert.match(html,/<td>离子收敛<\/td><td>未记录<\/td>/);
   assert.match(html,/<td>科学精度<\/td><td>未验证<\/td>/);

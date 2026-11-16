@@ -3,7 +3,7 @@ import {CARD, buildGraph, clearDrop, edgePath, edgeRoute, kindName, layoutGraph,
 import {inSection} from './plan-folders.mjs';
 import {bindMapGestures} from './map-gestures.mjs';
 import {createNavigator} from './map-navigator.mjs';
-import {getLanguage, t} from './i18n.mjs';
+import {t} from './i18n.mjs';
 import {planKanban} from './plan-kanban.mjs';
 
 const icon = id => `<svg aria-hidden="true"><use href="/assets/ui-icons.svg#i-${id}"/></svg>`;
@@ -19,9 +19,9 @@ export function planMap(layers, key, attribute, title = '') {
     const kind=n.kind || 'vasp';
     const caption=n.groupPath?.join(' / ') || (split<0?'':label.slice(0,split));
     return `<div class="map-position" data-vertex="${esc(n.id)}" data-label="${esc(label)}" data-search="${esc(n.searchText || '')}" data-group-path="${serial(n.groupPath ?? null)}" data-parents="${serial(n.dependencies)}" ${n.auxiliary?'data-aux':''} hidden>
-    ${caption?`<span class="map-card-caption" title="${esc(caption)}">${esc(caption)}</span>`:''}
+    ${caption?`<span class="map-card-caption" data-no-i18n title="${esc(caption)}">${esc(caption)}</span>`:''}
     <button type="button" class="map-node" ${attribute}="${esc(n.id)}" data-kind="${esc(kind)}" data-state="${esc(n.state)}" aria-label="${esc([label,n.status].filter(Boolean).join(' · '))}" title="${esc([kindName(kind),caption,label,n.status,n.description,n.jobSummary].filter(Boolean).join(' · '))}" tabindex="-1">
-      <strong>${esc(split<0?label:label.slice(split+3))}</strong><small class="map-card-status"><i aria-hidden="true"></i>${esc(n.status)}${attribute==='data-open-step'?'<span data-ionic-step></span>':''}</small>
+      <strong data-no-i18n>${esc(split<0?label:label.slice(split+3))}</strong><small class="map-card-status"><i aria-hidden="true"></i>${esc(n.status)}${attribute==='data-open-step'?'<span data-ionic-step></span>':''}</small>
     </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" title="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
@@ -77,7 +77,7 @@ function mount(map, previous) {
   const camera=()=>({left:view.scrollLeft-originX,top:view.scrollTop-originY});
   const nav=createNavigator($('.map-navigator'),view,()=>({layout,scale,...camera(),...CARD}),panTo);
   let scale=bound(Number(saved.scale)||1,.005,3), height=saved.height || 0, pop='', raf=0, interacted=false;
-  const cnEn=(cn,en)=>getLanguage()==='en'?en:cn;
+  const cnEn=cn=>t(cn);
   const folderTitle=folder=>folder.batch ? t('并行分支')+' '+folder.title : folder.title;
   function initMode() {
     if (!graphs.has(all)) graphs.set(all,buildGraph(nodes,all));
@@ -89,7 +89,7 @@ function mount(map, previous) {
     $('[data-all]').checked=all; $('[data-aux-option]').hidden=onlyAux || nodes.every(n=>!n.auxiliary);
     select.innerHTML='<option value="">'+t('全部分支')+'</option>'+graph.filters.map(g=>{
       const label=g.folder && !g.batch ? g.path.join(' › ') : g.folder ? [g.origin,folderTitle(g)].filter(Boolean).join(' › ') : g.title;
-      return `<option value="${esc(g.id)}">${esc(label)} · ${g.members.length}</option>`;
+      return `<option data-no-i18n value="${esc(g.id)}">${esc(label)} · ${g.members.length}</option>`;
     }).join('');
     select.value=group || '';select.disabled=graph.filters.length<2;
   }
@@ -187,7 +187,7 @@ function mount(map, previous) {
       const e=paths[i];e.path=path;e.marker=marker;updateArrow(e);
       for (const id of [e.source,e.target]) {if(!incident.has(id)) incident.set(id,[]);incident.get(id).push(e);}
     }
-    const tally=(layout.points.size===graph.vertices.length?graph.vertices.length:layout.points.size+' / '+graph.vertices.length)+cnEn(' 步',' steps');
+    const tally=t((layout.points.size===graph.vertices.length?graph.vertices.length:layout.points.size+' / '+graph.vertices.length)+' 步');
     $('[data-map-count]').textContent=tally;
     updateKanban();
     setSize();nav.draw();if(interacted) mark(active);
@@ -206,7 +206,7 @@ function mount(map, previous) {
       column.hidden=!count && ['ended','other'].includes(column.dataset.column);
       total+=count;
     }
-    if(viewMode==='kanban') $('[data-map-count]').textContent=total+cnEn(' 步',' steps');
+    if(viewMode==='kanban') $('[data-map-count]').textContent=t(total+' 步');
     $('[data-command="options"]').hidden=viewMode==='kanban' && $('[data-aux-option]').hidden;
   }
   function showView(mode) {

@@ -6,6 +6,7 @@
   <title>科研记忆 · Chem Code</title>
   <link rel="icon" href="/assets/favicon.svg">
   <script src="/assets/theme.js"></script>
+  <script type="module" src="/assets/i18n.mjs"></script>
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
   <link rel="stylesheet" href="/assets/vendor/katex/katex.min.css">
   <script src="/assets/vendor/katex/katex.min.js" defer></script>
@@ -36,7 +37,7 @@
   <main class="memory-workspace">
     <header class="page-header"><h1>科研记忆</h1><span>方案、计算记录与故障经验</span></header>
     <form id="search-form" class="search-bar">
-      <label class="search-field"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="sr-only">体系、任务或报错关键词</span><input id="query" type="search" placeholder="搜索体系、任务或报错，如 Cu(111)、BRMIX" maxlength="2000"></label>
+      <label class="search-field"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-find"/></svg><span class="sr-only">体系、任务或报错关键词</span><input id="query" type="search" placeholder="搜索体系、任务或报错，如 Cu(111)、BRMIX" maxlength="2000"></label>
       <label><span class="sr-only">文档类型</span><select id="kind"><option value="">全部类型</option><option value="plan">计算方案</option><option value="calculation">计算记录</option><option value="lesson">故障经验</option><option value="document">补充文档</option></select></label>
       <button class="primary" type="submit">检索</button>
     </form>
@@ -47,7 +48,7 @@
     </div>
   </main>
   <dialog id="note-dialog" aria-labelledby="note-heading">
-    <header class="dialog-header"><h2 id="note-heading">补充文档</h2><button class="icon-button" type="button" data-close="note-dialog" aria-label="关闭补充文档">×</button></header>
+    <header class="dialog-header"><h2 id="note-heading">补充文档</h2><button class="icon-button" type="button" data-close="note-dialog" aria-label="关闭补充文档"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header>
     <p class="hint" id="note-destination"></p>
     <form id="save-form">
       <label>标题<input id="note-title" required maxlength="200"></label>
@@ -58,7 +59,7 @@
       <p id="save-status" role="status"></p><button class="primary" id="save-note">保存文档</button>
     </form>
   </dialog>
-  <dialog id="versions-dialog" aria-labelledby="versions-heading"><header class="dialog-header"><h2 id="versions-heading">版本记录</h2><button class="icon-button" type="button" data-close="versions-dialog" aria-label="关闭版本记录">×</button></header><div id="versions-content"></div></dialog>
+  <dialog id="versions-dialog" aria-labelledby="versions-heading"><header class="dialog-header"><h2 id="versions-heading">版本记录</h2><button class="icon-button" type="button" data-close="versions-dialog" aria-label="关闭版本记录"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header><div id="versions-content"></div></dialog>
   <script type="module" src="/assets/memory.mjs"></script>
 </body>
 </html>

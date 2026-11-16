@@ -104,7 +104,7 @@ export function createComputeSettings(selectTab) {
       if(panel==='environments') detail=config.default_id || '';
       return `<li><span class="step-number">${index+1}</span><div><strong>${esc(t(label))}</strong>
         <small data-no-i18n>${esc(detail)}</small></div>${panel==='automation'?`<span>${esc(t(needed.length?'待配置':'已就绪'))}</span>`:
-        `<a href="#${panel}">${esc(t(needed.length?'去配置':'查看'))} ›</a>`}</li>`;
+        `<a href="#${panel}">${esc(t(needed.length?'去配置':'查看'))} <svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></a>`}</li>`;
     }).join('');
     $('setup-local').hidden=aiida.profile_ready && aiida.daemon_running;
     $('compute-initialize').hidden=!aiida.installed;

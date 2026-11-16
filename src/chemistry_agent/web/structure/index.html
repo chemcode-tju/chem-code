@@ -47,11 +47,11 @@
         <button id="particles-tab" role="tab" aria-selected="true" aria-controls="inspector-content" data-inspector-tab="particles">粒子</button>
         <button id="types-tab" role="tab" aria-selected="false" aria-controls="inspector-content" data-inspector-tab="types" tabindex="-1">类型</button>
         <button id="cell-tab" role="tab" aria-selected="false" aria-controls="inspector-content" data-inspector-tab="cell" tabindex="-1">晶胞</button>
-      </div><span id="inspector-frame" data-no-i18n></span><button id="inspector-close" aria-label="关闭结构信息" title="关闭结构信息">×</button></div>
+      </div><span id="inspector-frame"></span><button id="inspector-close" aria-label="关闭结构信息" title="关闭结构信息"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></div>
       <div class="inspector-filters"><input id="particle-filter" type="search" placeholder="筛选编号、类型、元素、原子名" aria-label="筛选粒子"><label><input id="inspector-selected" type="checkbox">仅选中</label>
         <select id="cell-mode" aria-label="晶胞显示方式" hidden><option value="vectors">晶胞向量</option><option value="parameters">晶胞参数</option></select>
         <span id="inspector-count" data-no-i18n></span>
-        <button id="inspector-previous" aria-label="上一页" title="上一页">‹</button><button id="inspector-next" aria-label="下一页" title="下一页">›</button>
+        <button id="inspector-previous" aria-label="上一页" title="上一页"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron-left"/></svg></button><button id="inspector-next" aria-label="下一页" title="下一页"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
       </div>
       <div id="inspector-content" role="tabpanel" aria-labelledby="particles-tab" tabindex="0"></div>
       <p id="inspector-note"></p>
@@ -94,7 +94,7 @@
             <label class="card-field">鼠标操作 <select id="navigation-mode"><option value="rotate">旋转</option><option value="pan">平移</option><option value="zoom">缩放</option><option value="select">选择原子</option><option value="box">框选原子</option></select></label>
             <div class="card-actions"><button id="view-reset">适应视图</button><button type="button" id="expand" aria-label="展开 / 恢复多视图" title="展开 / 恢复多视图"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-expand"/></svg><span>展开 / 恢复多视图</span></button></div>
           </section></details>
-          <button id="inspector-toggle" title="结构信息" aria-label="结构信息" aria-expanded="false" aria-controls="structure-inspector"><svg class="icon" aria-hidden="true"><rect x="3" y="3" width="12" height="12" rx="2"/><path d="M3 7h12M7 7v8"/></svg></button>
+          <button id="inspector-toggle" title="结构信息" aria-label="结构信息" aria-expanded="false" aria-controls="structure-inspector"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-info"/></svg></button>
         </div>
       </div>
     </div>

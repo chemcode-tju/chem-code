@@ -201,6 +201,7 @@ export function createStepDetail({api,rememberCount}) {
     screen.parentElement.scrollTop=overviewTop;
   }
   function heading(title,kind,id,index,total,planName,purpose='') {
+    for (const id of ['step-plan-name','step-title','step-purpose','step-key']) $(id).dataset.noI18n = '';
     $('step-plan-name').textContent=planName || ''; $('step-plan-name').title=planName || '';
     $('step-title').textContent=title;$('step-kind').textContent=t(kind);
     $('step-index').textContent=String(index+1).padStart(2,'0')+' / '+total;
@@ -211,7 +212,7 @@ export function createStepDetail({api,rememberCount}) {
     $('step-status').textContent=label;$('step-status').dataset.state=tone;
   }
   function relations(before,after) {
-    const chip=n=>`<button type="button" data-related="${esc(n.id)}" title="${esc(n.id)}">${esc(taskLabel(n))}</button>`;
+    const chip=n=>`<button type="button" data-no-i18n data-related="${esc(n.id)}" title="${esc(n.id)}">${esc(taskLabel(n))}</button>`;
     const line=(label,nodes)=>`<div><h3>${t(label)} <small>${nodes.length}</small></h3><div class="relation-chips">${nodes.slice(0,3).map(chip).join('')}${nodes.length>3?`<details><summary>+ ${nodes.length-3}</summary><div class="relation-chips">${nodes.slice(3).map(chip).join('')}</div></details>`:''}</div></div>`;
     $('step-relations').innerHTML=(before.length?line('直接上游',before):'')+(after.length?line('直接下游',after):'');
     $('step-dependencies').hidden=!before.length && !after.length;
@@ -228,7 +229,7 @@ export function createStepDetail({api,rememberCount}) {
       return;
     }
     if(registeredSelection) {
-      $('step-files').innerHTML=`<a href="${esc(registeredSelection.url)}" download="${esc(registeredSelection.name)}" title="下载结构"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-save"/></svg> ${esc(registeredSelection.name)}</a>`;
+      $('step-files').innerHTML=`<a href="${esc(registeredSelection.url)}" download="${esc(registeredSelection.name)}" title="下载结构"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-download"/></svg> ${esc(registeredSelection.name)}</a>`;
       return;
     }
     const options=availableFiles(info);
@@ -388,7 +389,7 @@ export function createStepDetail({api,rememberCount}) {
     const state=plan.runtime[node.id];
     $('step-parent').hidden=true;
     const path=$('step-group-path');
-    path.textContent=(node.group_path || []).join(' › ');path.hidden=!path.textContent;
+    path.innerHTML=`<span data-no-i18n>${esc((node.group_path || []).join(' › '))}</span>`;path.hidden=!path.textContent;
     status(nodeStatus(plan,node),state.status);
     const editing={...info?.editing};
     if(!['pending','blocked','ready','waiting'].includes(state.status) || state.generic_job_id || state.job_id || state.jobs?.length)editing.purpose=editing.files=false;

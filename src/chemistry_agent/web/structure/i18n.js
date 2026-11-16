@@ -41,6 +41,7 @@
   "帧号": "Frame number",
   "轨迹帧滑块": "Trajectory timeline",
   "第一帧": "First frame",
+  "第 {0} 帧": "Frame {0}",
   "上一帧": "Previous frame",
   "播放轨迹": "Play trajectory",
   "暂停轨迹": "Pause trajectory",
@@ -441,48 +442,78 @@
       const match=trimmed.match(regex);if(!match)continue;
       translated=value.replace(/\{\d+\}/g,key=>translate(match[keys.indexOf(key)+1],language,depth+1));break;
     }
-    return translated===undefined?text:text.slice(0,text.indexOf(trimmed))+translated+text.slice(text.indexOf(trimmed)+trimmed.length);
+    if(translated===undefined)return text;
+    generatedSources.set(translated,trimmed);
+    if(generatedSources.size>512)generatedSources.delete(generatedSources.keys().next().value);
+    return text.slice(0,text.indexOf(trimmed))+translated+text.slice(text.indexOf(trimmed)+trimmed.length);
   }
+  // A module may insert an already translated label. Keep its canonical source
+  // so switching back also restores nodes that first appeared in English.
+  const generatedSources=new Map();
+  const sources=new Map(Object.entries(catalog).filter(([key])=>!/{\d+}/.test(key)).map(([key,value])=>[value,key]));
+  const sourceOf=text=>{
+    const trimmed=text.trim(),source=generatedSources.get(trimmed)??sources.get(trimmed);
+    return source===undefined?text:text.replace(trimmed,()=>source);
+  };
   const api={translate,catalog,language:'zh-CN'};
   if(typeof module!=='undefined'&&module.exports){module.exports=api;return;}
   root.StructureI18n=api;
-  try{api.language=(localStorage.getItem('chemistry.language')||localStorage.getItem('structure-viewer.language'))==='en'?'en':'zh-CN';}catch{}
+  function storedLanguage(){
+    try{return (localStorage.getItem('chemistry.language')||localStorage.getItem('structure-viewer.language'))==='en'?'en':'zh-CN';}
+    catch{return api.language;}
+  }
+  api.language=storedLanguage();
   const textStates=new WeakMap(),attributeStates=new WeakMap();
-  const excluded='script,style,textarea,#filename:not([data-empty-title]),#atom-list,[data-no-i18n]';
+  const excluded='script,style,#filename:not([data-empty-title]),#atom-list,[data-no-i18n]';
   function textNode(node){
-    if(node.parentElement?.closest(excluded))return;
+    if(node.parentElement?.closest(excluded+',textarea'))return;
     const current=node.nodeValue;
     let state=textStates.get(node);
-    if(!state||current!==state.last)state={source:current,last:current};
+    if(!state||current!==state.last)state={source:sourceOf(current),last:current};
     const value=translate(state.source,api.language);
     state.last=value;textStates.set(node,state);
     if(current!==value)node.nodeValue=value;
   }
   function element(node){
-    if(node.matches(excluded))return;
+    if(node.closest(excluded))return;
     let states=attributeStates.get(node);if(!states){states={};attributeStates.set(node,states);}
     for(const attr of ['title','aria-label','placeholder']){
       if(!node.hasAttribute(attr))continue;
       const current=node.getAttribute(attr);let state=states[attr];
-      if(!state||current!==state.last)state={source:current,last:current};
+      if(!state||current!==state.last)state={source:sourceOf(current),last:current};
       const value=translate(state.source,api.language);state.last=value;states[attr]=state;
       if(current!==value)node.setAttribute(attr,value);
     }
   }
   function visit(node){
     if(node.nodeType===3){textNode(node);return;}
-    if(node.nodeType!==1||node.matches(excluded))return;
+    if(node.nodeType!==1||node.closest(excluded))return;
     element(node);for(const child of node.childNodes)visit(child);
   }
-  api.setLanguage=language=>{
+  api.setLanguage=(language,{persist=true}={})=>{
     api.language=language==='en'?'en':'zh-CN';document.documentElement.lang=api.language;
-    try{localStorage.setItem('structure-viewer.language',api.language);localStorage.setItem('chemistry.language',api.language);}catch{}
+    if(persist)try{localStorage.setItem('structure-viewer.language',api.language);localStorage.setItem('chemistry.language',api.language);}catch{}
     visit(document.body);
-    const selector=document.getElementById('language');selector.value=api.language;
-    selector.options[0].textContent=api.language==='en'?'Chinese (Simplified)':'简体中文';
+    const selector=document.getElementById('language');
+    if(selector){
+      selector.value=api.language;
+      selector.options[0].textContent=api.language==='en'?'Chinese (Simplified)':'简体中文';
+      const label=api.language==='en'?'Language':'语言';
+      selector.setAttribute('aria-label',label);
+      if(selector.parentElement.firstChild?.nodeType===3)selector.parentElement.firstChild.nodeValue=label+' ';
+    }
+    document.title=translate('结构与轨迹',api.language)+' · Chem Code';
+    root.dispatchEvent(new Event('languagechange'));
   };
   document.getElementById('language').onchange=event=>api.setLanguage(event.target.value);
-  api.setLanguage(api.language);
+  api.setLanguage(api.language,{persist:false});
+  // A settings iframe and an already loaded viewer have separate documents.
+  // Apply the shared preference without writing it back and creating echoes.
+  root.addEventListener('storage',event=>{
+    if(event.key===null||event.key==='chemistry.language'||event.key==='structure-viewer.language'){
+      api.setLanguage(storedLanguage(),{persist:false});
+    }
+  });
   // Observe only text and accessible labels. Rendering canvases and their large
   // WebGL buffers never pass through this observer. Values (including paths)
   // are intentionally excluded. Writes below are idempotent.

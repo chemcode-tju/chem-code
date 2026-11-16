@@ -1055,11 +1055,12 @@ body.inspector-open { grid-template-columns:var(--sidebar) minmax(0,1fr) var(--i
 .plan-nodes > small,.plan-step small { color:var(--muted); }
 .calculation-preview .plan-step { margin:0; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .plan-step > summary { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:7px 9px; }
-.plan-step summary::after { content:"⌄"; color:var(--muted); }
+.plan-step summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;color:var(--muted);}
+.plan-step[open] > summary::after {transform:rotate(90deg);}
 .plan-step summary small { margin-left:auto; white-space:nowrap; }
 .plan-step[data-state="active"] { border-left:3px solid var(--accent); background:var(--hover); }
-.plan-step[data-state="done"] summary small::before {content:"✓ ";} /* taste-skill-ignore: functional check mark indicates completion or selection. */
-.plan-step[data-state="failed"] summary small::before {content:"! ";}
+.plan-step[data-state="done"] summary small::before {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-check) center/contain no-repeat;margin-right:4px;vertical-align:-2px;}
+.plan-step[data-state="failed"] summary small::before {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-alert) center/contain no-repeat;margin-right:4px;vertical-align:-2px;}
 .plan-step dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:3px 10px; margin:8px 10px; font-size:var(--font-size-secondary); }
 .plan-step dd { margin:0; overflow-wrap:anywhere; }
 .plan-step dt { color:var(--muted); }
@@ -1082,8 +1083,8 @@ body.inspector-open { grid-template-columns:var(--sidebar) minmax(0,1fr) var(--i
 .general-plan .plan-entry strong {font-size:13px;font-weight:500;}
 .general-plan .plan-entry small {font-size:var(--font-size-secondary);min-width:48px;text-align:right;}
 .general-plan .plan-entry[data-state="active"] {border-left:3px solid var(--accent);background:var(--hover);}
-.general-plan .plan-entry[data-state="completed"] small::before {content:"✓ ";} /* taste-skill-ignore: functional check mark indicates completion or selection. */
-.general-plan .plan-entry[data-state="failed"] small::before {content:"! ";}
+.general-plan .plan-entry[data-state="completed"] small::before {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-check) center/contain no-repeat;margin-right:4px;vertical-align:-2px;}
+.general-plan .plan-entry[data-state="failed"] small::before {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-alert) center/contain no-repeat;margin-right:4px;vertical-align:-2px;}
 .graph-progress {height:3px;border-radius:4px;background:var(--subtle);overflow:hidden;margin:12px 0 18px;}
 .graph-progress span {display:block;height:100%;background:var(--accent);transition:width .3s;}
 
@@ -1134,8 +1135,8 @@ dialog[data-workspace-dialog] h2 { margin:0;font-size:18px; }
 .progress-group > summary { display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 12px;background:var(--panel);cursor:pointer;font-size:14px;font-weight:500;list-style:none; }
 .progress-group > summary::-webkit-details-marker { display:none; }
 .progress-group > summary::before { content:"";width:7px;height:7px;border-radius:50%;background:var(--progress-color); }
-.progress-group > summary::after { content:"";width:6px;height:6px;border-bottom:1.5px solid var(--muted);border-right:1.5px solid var(--muted);transform:rotate(-45deg); }
-.progress-group[open] > summary::after { transform:rotate(45deg); }
+.progress-group > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;color:var(--muted);}
+.progress-group[open] > summary::after {transform:rotate(90deg);}
 .progress-count { margin-left:auto;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums; }
 #progress-events .progress-group article { padding:12px; }
 #progress-events .progress-group article:last-child { border-bottom:0; }
@@ -1319,8 +1320,8 @@ button:not(:disabled):focus-visible,summary:focus-visible { outline:2px solid va
 .structure-library { flex:0 0 auto; min-height:0; border:1px solid var(--border); border-radius:var(--radius-control); overflow:hidden; }
 .structure-library > summary { display:flex; align-items:center; gap:8px; padding:9px 12px; background:var(--panel); font-size:14px; cursor:pointer; list-style:none; }
 .structure-library > summary::-webkit-details-marker { display:none; }
-.structure-library > summary::after { content:""; width:6px; height:6px; margin-left:auto; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); }
-.structure-library[open] > summary::after { transform:rotate(45deg); }
+.structure-library > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;margin-left:auto;}
+.structure-library[open] > summary::after {transform:rotate(90deg);}
 #structure-file-count { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
 .structure-library-list { max-height:min(200px,28dvh); overflow:auto; padding:0 10px; overscroll-behavior:contain; }
 .structure-library #structure-list { max-height:none; overflow:visible; margin:0; }

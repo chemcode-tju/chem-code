@@ -10,14 +10,14 @@
 .general-plan > .plan-map {margin:10px 0 0;}
 .general-plan > details[data-fold=goal] {margin:0;padding:10px 0;font-size:var(--font-size-secondary,13px);color:var(--muted);}
 .general-plan > details[data-fold=goal] > summary {display:flex;align-items:center;gap:8px;min-height:var(--control-height,34px);padding:6px 8px;border-radius:var(--radius-control,8px);cursor:pointer;}
-.general-plan > details[data-fold=goal] > summary::after {content:'';width:6px;height:6px;flex:none;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);margin-left:auto;}
-.general-plan > details[data-fold=goal][open] > summary::after {transform:rotate(135deg);}
+.general-plan > details[data-fold=goal] > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;color:var(--muted);margin-left:auto;}
+.general-plan > details[data-fold=goal][open] > summary::after {transform:rotate(90deg);}
 .general-plan > details[data-fold=goal] > summary:hover {background:var(--hover);color:var(--text);}
 .general-plan > details[data-fold=goal] > summary:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
 .general-plan > details[data-fold=goal] > p {color:var(--text);}
 .general-plan .map-identity > :is(svg,strong) {display:none;}
 .map-board { position:relative; isolation:isolate; display:flex; flex-direction:column; width:100%; min-width:0; color:var(--text); background:var(--panel); border:.5px solid var(--border); border-radius:16px; container:mapboard / inline-size; }
-.map-board svg:not(.map-edges) { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+.map-board svg:not(.map-edges) { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
 .map-tools,.map-subtools,.map-actions,.map-identity,.map-zoom,.map-foot { display:flex;align-items:center;min-width:0; }
 .map-tools,.map-subtools { gap:6px;justify-content:space-between;padding:6px 9px; }
 .map-tools {padding:6px 8px;border-bottom:1px solid var(--border);}
@@ -150,8 +150,8 @@
 #step-actual-parameters > details {border-bottom:1px solid var(--border);padding:8px 0;}
 #step-actual-parameters > details:last-child {border-bottom:0;}
 #step-actual-parameters > details > summary {display:flex;align-items:center;justify-content:space-between;font:500 13px var(--font-code);cursor:pointer;padding:3px 0;}
-#step-actual-parameters > details > summary::after {content:'';width:6px;height:6px;margin-right:5px;border-right:1px solid var(--muted);border-bottom:1px solid var(--muted);transform:rotate(-45deg);}
-#step-actual-parameters > details[open] > summary::after {transform:rotate(45deg);}
+#step-actual-parameters > details > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;margin-right:5px;color:var(--muted);}
+#step-actual-parameters > details[open] > summary::after {transform:rotate(90deg);}
 #step-code.step-text-editor {padding:0;background:transparent;max-height:none;overflow:visible;}
 .step-meta {margin-top:12px;}
 .step-status {padding:2px 8px;border-radius:20px;background:var(--subtle);font-size:13px;font-weight:560;}
@@ -173,8 +173,8 @@
 .step-sections > :nth-last-child(1 of :not([hidden],:empty)) {border-bottom:0;}
 .step-sections > details > summary {display:flex;align-items:center;gap:9px;padding:11px 0;font-size:14px;font-weight:500;}
 .step-sections > details > summary .icon {width:16px;height:16px;color:var(--muted);}
-.step-sections > details > summary::after {content:'';width:6px;height:6px;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);margin-inline: auto 3px;}
-.step-sections > details[open] > summary::after {transform:rotate(135deg);}
+.step-sections > details > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;color:var(--muted);margin-inline:auto 3px;}
+.step-sections > details[open] > summary::after {transform:rotate(90deg);}
 .step-sections > details[open] {padding-bottom:12px;}
 #step-parameters {display:grid;grid-template-columns:minmax(54px,max-content) minmax(0,1fr);gap:0 12px;margin:0;}
 #step-parameters :is(dt,dd) {border-top:1px solid var(--border);margin:0;padding:7px 0;font-size:14px;line-height:1.5;}

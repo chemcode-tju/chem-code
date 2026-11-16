@@ -1,4 +1,5 @@
 import { createCascadeMenu, effortLabel, permissionLabel } from './agent-menu.mjs';
+import {t} from './i18n.mjs';
 
 export function createChatModelPicker({api, state, toast, updateControls, refreshHealth}) {
   const $ = id => document.getElementById(id);
@@ -10,11 +11,12 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     const current = selection || {backend:state.health?.agent_backend || 'builtin', model:state.health?.model || '', effort:'', permission:'user'};
     const models = catalogs[current.backend]?.models || [];
     const model = models.find(item => item.id === current.model)?.name || current.model || models.find(item => item.default)?.name || names[current.backend];
-    $('agent-picker-label').textContent = `${model} · ${effortLabel(current.effort)}`;
+    $('agent-picker-label').textContent = `${model} · ${t(effortLabel(current.effort))}`;
+    $('agent-picker-label').dataset.noI18n = '';
     picker.querySelector('.agent-logo').outerHTML = current.backend === 'antigravity'
       ? '<img class="icon agent-logo" src="/assets/antigravity.svg" alt="">'
       : '<svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg>';
-    picker.title = `${names[current.backend]} · ${model} · ${effortLabel(current.effort)}`;
+    picker.title = `${names[current.backend]} · ${model} · ${t(effortLabel(current.effort))}`;
     $('permission-label').textContent = permissionLabel(current.permission);
     permission.title = current.backend !== 'builtin' ? `${names[current.backend]} 本机执行权限；平台工具沿用平台授权` : 'Chem Agent 工具执行权限';
     updateControls();
@@ -55,7 +57,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     menu.column(2, '推理强度', [...new Set(values)].map(effort => ({label:effortLabel(effort), selected:selection?.backend === backend && selection.model === model.id && selection.effort === effort, action:() => choose({...next, effort})})));
   }
   function modelRow(backend, model) {
-    return {label:model.name || model.id, branch:Boolean(model.efforts?.length), selected:selection?.backend === backend && selection.model === model.id,
+    return {label:model.name || model.id, noTranslate:true, branch:Boolean(model.efforts?.length), selected:selection?.backend === backend && selection.model === model.id,
       action:() => model.efforts?.length ? effortRows(backend, model) : choose({backend, model:model.id, effort:'', permission:selection?.backend === backend ? selection.permission : backend !== 'builtin' ? 'user' : 'full'})};
   }
   async function models(backend, reload = false) {

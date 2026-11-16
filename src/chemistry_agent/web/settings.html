@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>设置 · Chem Code</title>
   <script src="/assets/theme.js"></script>
+  <script src="/assets/settings-boot.js"></script>
   <script type="module" src="/assets/i18n.mjs"></script>
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/settings.css">
@@ -16,16 +17,17 @@
   <link rel="stylesheet" href="/assets/solid-glass.css">
 </head>
 <body>
+  <div id="settings-loading" role="status"><span id="settings-loading-label"></span><button id="settings-retry" type="button" hidden>重新加载</button></div>
   <div class="settings-sheet">
   <header class="settings-header"><h1>设置</h1><a class="close-settings icon-button" href="/" aria-label="关闭设置" title="关闭设置"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></a></header>
   <aside class="settings-sidebar"><nav role="tablist" aria-label="设置分类" aria-orientation="vertical"><button id="tab-general" role="tab" aria-controls="general" aria-selected="true" data-tab="general"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-general"/></svg>常规</button><button id="tab-appearance" role="tab" aria-controls="appearance" aria-selected="false" tabindex="-1" data-tab="appearance"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-appearance"/></svg>外观</button><button id="tab-agent" role="tab" aria-controls="agent-settings" aria-selected="false" tabindex="-1" data-tab="agent"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-model"/></svg>Agent 与模型</button>
     <span class="settings-group-title">计算工作区</span>
     <button id="tab-automation" role="tab" aria-controls="automation" aria-selected="false" tabindex="-1" data-tab="automation"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-automation"/></svg>配置概览</button>
     <button id="tab-servers" role="tab" aria-controls="servers" aria-selected="false" tabindex="-1" data-tab="servers"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-servers"/></svg>服务器连接</button>
-    <button id="tab-software" role="tab" aria-controls="software" aria-selected="false" tabindex="-1" data-tab="software"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-software"/></svg>计算软件</button>
-    <button id="tab-potentials" role="tab" aria-controls="potentials" aria-selected="false" tabindex="-1" data-tab="potentials"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-potentials"/></svg>赝势目录</button>
-    <button id="tab-queues" role="tab" aria-controls="queues" aria-selected="false" tabindex="-1" data-tab="queues"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-queues"/></svg>调度队列</button>
-    <button id="tab-environments" role="tab" aria-controls="environments" aria-selected="false" tabindex="-1" data-tab="environments"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-environments"/></svg>执行环境</button>
+    <button id="tab-software" hidden role="tab" aria-controls="software" aria-selected="false" tabindex="-1" data-tab="software"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-software"/></svg>计算软件</button>
+    <button id="tab-potentials" hidden role="tab" aria-controls="potentials" aria-selected="false" tabindex="-1" data-tab="potentials"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-potentials"/></svg>赝势目录</button>
+    <button id="tab-queues" hidden role="tab" aria-controls="queues" aria-selected="false" tabindex="-1" data-tab="queues"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-queues"/></svg>调度队列</button>
+    <button id="tab-environments" hidden role="tab" aria-controls="environments" aria-selected="false" tabindex="-1" data-tab="environments"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-environments"/></svg>执行环境</button>
   </nav></aside>
   <main>
     <section class="settings-panel" id="general" data-panel="general" role="tabpanel" aria-labelledby="tab-general"><h2>常规</h2><div class="setting-row"><div><label for="language">语言</label></div><select id="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></div><div class="account-section"><h3>工作空间账户</h3><div class="account-row"><span class="account-avatar" id="settings-avatar">C</span><div><strong id="settings-username">正在读取…</strong><p id="settings-account-note" class="hint"></p></div><button class="secondary" id="settings-logout" type="button" hidden>退出登录</button></div></div></section>
@@ -50,7 +52,7 @@
           <button id="add-account" class="secondary" type="button">添加 ChatGPT 账号</button>
           <button id="chatgpt-logout" class="secondary" type="button" hidden>退出 ChatGPT</button>
         </div>
-        <label for="chatgpt-account">ChatGPT 账号</label><select id="chatgpt-account" data-no-i18n><option value="">尚未授权</option></select>
+        <label for="chatgpt-account">ChatGPT 账号</label><select id="chatgpt-account"><option value="">尚未授权</option></select>
         <div id="authorization" hidden>
           <p><a id="authorization-link" target="_blank" rel="noopener noreferrer">打开授权页</a></p>
           <p id="device-code-row" hidden>设备码：<strong id="device-code"></strong></p>
@@ -71,7 +73,7 @@
         <button id="clear-key" class="secondary" type="button">删除已保存的 API Key</button>
         <label id="thinking-label" class="checkbox"><input id="thinking" type="checkbox">启用 DeepSeek 思考模式</label>
       </section>
-      <label for="model-choice">默认模型</label><div class="model-choice-row"><select id="model-choice" data-no-i18n><option value="">自动选择</option></select><button id="refresh-models" class="secondary" type="button">刷新模型</button></div><p id="catalog-status" class="hint" role="status"></p>
+      <label for="model-choice">默认模型</label><div class="model-choice-row"><select id="model-choice"><option value="">自动选择</option></select><button id="refresh-models" class="secondary" type="button">刷新模型</button></div><p id="catalog-status" class="hint" role="status"></p>
 
       <details id="model-advanced"><summary>高级选项</summary>
       <label for="model">模型 ID <span id="model-optional">（可选）</span></label>
@@ -90,16 +92,16 @@
         <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span class="agent-identity"><strong>Codex</strong><span class="agent-model" data-model-for="codex">正在读取…</span></span><span class="agent-default" data-default-for="codex" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="codex-executable">程序路径</label><input id="codex-executable" value="codex" autocomplete="off" spellcheck="false">
-          <label for="codex-model">默认模型</label><div class="model-choice-row"><select id="codex-model" data-no-i18n><option value="">跟随 Codex</option></select><button id="codex-probe" type="button" class="secondary">检测连接</button></div>
-          <label for="codex-effort">推理强度</label><select id="codex-effort" data-no-i18n><option value="">跟随模型</option></select><div class="agent-card-actions"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button type="button" class="secondary" data-use-backend="codex">设为新对话默认</button></div>
+          <label for="codex-model">默认模型</label><div class="model-choice-row"><select id="codex-model"><option value="">跟随 Codex</option></select><button id="codex-probe" type="button" class="secondary">检测连接</button></div>
+          <label for="codex-effort">推理强度</label><select id="codex-effort"><option value="">跟随模型</option></select><div class="agent-card-actions"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button type="button" class="secondary" data-use-backend="codex">设为新对话默认</button></div>
         </div>
       </details>
       <details class="agent-row" id="antigravity-settings">
         <summary><img class="agent-logo" src="/assets/antigravity.svg" alt=""><span class="agent-identity"><strong>Antigravity</strong><span class="agent-model" data-model-for="antigravity">正在读取…</span></span><span class="agent-default" data-default-for="antigravity" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="antigravity-executable">程序路径</label><input id="antigravity-executable" value="agy" autocomplete="off" spellcheck="false">
-          <label for="antigravity-model">默认模型</label><div class="model-choice-row"><select id="antigravity-model" data-no-i18n><option value="">跟随 Antigravity</option></select><button id="antigravity-probe" type="button" class="secondary">检测连接</button></div>
-          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort" data-no-i18n><option value="">跟随模型</option></select><div class="agent-card-actions"><span class="agent-connection-state" data-connection-for="antigravity">尚未检测</span><button type="button" class="secondary" data-use-backend="antigravity">设为新对话默认</button></div>
+          <label for="antigravity-model">默认模型</label><div class="model-choice-row"><select id="antigravity-model"><option value="">跟随 Antigravity</option></select><button id="antigravity-probe" type="button" class="secondary">检测连接</button></div>
+          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort"><option value="">跟随模型</option></select><div class="agent-card-actions"><span class="agent-connection-state" data-connection-for="antigravity">尚未检测</span><button type="button" class="secondary" data-use-backend="antigravity">设为新对话默认</button></div>
         </div>
       </details>
       </div>

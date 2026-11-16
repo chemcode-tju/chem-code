@@ -5,8 +5,8 @@
 #step-title {font-size:22px;line-height:1.4;font-weight:600;letter-spacing:0;margin:8px 0;}
 #step-key {display:block;font-size:var(--font-size-secondary,13px);padding-top:8px;}
 .step-description > summary {display:flex;align-items:center;min-height:var(--control-height,34px);font-size:var(--font-size-ui,14px);margin-top:8px;}
-.step-description > summary::after {content:'';width:6px;height:6px;margin-left:8px;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);}
-.step-description[open] > summary::after {transform:rotate(135deg);}
+.step-description > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;margin-left:8px;color:var(--muted);}
+.step-description[open] > summary::after {transform:rotate(90deg);}
 .step-meta {gap:12px;margin-top:12px;}
 .step-status {border-radius:var(--radius-control,8px);font-weight:500;}
 #step-refresh {min-height:var(--control-height,34px);padding:6px 10px;border-radius:var(--radius-control,8px);font-size:var(--font-size-ui,14px);}
@@ -23,8 +23,8 @@
 .step-sections {background:transparent;border:0;border-radius:0;overflow:visible;margin-top:8px;}
 .step-sections > details,.step-sections > #step-figures:not(:empty),#step-dependencies {margin:8px 0;padding:0;border:0;}
 .step-sections > details > summary,#step-dependencies > summary {display:flex;align-items:center;gap:9px;min-height:40px;padding:8px 12px;font-size:var(--font-size-ui,14px);font-weight:500;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-control,8px);cursor:pointer;}
-.step-sections > details > summary::after,#step-dependencies > summary::after {content:'';width:6px;height:6px;flex:none;border:solid var(--muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg);margin-inline:auto 3px;}
-.step-sections > details[open] > summary::after,#step-dependencies[open] > summary::after {transform:rotate(135deg);}
+.step-sections > details > summary::after,#step-dependencies > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;margin-inline:auto 3px;color:var(--muted);}
+.step-sections > details[open] > summary::after,#step-dependencies[open] > summary::after {transform:rotate(90deg);}
 .step-sections > details[open] {padding-bottom:8px;}
 .step-sections > details > :not(summary) {margin-inline:12px 4px;padding-inline:14px 8px;border-left:2px solid var(--strong-border);}
 .step-sections > details > :nth-child(2) {margin-top:0;padding-top:18px;}

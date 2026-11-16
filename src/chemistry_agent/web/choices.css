@@ -3,7 +3,7 @@ html select:not([multiple],[size]),html .map-board .map-subtools select {
   appearance:none; cursor:pointer;
   border:.5px solid var(--border); border-radius:var(--radius-control);
   background-color:var(--panel);
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23798089' stroke-width='1.45' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23798089' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-position:right 9px center; background-size:14px; background-repeat:no-repeat;
   padding:6px 30px 6px 10px; font:400 14px/20px var(--font-ui); text-overflow:ellipsis;
 }
@@ -22,7 +22,7 @@ html .chat-model-picker select { field-sizing:content; padding-inline-start:4px;
 .choice-menu [role=option],.choice-group { display:block; position:relative; min-height:var(--control-height); padding:6px 32px 6px 10px; border-radius:var(--radius-control); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .choice-menu [role=option] { cursor:pointer; }
 .choice-menu [role=option][data-active] { background:var(--hover); }
-.choice-menu [aria-selected=true]::after { content:""; position:absolute; right:12px; top:50%; width:8px; height:4px; border:solid currentColor; border-width:0 0 1.5px 1.5px; transform:translateY(-65%) rotate(-45deg); }
+.choice-menu [aria-selected=true]::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-check) center/contain no-repeat;position:absolute;right:12px;top:50%;transform:translateY(-50%);}
 .choice-menu [aria-disabled=true],.choice-group { color:var(--muted); cursor:default; }
 .choice-group { font-size:var(--font-size-secondary); }
 

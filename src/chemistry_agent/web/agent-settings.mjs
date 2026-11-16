@@ -63,8 +63,9 @@ export function createAgentSettings(api) {
   }
   function modelOptions(id, selected, effort = '') {
     const models = catalogs[id] || [];
-    const options = models.map(model => new Option(model.name, model.id));
-    if (selected && !models.some(model => model.id === selected)) options.push(new Option(selected, selected));
+    const option = (label, value) => { const node = new Option(label, value); node.dataset.noI18n = ''; return node; };
+    const options = models.map(model => option(model.name, model.id));
+    if (selected && !models.some(model => model.id === selected)) options.push(option(selected, selected));
     $(`${id}-model`).replaceChildren(new Option(t(`跟随 ${agents[id].name}`), ''), ...options);
     $(`${id}-model`).value = selected; efforts(id, effort);
   }

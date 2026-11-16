@@ -79,7 +79,11 @@
       for(const [rowIndex,row] of rows.entries()){
         const tr=document.createElement('tr');
         for(const [column,value] of row.entries()){
-          const td=document.createElement('td');td.dataset.noI18n='';if(numeric(headings[column]))td.className='numeric';
+          const td=document.createElement('td');
+          // Cell row headings are UI labels; particle/type names and all numeric
+          // values belong to the source structure and must remain unchanged.
+          if(this.tab!=='cell'||column!==0)td.dataset.noI18n='';
+          if(numeric(headings[column]))td.className='numeric';
           if(indices&&column===0){const button=document.createElement('button');button.textContent=value;button.onclick=()=>this.onSelect(indices[rowIndex]);td.append(button);}
           else td.textContent=String(value??'—');
           tr.append(td);

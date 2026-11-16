@@ -137,7 +137,7 @@ async function refreshLogin() {
   $("chatgpt-logout").hidden = !data.authenticated;
   $("device-login").disabled = busy || data.legacy_available === false;
   accounts = data.accounts || [];
-  $("chatgpt-account").replaceChildren(new Option(t("选择已保存的账号"), ""), ...(data.accounts || []).map((item) => new Option(item.label, item.id)));
+  $("chatgpt-account").replaceChildren(new Option(t("选择已保存的账号"), ""), ...(data.accounts || []).map((item) => { const option = new Option(item.label, item.id); option.dataset.noI18n = ''; return option; }));
   $("chatgpt-account").value = data.active_account || "";
   const url = data.login.url;
   let valid = false;
@@ -285,14 +285,16 @@ if (embedded) document.addEventListener("click", (event) => {
     event.preventDefault(); selectTab(link.hash.slice(1));
   }
 });
-tabs.forEach((tab, index) => {
+tabs.forEach((tab) => {
   tab.addEventListener("click", () => selectTab(tab.dataset.tab));
   tab.addEventListener("keydown", (event) => {
     const offset = {ArrowDown:1, ArrowRight:1, ArrowUp:-1, ArrowLeft:-1}[event.key];
     if (!offset && !["Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + offset + tabs.length) % tabs.length;
-    tabs[next].click(); tabs[next].focus();
+    const visible = tabs.filter(item => !item.hidden);
+    const index = visible.indexOf(tab);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1 : (index + offset + visible.length) % visible.length;
+    visible[next].click(); visible[next].focus();
   });
 });
 window.addEventListener("hashchange", showSettingsPanel);
@@ -300,3 +302,5 @@ showSettingsPanel();
 $("language").value = getLanguage();
 $("language").addEventListener("change", () => setLanguage($("language").value));
 window.addEventListener("languagechange", () => { $("language").value = getLanguage(); translateUI(); });
+translateUI();
+window.chemistrySettingsReady?.();
