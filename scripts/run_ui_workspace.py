@@ -1,6 +1,6 @@
 """Run this checkout's UI against the existing local application backend."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -30,6 +30,19 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.middleware("http")
+async def revalidate_ui_assets(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Keep unversioned UI modules current, including nested viewer scripts."""
+    response = await call_next(request)
+    if request.url.path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 app.mount("/assets", StaticFiles(directory=web_directory), name="assets")
 
 

@@ -25,7 +25,7 @@
 <link rel="stylesheet" href="/assets/agent-controls.css">
   <link rel="stylesheet" href="/assets/solid-glass.css">
 </head>
-<body class="auth-checking">
+<body class="auth-checking workspace-shell">
 
   <div class="auth-loading" role="status">正在打开研究空间…</div>
 
@@ -58,6 +58,7 @@
       <div class="topbar-actions"><button class="icon-button tools-toggle" id="tools-toggle" aria-controls="inspector" title="展开研究面板" aria-label="展开研究面板" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-left-panel"/></svg><span id="dock-count" class="sr-only" aria-hidden="true">0</span></button></div>
     </header>
 
+    <div class="chat-workspace">
     <div class="chat-scroll" id="chat-scroll">
       <div class="content-frame">
         <section id="conversation" class="conversation" aria-label="对话消息" aria-live="polite" aria-relevant="additions text" hidden></section>
@@ -83,6 +84,7 @@
         <section id="agent-approvals" aria-live="polite" hidden></section>
       </form>
       <input type="file" id="file-picker" multiple hidden>
+    </div>
     </div>
   </main>
 
@@ -123,6 +125,7 @@
         <button class="icon-button inspector-close" id="inspector-close" title="收起研究面板" aria-controls="inspector" aria-expanded="false" aria-label="收起研究面板"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-panel"/></svg></button>
       </div>
     </header>
+    <div class="inspector-body">
     <nav id="inspector-launcher" class="inspector-launcher" aria-label="研究工具"></nav>
     <section class="inspector-scroll" id="inspector-panel-calculation" hidden role="tabpanel" aria-labelledby="inspector-tab-calculation" tabindex="0">
       <div id="plan-overview"><div id="calculation-cards" class="calculation-workspace" hidden></div>
@@ -179,6 +182,7 @@
       </details>
       <details class="result-section" id="result-section" hidden><summary>工具结果 <span id="result-badge">暂无记录</span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary><div id="result-panel" class="result-panel"><p class="empty-result">运行工具后，在这里查看结果。</p></div></details>
     </section>
+    </div>
   </aside>
   <dialog id="notification-panel" data-workspace-dialog><header><h2 id="notification-title">通知</h2><button type="button" id="notification-read-all">全部已读</button><button data-close aria-label="关闭通知"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header><p id="monitor-status"></p><div id="notification-list"></div></dialog>
   <dialog id="context-panel" data-workspace-dialog aria-labelledby="context-status"><header><h2 id="context-status">上下文用量</h2><button data-close aria-label="关闭上下文"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header>

@@ -9,8 +9,8 @@ const catalog=require('../../src/chemistry_agent/web/structure/locales.json');
 
 function viewer(language='zh-CN'){
   class Element {
-    constructor(tag,attrs={},text){this.nodeType=1;this.tagName=tag;this.attrs={...attrs};this.childNodes=[];if(text!==undefined)this.append(new Text(text));}
-    append(child){child.parentElement=this;this.childNodes.push(child);return child;}
+    constructor(tag,attrs={},text){this.nodeType=1;this.tagName=tag;this.attrs={...attrs};this.childNodes=[];this.dataset=new Proxy({},{set:(_,key,value)=>{this.attrs['data-'+key.replace(/[A-Z]/g,char=>'-'+char.toLowerCase())]=value;return true;}});if(text!==undefined)this.append(new Text(text));}
+    append(...children){for(const child of children){child.parentElement=this;this.childNodes.push(child);}return children[0];}
     get firstChild(){return this.childNodes[0];}
     get textContent(){return this.childNodes.map(child=>child.nodeValue??child.textContent).join('');}
     set textContent(value){this.childNodes=[];this.append(new Text(value));}
@@ -38,7 +38,7 @@ function viewer(language='zh-CN'){
   const storage=new Map([['chemistry.language',language]]),writes=[];
   let observer;
   const events=new EventTarget();
-  const context={document:{body,documentElement:{},getElementById:id=>id==='language'?select:null},Event,
+  const context={document:{body,documentElement:{},createElement:tag=>new Element(tag),getElementById:id=>id==='language'?select:null},Event,
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>{writes.push([key,value]);storage.set(key,value);}},
     MutationObserver:class{constructor(callback){observer=callback;}observe(){}},
     addEventListener:events.addEventListener.bind(events),dispatchEvent:events.dispatchEvent.bind(events)};
@@ -91,4 +91,37 @@ test('browser and Node catalogues match and shared preference overrides the view
   assert.equal(v.api.language,'en');
   v.storageEvent('chemistry.language',null);
   assert.equal(v.api.language,'zh-CN');
+});
+
+test('live inspector cell labels and frame redraws translate while scientific values and type names stay intact',()=>{
+  const v=viewer('en');
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../src/chemistry_agent/web/structure/inspector.js'),'utf8'),v.context);
+  const panel=Object.create(v.context.StructureInspector.Panel.prototype);
+  panel.tab='cell';
+  const table=panel.table(['属性','X / a','Y / b','Z / c'],[
+    ['长度（Å）','10.285842','10.285842','30.454891'],
+    ['角度 α / β / γ（°）','90','90','90'],
+    ['原点（Å）','0','0','0'],['包围盒（Å）','10','10','30'],
+    ['周期边界','✓','✓','✓'],['体积（Å³）','3000','',''],
+  ]);
+  const frame=v.body.append(new v.Element('span',{},'第 1 帧'));
+  v.body.append(table);v.mutate([{type:'childList',addedNodes:[table,frame]}]);
+  assert.match(table.textContent,/Lengths \(Å\)10.28584210.28584230.454891/);
+  assert.match(table.textContent,/Angles α \/ β \/ γ \(°\)/);
+  assert.match(table.textContent,/Origin \(Å\).*Bounding box \(Å\).*Periodic boundaries.*Volume \(Å³\)/);
+  assert.equal(frame.textContent,'Frame 1');
+  // Playback replaces the text node instead of changing the locale.
+  frame.textContent='第 2 帧';v.mutate([{type:'childList',addedNodes:frame.childNodes}]);
+  assert.equal(frame.textContent,'Frame 2');
+  panel.tab='types';
+  const sourceTypes=panel.table(['类型名称'],[['长度（Å）']]);
+  v.body.append(sourceTypes);v.mutate([{type:'childList',addedNodes:[sourceTypes]}]);
+  assert.equal(sourceTypes.textContent,'Type name长度（Å）');
+  v.storageEvent('chemistry.language','zh-CN');
+  assert.match(table.textContent,/长度（Å）10.28584210.28584230.454891/);
+  assert.equal(frame.textContent,'第 2 帧');
+  assert.equal(sourceTypes.textContent,'类型名称长度（Å）');
+  v.storageEvent('chemistry.language','en');
+  assert.match(table.textContent,/Lengths \(Å\)/);
+  assert.equal(frame.textContent,'Frame 2');
 });

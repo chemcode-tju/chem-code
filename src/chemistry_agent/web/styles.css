@@ -1096,8 +1096,7 @@ body.inspector-open { grid-template-columns:var(--sidebar) minmax(0,1fr) var(--i
 /* Workspace dock, maps and compact activity controls. */
 body.inspector-open:has(#inspector) { --inspector:min(var(--dock-width,clamp(320px,34vw,580px)), calc(100vw - 300px)); }
 #inspector { position:relative; }
-#dock-grip { position:absolute; inset:0 auto 0 0; width:8px; z-index:3; cursor:col-resize; touch-action:none; border-left:3px solid transparent; }
-#dock-grip:is(:hover,:focus-visible),.dock-drag #dock-grip { border-color:var(--accent); }
+#dock-grip { position:absolute; inset:var(--workspace-header-height,44px) auto 0 0; width:8px; z-index:3; cursor:col-resize; touch-action:none; }
 .dock-drag { transition:none; user-select:none; cursor:col-resize; }
 .dock-drag iframe { pointer-events:none; }
 #dock-max { margin-left:auto; }
@@ -1353,9 +1352,6 @@ body.inspector-open .topbar #tools-toggle { display:none; }
 }
 .inspector-launcher button:hover,.inspector-launcher button:focus-visible { background:var(--hover); }
 .inspector-launcher .icon { width:17px; height:17px; color:var(--muted); }
-:root[data-theme=dark] :is(.sidebar,.main-panel,.inspector,.topbar,.inspector-strip) { background-color:var(--surface); }
-
-:root[data-theme=dark] .sidebar { box-shadow:inset -1px 0 var(--border); }
 
 #context-panel { position:fixed; inset:auto; margin:0; z-index:125; width:min(352px,calc(100vw - 16px)); max-height:min(320px,70dvh); padding:14px 16px; border-radius:var(--radius-panel); }
 #context-panel h2 { font-size:15px; font-weight:500; }
@@ -1438,8 +1434,6 @@ body.inspector-open .topbar #tools-toggle { display:none; }
 @media(min-width:768px) {
  body.inspector-open:not(.dock-max) { grid-template-columns:var(--sidebar) minmax(0,1fr) clamp(300px,var(--dock-width,45vw),calc(100vw - var(--sidebar) - 40px)); }
  body.dock-max.inspector-open #dock-grip { display:block; }
- body.dock-drag[data-dock-snap=close] #inspector { opacity:.55; }
- body.dock-drag[data-dock-snap=full] #dock-grip { border-color:var(--text); }
 }
 
 .notice-rows { max-height:200px; overflow:auto; overscroll-behavior:contain; }

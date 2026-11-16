@@ -1,6 +1,11 @@
 export function initWorkspaceControls({closeInspector}) {
   const body=document.body, dock=document.getElementById('inspector'), grip=document.getElementById('dock-grip');
   const maximize=document.getElementById('dock-max');
+  // Wrapped dock tabs and the chat title share one continuous header band.
+  const dockHeader=dock.querySelector('.inspector-strip');
+  new ResizeObserver(()=>{
+    body.style.setProperty('--workspace-header-height',Math.max(44,dockHeader.offsetHeight)+'px');
+  }).observe(dockHeader);
   const sidebarWidth = () => document.getElementById('sidebar').offsetWidth || parseFloat(getComputedStyle(body).getPropertyValue('--sidebar')) || 0;
   const maximumWidth = () => Math.max(300,innerWidth-sidebarWidth()-40);
   function resize(width) {

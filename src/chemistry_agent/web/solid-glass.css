@@ -15,6 +15,56 @@ body:has(>.settings-sheet) {background:var(--surface);}
 .settings-sidebar {background:var(--panel);border-right:1px solid var(--border);}
 .embedded-settings .settings-sheet,.compact-settings .settings-sheet {box-shadow:none;}
 
+/* One navigation shell, one inset workspace. The plan remains the pane itself,
+   without an extra card around its canvas or board. */
+body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;}
+.workspace-shell :is(.sidebar,.main-panel,.inspector,.topbar,.inspector-strip) {
+  background:transparent;border:0;box-shadow:none;
+}
+.workspace-shell .topbar {height:var(--workspace-header-height,44px);min-height:var(--workspace-header-height,44px);flex:none;}
+.workspace-shell:not(.inspector-open) .topbar {height:44px;min-height:44px;}
+.chat-workspace,.inspector-body {
+  display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;
+  background:var(--surface);overflow:hidden;border-radius:var(--radius-panel);
+}
+.workspace-shell.inspector-open:not(.dock-max) .chat-workspace {border-radius:var(--radius-panel) 0 0 var(--radius-panel);}
+.workspace-shell.inspector-open:not(.dock-max) .inspector-body {
+  border-radius:0 var(--radius-panel) var(--radius-panel) 0;border-left:1px solid var(--border);
+}
+.inspector-body>.inspector-scroll {flex:1;min-height:0;}
+.plan-surface .plan-kanban {border-radius:0;}
+.workspace-shell.dock-max {padding-left:8px;}
+.workspace-shell.dock-max .inspector-body {border-radius:var(--radius-panel);border:0;}
+
+/* A neutral, local grip halo instead of a full-height blue selection. Keep the
+   wide pointer target and a distinct keyboard focus indicator. */
+#dock-grip {border:0;background:transparent;outline:0;}
+#dock-grip::after {
+  content:"";position:absolute;left:3px;top:50%;width:2px;height:40px;
+  transform:translateY(-50%);border-radius:2px;background:var(--muted);opacity:0;
+  transition:opacity var(--motion-fast),box-shadow var(--motion-fast);
+}
+#dock-grip:is(:hover,:focus-visible)::after,.dock-drag #dock-grip::after {
+  opacity:.7;box-shadow:0 0 0 3px var(--hover),0 0 8px 2px var(--sg-glass-contact);
+}
+#dock-grip:focus-visible::after {outline:1px solid var(--muted);outline-offset:3px;}
+@media(max-width:767px) {
+  body.workspace-shell {padding:0 6px 6px;}
+  .workspace-shell .sidebar {background:var(--opaque-panel);}
+  .workspace-shell.sidebar-collapsed {padding-left:0;}
+  .workspace-shell.inspector-open .inspector {height:100%;}
+  .workspace-shell.inspector-open:not(.dock-max) .inspector-body {border:0;border-radius:var(--radius-panel);}
+}
+@media(forced-colors:active) {
+  #dock-grip:is(:hover,:focus-visible)::after,.dock-drag #dock-grip::after {background:CanvasText;outline:1px solid CanvasText;}
+}
+
+.settings-sheet {background:var(--opaque-panel);}
+.settings-header,.settings-sidebar {background:transparent;}
+.settings-header,.settings-sidebar {border:0;box-shadow:none;}
+.settings-sheet>main {background:var(--surface);border-radius:var(--radius-panel);margin:0 8px 8px 0;}
+.compact-settings .settings-sheet>main {margin-left:8px;}
+
 /* Card thickness: no second border between the inset rim and outer hairline.
    Repeated graph/list cards use the same material without per-card blur. */
 .map-board,.agent-service-list,.server-cards,.setup-list,.config-editor,.compatibility,
