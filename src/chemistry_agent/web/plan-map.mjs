@@ -4,6 +4,7 @@ import {inSection} from './plan-folders.mjs';
 import {bindMapGestures} from './map-gestures.mjs';
 import {createNavigator} from './map-navigator.mjs';
 import {getLanguage, t} from './i18n.mjs';
+import {planKanban} from './plan-kanban.mjs';
 
 const icon = id => `<svg aria-hidden="true"><use href="/assets/ui-icons.svg#i-${id}"/></svg>`;
 const tool = (attr,label,content) => `<button type="button" ${attr} aria-label="${label}" title="${label}">${content}</button>`;
@@ -24,7 +25,7 @@ export function planMap(layers, key, attribute, title = '') {
     </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" title="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
-    <div class="map-tools"><div class="map-identity">${icon('map')}<strong title="${esc(title)}">方案画布</strong><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-subtools"><select data-groups aria-label="按分支查看"></select></div><div class="map-actions">
+    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="可见节点 / 总节点"></span></div><div class="map-subtools"><select data-groups aria-label="按分支查看"></select></div><div class="map-actions">
       ${tool('data-command="find" aria-expanded="false"','查找步骤',icon('find'))}
       ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more'))}
       ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
@@ -36,6 +37,7 @@ export function planMap(layers, key, attribute, title = '') {
       <label><input type="checkbox" data-all-arrows> 显示全部方向箭头</label>
       <button type="button" data-command="overview">分支概览</button><button type="button" data-command="unfold">展开全部节点</button>
       <button type="button" data-command="arrange">恢复自动布局</button><label class="map-nav-option"><input type="checkbox" data-show-nav> 全屏缩略导航</label></div>
+    ${planKanban(nodes,attribute)}
     <div class="map-window" tabindex="0" aria-label="计算依赖图"><div class="map-size"><div class="map-world"><svg class="map-edges" aria-hidden="true"></svg>${cards}</div></div></div>
     <button type="button" class="map-navigator" title="点击或拖动缩略图定位" aria-label="缩略图导航"><svg preserveAspectRatio="none" aria-hidden="true"><path/><rect/></svg></button>
     <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}${tool('data-command="arrange"','恢复自动布局',icon('reset'))}</div></div>
@@ -56,6 +58,10 @@ function mount(map, previous) {
   // Positions from the nested-folder canvas do not fit the new grid/card geometry.
   const saved=previousView.layoutVersion===6?previousView:{};
   const board=$('.map-board'), view=$('.map-window'), world=$('.map-world'), size=$('.map-size'), svg=$('.map-edges');
+  const kanban=$('.plan-kanban');
+  let viewMode=saved.viewMode==='canvas'?'canvas':'kanban';
+  let canvasCamera={left:saved.left,top:saved.top};
+  let boardScroll={left:saved.boardLeft || 0,top:saved.boardTop || 0};
   const dialog=$('.map-dialog'), select=$('[data-groups]'), find=$('.map-search input'), results=$('[data-results]'), grip=$('.map-grip');
   world.style.setProperty('--node-w',CARD.width+'px');world.style.setProperty('--node-h',CARD.height+'px');
   const nodes=[...world.querySelectorAll('[data-vertex]')].map(el=>({id:el.dataset.vertex,title:el.dataset.label,searchText:el.dataset.search,
@@ -90,13 +96,19 @@ function mount(map, previous) {
   function snapshot() {
     modes[all]={folds:[...folds],moves:[...moves],group};
     const focused=board.contains(document.activeElement);
-    return {layoutVersion:6,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,...camera(),full:dialog.open,focused};
+    return {layoutVersion:6,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,
+      ...(viewMode==='canvas'?camera():canvasCamera),viewMode,
+      boardLeft:viewMode==='kanban'?kanban.scrollLeft:boardScroll.left,
+      boardTop:viewMode==='kanban'?kanban.scrollTop:boardScroll.top,full:dialog.open,focused};
+  }
+  function persist() {
+    try {const {full,focused,...state}=snapshot();sessionStorage.setItem(storageKey,JSON.stringify(state));} catch { /* Optional. */ }
   }
   function save() {
     if (!board.getClientRects().length) return;
     cancelAnimationFrame(raf);
-    raf=requestAnimationFrame(()=>{if(!map.isConnected || !view.clientWidth) return;
-      try {const {full,focused,...persist}=snapshot();sessionStorage.setItem(storageKey,JSON.stringify(persist));} catch { /* Optional. */ }
+    raf=requestAnimationFrame(()=>{if(!map.isConnected) return;
+      persist();
     });
   }
   function panTo(left,top) {
@@ -118,7 +130,7 @@ function mount(map, previous) {
     world.style.width=layout.width+'px';world.style.height=layout.height+'px';
     world.style.transform=`scale(${scale})`;map.dataset.scale=scale;
     $('[data-zoom="0"]').textContent=Math.round(scale*100)+'%';
-    $('.map-navigator').hidden=!showNav || !dialog.open;
+    $('.map-navigator').hidden=viewMode!=='canvas' || !showNav || !dialog.open;
     panTo(left,top);
   }
   function mark(id) {
@@ -177,7 +189,49 @@ function mount(map, previous) {
     }
     const tally=(layout.points.size===graph.vertices.length?graph.vertices.length:layout.points.size+' / '+graph.vertices.length)+cnEn(' 步',' steps');
     $('[data-map-count]').textContent=tally;
+    updateKanban();
     setSize();nav.draw();if(interacted) mark(active);
+  }
+  function updateKanban() {
+    let total=0;
+    for(const column of kanban.querySelectorAll('[data-column]')) {
+      let count=0;
+      for(const row of column.querySelectorAll('[data-board-node]')) {
+        const node=graph.byId.get(row.dataset.boardNode);
+        row.hidden=!node || !inSection(node,group);
+        if(!row.hidden) count++;
+      }
+      column.querySelector('[data-column-count]').textContent=count;
+      column.querySelector('.kanban-empty').hidden=Boolean(count);
+      column.hidden=!count && ['ended','other'].includes(column.dataset.column);
+      total+=count;
+    }
+    if(viewMode==='kanban') $('[data-map-count]').textContent=total+cnEn(' 步',' steps');
+    $('[data-command="options"]').hidden=viewMode==='kanban' && $('[data-aux-option]').hidden;
+  }
+  function showView(mode) {
+    if(viewMode==='canvas') canvasCamera=camera();
+    if(viewMode==='kanban' && !kanban.hidden) boardScroll={left:kanban.scrollLeft,top:kanban.scrollTop};
+    closePop();viewMode=mode;
+    board.dataset.view=mode;
+    board.setAttribute('aria-label',mode==='kanban'?'方案看板':'方案画布');
+    kanban.hidden=mode!=='kanban';view.hidden=mode!=='canvas';
+    $('.map-foot').hidden=mode!=='canvas';
+    $('.map-grip').hidden=mode!=='canvas';
+    for(const button of board.querySelectorAll('[data-plan-view]')) button.setAttribute('aria-pressed',String(button.dataset.planView===mode));
+    // The auxiliary-step filter is shared; geometry controls belong to the canvas.
+    for(const control of board.querySelectorAll('[data-pop="options"] > :not([data-aux-option])')) control.hidden=mode!=='canvas';
+    const full=$('[data-command="full"]'),label=dialog.open?'退出全屏':mode==='kanban'?'全屏看板':'全屏画布';
+    full.title=label;full.setAttribute('aria-label',label);
+    const options=$('[data-command="options"]'),optionsLabel=mode==='kanban'?'看板选项':'画布选项';
+    options.title=optionsLabel;options.setAttribute('aria-label',optionsLabel);
+    draw();
+    if(mode==='canvas') {
+      const first=layout.points.get(active) || layout.points.values().next().value;
+      panTo(canvasCamera.left ?? (first.x+CARD.width/2)*scale-view.clientWidth/2,canvasCamera.top ?? Math.max(0,first.y*scale-40));
+    } else {kanban.scrollLeft=boardScroll.left;kanban.scrollTop=boardScroll.top;}
+    // A refresh immediately after a view switch must not restore the previous view.
+    persist();save();
   }
   function choose(id,focus=false) {
     if(!layout.points.has(id)) return;
@@ -227,6 +281,7 @@ function mount(map, previous) {
   function showPop(name) {
     if(pop===name) {closePop(true);return;}
     closePop();pop=name;$(`[data-pop="${name}"]`).hidden=false;
+    if(name!=='keys') $(`[data-pop="${name}"]`).style.top=$('.map-tools').offsetHeight+4+'px';
     $(`[data-command="${name}"]`).setAttribute('aria-expanded','true');
     if(name==='find'){find.value='';search();find.focus();}
   }
@@ -236,7 +291,7 @@ function mount(map, previous) {
     const {left,top}=camera(), previousDirection=orientation();
     if(on) {dialog.append(board);dialog.showModal();}
     else {dialog.close();map.insertBefore(board,dialog);}
-    const trigger=$('[data-command="full"]'),label=t(on?'退出全屏':'全屏画布');
+    const trigger=$('[data-command="full"]'),label=t(on?'退出全屏':viewMode==='kanban'?'全屏看板':'全屏画布');
     trigger.setAttribute('aria-pressed',String(on));trigger.title=label;trigger.setAttribute('aria-label',label);
     trigger.innerHTML=icon(on?'shrink':'expand');
     if(focus) trigger.focus({preventScroll:true});
@@ -247,7 +302,7 @@ function mount(map, previous) {
   dialog.addEventListener('cancel',e=>{e.preventDefault();if(pop) closePop(true);else setFull(false);});
   function search() {
     const query=find.value.trim().toLowerCase();
-    const hits=nodes.filter(n=>query?(n.id+' '+n.title+' '+n.searchText+' '+(n.groupPath || []).join(' ')).toLowerCase().includes(query):layout.points.has(n.id));
+    const hits=nodes.filter(n=>query?(n.id+' '+n.title+' '+n.searchText+' '+(n.groupPath || []).join(' ')).toLowerCase().includes(query):viewMode==='kanban'?graph.byId.has(n.id) && inSection(graph.byId.get(n.id),group):layout.points.has(n.id));
     const rows=hits.slice(0,30);
     results.innerHTML=rows.map(n=>`<button type="button" data-hit="${esc(n.id)}"><strong>${esc(n.title)}</strong><small>${esc(n.id)}</small></button>`).join('') ||
       '<p>'+t('没有匹配的步骤')+'</p>';
@@ -260,6 +315,10 @@ function mount(map, previous) {
     if(!inSection(node,group)) {group=null;select.value='';}
     for(let p=graph.byId.get(node.primary);p;p=graph.byId.get(p.primary)) folds.delete(p.id);
     closePop();draw();
+    if(viewMode==='kanban') {
+      const row=[...kanban.querySelectorAll('[data-board-node]')].find(row=>row.dataset.boardNode===id);
+      row.querySelector('button').focus();row.scrollIntoView({block:'nearest',inline:'nearest'});save();return;
+    }
     if(scale<.7) zoom(1);
     choose(id,true);center(id);save();
   }
@@ -282,7 +341,7 @@ function mount(map, previous) {
     draw();
     if(scale<.7) zoom(1);
     const first=layout.points.keys().next().value;
-    choose(first,true);center(first);
+    if(viewMode==='canvas') {choose(first,true);center(first);}
     save();
   };
   $('[data-all]').onchange=e=>{
@@ -309,7 +368,8 @@ function mount(map, previous) {
   }
   board.addEventListener('click',event=>{
     const btn=event.target.closest('button');if(!btn) return;
-    if(btn.hasAttribute('data-reset-card')) resetCard(btn.closest('[data-vertex]').dataset.vertex);
+    if(btn.dataset.planView) showView(btn.dataset.planView);
+    else if(btn.hasAttribute('data-reset-card')) resetCard(btn.closest('[data-vertex]').dataset.vertex);
     else if(btn.hasAttribute('data-branch')) toggle(btn.dataset.branch);
     else if(btn.dataset.hit) jump(btn.dataset.hit);
     else if(btn.dataset.command) command(btn.dataset.command);
@@ -320,6 +380,7 @@ function mount(map, previous) {
   view.onpointerleave=()=>mark(interacted?active:null);
   view.addEventListener('focusin',e=>{const node=e.target.closest('[data-vertex]');if(node) choose(node.dataset.vertex);});
   view.onscroll=()=>{view.style.setProperty('--lane-inset',(camera().left/scale+12)+'px');nav.position();save();};
+  kanban.onscroll=save;
   board.onfocusout=e=>{if(e.relatedTarget && !board.contains(e.relatedTarget)) closePop();};
   board.onpointerdown=e=>{if(pop && !e.target.closest('[data-pop],[data-command="'+pop+'"]')) closePop();};
   function navigate(key) {
@@ -341,7 +402,7 @@ function mount(map, previous) {
     if(pop || event.target.matches('input,select,textarea,[role="separator"]') || event.metaKey || event.altKey || event.ctrlKey) return;
     const key=event.key.toLowerCase();
     if(key==='r' && view.contains(event.target)) resetCard(event.target.closest('[data-vertex]')?.dataset.vertex || active);
-    else if(key==='/') command('find');else if(key==='f') command('full');else if(key==='0') command('fit');
+    else if(key==='/') command('find');else if(key==='f') command('full');else if(key==='0' && viewMode==='canvas') command('fit');
     else if(view.contains(event.target) && key.startsWith('arrow')) navigate(event.key);
     else if(event.target===view && key==='enter' && active) byId.get(active).button.click();
     else return;
@@ -374,6 +435,7 @@ function mount(map, previous) {
   function restore(s) {
     if(!s || !map.getClientRects().length) return;
     if(s.full) setFull(true,false);
+    if(viewMode==='kanban') {kanban.scrollLeft=s.boardLeft || 0;kanban.scrollTop=s.boardTop || 0;return;}
     if(s.active && layout.points.has(s.active)) choose(s.active,s.focused);
     const first=layout.points.get(active) || layout.points.values().next().value;
     panTo(s.left ?? (first.x+CARD.width/2)*scale-view.clientWidth/2,s.top ?? Math.max(0,first.y*scale-40));
@@ -389,6 +451,8 @@ function mount(map, previous) {
     viewportWidth=width;viewportHeight=heightNow;
   });
   sizeObserver.observe(view);
+  // Apply after initial layout so hidden canvas geometry stays available on return.
+  const initialMode=viewMode;viewMode='kanban';showView(initialMode);
   restore(saved);
   return {snapshot,restore,dispose:()=>{board.dispatchEvent(new Event('mapdispose'));sizeObserver.disconnect();cancelAnimationFrame(raf);},suspend:()=>{if(dialog.open)setFull(false,false);}};
 }

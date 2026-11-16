@@ -145,7 +145,7 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   async function onAction(event) {
     const target = event.target.closest("button");
     if (!target || target.dataset.openKind) return;
-    if (target.closest('.map-board') && !target.matches('.map-node')) return;
+    if (target.closest('.map-board') && !target.matches('.map-node,.kanban-card')) return;
     if(target.dataset.generalStep) {
       const plan=records.plans.find(p=>p.id===target.closest('[data-general-plan]').dataset.generalPlan);
       detail.openGeneral(plan,plan.nodes.find(n=>n.id===target.dataset.generalStep),path(session)); return;

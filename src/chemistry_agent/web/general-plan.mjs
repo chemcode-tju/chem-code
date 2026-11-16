@@ -52,6 +52,7 @@ export function renderGeneralPlan(plan) {
     kind:node.kind, jobSummary:childJobSummary(plan,view.children.get(node.id)),
     searchText:(view.children.get(node.id) || []).map(child=>[child.id,child.title,plan.runtime[child.id]?.job?.scheduler_job_id].filter(Boolean).join(' ')).join(' '),
     description:node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):node.title,
+    boardState:plan.status==='draft'?'draft':plan.runtime[node.id].status==='running' && plan.runtime[node.id].job?.paused?'paused':plan.runtime[node.id].status,
     state:plan.runtime[node.id].status, status:(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
   })));
   const graph = planMap(layers,plan.id,'data-general-step',plan.title);
