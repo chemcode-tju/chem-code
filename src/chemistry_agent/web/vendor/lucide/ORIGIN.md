@@ -11,3 +11,5 @@
 The `i-gpt` symbol is the existing OpenAI brand artwork, covered separately by `../lobe-icons/LICENSE`. Chem Code and Antigravity brand marks, scientific charts, axes and numeric symbols are not UI control icons and remain unchanged. Do not hand-draw new UI icons; add an official Lucide source and a mapping here.
 
 2026-11-17 follow-up: `i-cite` uses `text-quote` for an indented passage, and `i-map` uses `panels-top-left` for the unified plan workspace. Both are unchanged upstream geometries at the pinned commit.
+
+2026-11-17 refinement: `i-cite` returns to `quote`, rendered at 14px for a quieter action; `i-edit` uses the pinned `square-pen` source for new chat; `i-automation` uses `cpu` for the compute platform. Source geometries remain unchanged.

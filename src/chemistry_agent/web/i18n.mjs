@@ -203,6 +203,7 @@ const messages = {
   "已停用此服务器；正在运行的计算不受影响":"Server access disabled; running calculations are unaffected",
   "上次测试通过":"Last test passed",
   "上次测试失败":"Last test failed",
+  "测试时间":"Checked at",
   "未启用":"Disabled",
   "尚未启用服务器":"No servers enabled",
   "选择服务器":"Select server",

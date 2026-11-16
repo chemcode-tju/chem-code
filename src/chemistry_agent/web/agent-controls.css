@@ -2,13 +2,13 @@
 .agent-service-list { border:1px solid var(--border); border-radius:var(--radius-panel); background:var(--panel); overflow:hidden; }
 .agent-row { border:0; border-bottom:1px solid var(--border); padding:0; margin:0; }
 .agent-row:last-child { border-bottom:0; }
-.agent-row > summary { display:flex; gap:12px; align-items:center; min-height:60px; list-style:none; font-size:14px; font-weight:400; padding:10px 14px; cursor:pointer; }
+.agent-row > summary { display:flex; gap:12px; align-items:center; min-height:72px; list-style:none; font-size:14px; font-weight:400; padding:14px; cursor:pointer; }
 .agent-row > summary:hover { background:var(--hover); }
 .agent-row > summary::-webkit-details-marker { display:none; }
 .agent-row .agent-logo { width:24px; height:24px; flex:none; }
-.agent-identity { display:grid; gap:2px; min-width:0; flex:1; }
+.agent-identity { display:grid; gap:3px; min-width:0; flex:1; }
 .agent-identity strong { font-size:14px; font-weight:600; line-height:20px; }
-.agent-model { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:13px; line-height:18px; }
+.agent-model { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:13px; line-height:20px; }
 .agent-row .agent-default { display:inline-flex; align-items:center; gap:5px; flex:none; color:var(--text); background:var(--selected); border-radius:var(--radius-control); padding:4px 8px; font-size:13px; }
 .agent-row .agent-default[hidden] { display:none; }
 .agent-default::before {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-check) center/contain no-repeat;}
@@ -22,7 +22,12 @@
 .agent-fields > .actions.footer { margin-top:20px; }
 .agent-card-actions { display:flex; gap:12px; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
 .agent-connection-state { color:var(--muted); font-size:13px; }
-.agent-connection-state[data-state=failed] { color:var(--danger); }
+.connection-state::before,.agent-connection-state::before {content:"";display:inline-block;width:6px;height:6px;margin-inline-end:6px;vertical-align:2px;border-radius:50%;background:var(--muted);}
+:is(.connection-state,.agent-connection-state)[data-state=passed]::before {background:var(--success);}
+:is(.connection-state,.agent-connection-state)[data-state=failed]::before {background:var(--danger);}
+.agent-probe-row {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;min-height:36px;}
+.agent-probe-row button {flex:none;}
+.agent-probe-row .agent-connection-state {min-width:0;}
 .agent-card-actions button { flex:none; }
 .builtin-actions { justify-content:flex-end; margin:0; padding:0 16px 16px; border:0; background:var(--surface); }
 .agent-save-actions { align-items:center; }
@@ -56,10 +61,11 @@
 .agent-menu button { border:0; border-radius:var(--radius-control); background:transparent; display:flex; gap:10px; align-items:center; width:100%; min-height:var(--control-height); padding:6px 10px; text-align:left; font:inherit; color:inherit; white-space:normal; overflow-wrap:anywhere; }
 .agent-menu button:hover { background:var(--hover); }
 .agent-menu button[data-active=true] { background:var(--selected); }
+.agent-menu-column:has(button:hover) button[data-active=true]:not(:hover) { background:transparent; }
 .agent-menu button:focus-visible { background:var(--hover); outline:2px solid var(--accent); outline-offset:-2px; }
 .agent-menu button:disabled { opacity:.45; cursor:default; }
 .agent-menu .icon {width:16px;height:16px;}
-.agent-menu .menu-trailing {display:inline-flex;align-items:center; flex:none; margin-left:auto; min-width:12px; color:var(--muted); }
+.agent-menu .menu-trailing {display:inline-flex;align-items:center;gap:6px; flex:none; margin-left:auto; min-width:12px; color:var(--muted); }
 .agent-menu .menu-message { white-space:normal; max-width:260px; padding:8px 10px; color:var(--muted); line-height:1.5; }
 .agent-menu .menu-manual { display:flex; gap:6px; padding:6px; }
 .agent-menu input { width:180px; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-control); padding:6px; }

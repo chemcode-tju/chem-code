@@ -83,7 +83,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
   picker.addEventListener('click', async () => {
     if (menu.visible) { menu.close(); return; }
     if (!selection) await defaults();
-    menu.open('Agent', Object.entries(names).map(([backend,name]) => ({label:name, branch:true, active:selection?.backend===backend, action:() => models(backend)})));
+    menu.open('Agent', Object.entries(names).map(([backend,name]) => ({label:name, branch:true, selected:selection?.backend===backend, action:() => models(backend)})));
   });
   permission.addEventListener('click', () => {
     if (permissions.visible) { permissions.close(); return; }

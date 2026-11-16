@@ -4,7 +4,7 @@
 .compute-scope button {margin-left:auto;padding:6px 10px;}
 #compute-notice {margin:0 0 16px;color:var(--muted);font-size:14px;overflow-wrap:anywhere;}
 #compute-notice.error {color:var(--danger);}
-.compute-panel h2 {margin-bottom:8px;}
+.compute-panel h2 {margin-bottom:24px;}
 .compute-panel .hint,#ssh-secret .hint {font-size:14px;color:var(--muted);line-height:1.6;}
 .setup-list {list-style:none;counter-reset:step;margin:0;padding:0;}
 .setup-list li {display:grid;grid-template-columns:25px minmax(0,1fr) auto;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--border);}
@@ -76,11 +76,11 @@
 
 /* One service group, one readable summary row; controls never occupy the icon column. */
 .setup-list { border:1px solid var(--border); border-radius:var(--radius-panel); overflow:hidden; background:var(--panel); }
-.setup-list li { padding:14px; gap:12px; }
+.setup-list li { padding:14px; gap:12px; min-height:72px; grid-template-columns:24px minmax(0,1fr) auto; }
 .setup-list li:last-child { border-bottom:0; }
-.setup-list strong { font-size:14px; font-weight:600; line-height:20px; }
+.setup-list strong { display:block; font-size:14px; font-weight:600; line-height:20px; }
 .setup-list small { margin-top:3px; line-height:20px; }
-.overview-icon { width:20px; height:20px; color:var(--muted); }
+.overview-icon { width:24px; height:24px; color:var(--muted); }
 .overview-description { min-width:0; }
 .overview-action { display:inline-flex; align-items:center; gap:5px; min-height:34px; padding:5px 8px; white-space:nowrap; }
 .overview-action .icon { width:12px; height:12px; }
@@ -89,17 +89,16 @@
 .server-cards { border:1px solid var(--border); border-radius:var(--radius-panel); overflow:hidden; background:var(--panel); }
 .server-card { padding:14px; border-bottom:1px solid var(--border); }
 .server-card:last-child { border-bottom:0; }
-.server-card > header { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; }
-.server-card > header > .icon { width:20px; height:20px; flex:none; color:var(--muted); }
-.server-identity { display:grid; gap:3px; flex:1; min-width:140px; }
+.server-card > header { display:grid; grid-template-columns:36px minmax(0,1fr) auto; align-items:center; gap:12px; min-height:44px; }
+.server-identity { display:grid; gap:4px; min-width:0; }
 .server-identity strong { font-weight:600; font-size:14px; line-height:20px; overflow-wrap:anywhere; }
-.server-subtitle { display:flex; flex-wrap:wrap; gap:3px 6px; align-items:baseline; font-size:13px; line-height:18px; color:var(--muted); }
+.server-subtitle { display:flex; flex-wrap:wrap; gap:3px 6px; align-items:center; font-size:13px; line-height:18px; color:var(--muted); }
 .server-address { flex:1 1 130px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .server-activation { display:flex; align-items:center; gap:8px; flex:none; font-size:13px; color:var(--muted); cursor:pointer; }
 .server-card-actions { display:flex; align-items:center; gap:12px; margin-left:auto; flex:none; }
 .server-check-state { font-size:13px; color:var(--muted); white-space:nowrap; }
 .server-card-actions button { min-height:30px; padding:4px 9px; font-size:13px; }
-.server-source { margin:8px 0 0 32px; }
+.server-source { margin:8px 0 0 48px; }
 .server-source > summary { font-size:13px; color:var(--muted); }
 .server-source pre,.manual-ssh pre { max-width:100%; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.65 var(--font-code); }
 .server-source .config-facts { font-size:13px; }
@@ -115,19 +114,22 @@
 .manual-ssh > summary { font-size:14px; }
 #local-ssh-status { flex:1 1 170px; margin:0; font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
 #local-ssh-status:empty { display:none; }
-#local-ssh-status.error,.server-check-state.error { color:var(--danger); }
+#local-ssh-status.error { color:var(--danger); }
+.server-check-state::before {content:"";display:inline-block;width:6px;height:6px;margin-inline-end:6px;vertical-align:2px;border-radius:50%;background:var(--muted);}
+.server-check-state[data-state=passed]::before {background:var(--success);}
+.server-check-state[data-state=failed]::before {background:var(--danger);}
 .settings-switch { appearance:none; position:relative; box-sizing:border-box; width:36px; height:20px; min-height:0; margin:0; padding:0; border:1px solid var(--strong-border); border-radius:12px; background:var(--strong-border); cursor:pointer; flex:none; transition:background var(--motion-fast); }
 .settings-switch::after { content:''; position:absolute; inset:2px auto auto 2px; width:14px; height:14px; border-radius:50%; background:var(--raised); transition:transform var(--motion-fast); }
 .settings-switch:checked { background:var(--accent); border-color:var(--accent); }
 .settings-switch:checked::after { transform:translateX(16px); background:var(--on-accent); }
 .settings-switch:disabled { opacity:.55; cursor:wait; }
 @media(max-width:420px) {
-  .setup-list li { gap:10px; padding:12px; grid-template-columns:20px minmax(0,1fr) auto; }
+  .setup-list li { gap:10px; padding:12px; grid-template-columns:24px minmax(0,1fr) auto; }
   .server-card { padding:12px; }
   .server-card > header { gap:8px; }
   .server-activation { gap:6px; }
   .server-card-actions { gap:10px; }
-  .server-source { margin-left:28px; }
+  .server-source { margin-left:44px; }
 }
 @media(pointer:coarse) {
   .server-activation { min-height:44px; }

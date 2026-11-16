@@ -1065,7 +1065,6 @@ body.inspector-open { grid-template-columns:var(--sidebar) minmax(0,1fr) var(--i
 .plan-step dd { margin:0; overflow-wrap:anywhere; }
 .plan-step dt { color:var(--muted); }
 .plan-step button { margin:4px 9px 9px; }
-.assistant-update { border-left:2px solid var(--strong-border); padding-left:14px; }
 
 .plan-heading { display:flex; align-items:baseline; justify-content:space-between; margin:0 0 10px; font-size:13px; }
 .plan-heading small { color:var(--muted); }
@@ -1470,9 +1469,6 @@ body.inspector-open .topbar #tools-toggle { display:none; }
 .workspace-file-actions .file-action:focus-visible {outline:2px solid var(--accent);outline-offset:1px;}
 .file-action .icon {width:17px;height:17px;}
 #workspace-structures {padding:0 12px;}
-.calculation-update-label {display:flex;align-items:center;gap:7px;width:fit-content;padding:6px 10px;border-radius:var(--radius-control);border:1px solid var(--border);border-inline-start:3px solid var(--accent);background:var(--panel);color:var(--text);font-size:13px;font-weight:500;}
-.assistant-label.calculation-update-label > span {display:inline;}
-.calculation-update-label .icon {width:15px;height:15px;color:var(--accent);}
 @media (pointer:coarse) { .workspace-file-actions .file-action {width:40px;height:44px;} }
 .output-image-dialog {max-width:90vw;max-height:90vh;border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--panel);}
 .output-image-dialog img {display:block;max-width:85vw;max-height:80vh;object-fit:contain;}
@@ -1487,7 +1483,7 @@ body.inspector-open .topbar #tools-toggle { display:none; }
 /* Tabs shrink together, then wrap; an opened surface never disappears off-strip. */
 .inspector-strip {height:auto;min-height:44px;}
 .inspector-strip .inspector-tabs {flex:1;flex-wrap:wrap;overflow:visible;}
-.inspector-strip .dock-tab {flex:1 1 88px;width:auto;min-width:68px;max-width:216px;}
+.inspector-strip .dock-tab {flex:1 1 76px;width:auto;min-width:68px;max-width:216px;}
 .inspector-strip .dock-tab [role=tab] {padding-left:6px;}
 .inspector-strip .dock-tab .tab-close {flex:none;}
 

@@ -17,7 +17,7 @@ body:has(>.settings-sheet) {background:var(--surface);}
 
 /* One navigation shell, one inset workspace. The plan remains the pane itself,
    without an extra card around its canvas or board. */
-body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;}
+body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;transition:none;}
 .workspace-shell :is(.sidebar,.main-panel,.inspector,.topbar,.inspector-strip) {
   background:transparent;border:0;box-shadow:none;
 }
@@ -36,18 +36,29 @@ body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;}
 .workspace-shell.dock-max {padding-left:8px;}
 .workspace-shell.dock-max .inspector-body {border-radius:var(--radius-panel);border:0;}
 
-/* A neutral, local grip halo instead of a full-height blue selection. Keep the
-   wide pointer target and a distinct keyboard focus indicator. */
+/* Highlight the existing divider, without adding a second offset handle. */
 #dock-grip {border:0;background:transparent;outline:0;}
 #dock-grip::after {
-  content:"";position:absolute;left:3px;top:50%;width:2px;height:40px;
-  transform:translateY(-50%);border-radius:2px;background:var(--muted);opacity:0;
+  content:"";position:absolute;left:0;inset-block:0;width:1px;
+  background:var(--muted);opacity:0;
   transition:opacity var(--motion-fast),box-shadow var(--motion-fast);
 }
 #dock-grip:is(:hover,:focus-visible)::after,.dock-drag #dock-grip::after {
-  opacity:.7;box-shadow:0 0 0 3px var(--hover),0 0 8px 2px var(--sg-glass-contact);
+  opacity:.8;box-shadow:0 0 0 2px var(--hover);
 }
-#dock-grip:focus-visible::after {outline:1px solid var(--muted);outline-offset:3px;}
+#dock-grip:focus-visible::after {width:2px;}
+.workspace-shell .sidebar {padding-top:0;}
+.workspace-shell .sidebar-header {
+  height:var(--workspace-header-height,44px);min-height:var(--workspace-header-height,44px);
+  flex:none;padding-block:0;margin-bottom:8px;
+}
+.workspace-shell:not(.inspector-open) .sidebar-header {height:44px;min-height:44px;}
+.workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close) {
+  width:32px;height:32px;border-radius:10px;background:var(--sg-glass-control);box-shadow:var(--control-shadow);
+}
+.workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close):hover {background:var(--hover);}
+.workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close) .icon {width:18px;height:18px;}
+svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
 @media(max-width:767px) {
   body.workspace-shell {padding:0 6px 6px;}
   .workspace-shell .sidebar {background:var(--opaque-panel);}
@@ -94,7 +105,6 @@ body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;}
 .user-bubble {background:var(--sg-glass-control);box-shadow:var(--control-shadow);border-radius:var(--radius-dialog);}
 .composer>textarea {background:transparent;border:0;box-shadow:none;}
 .new-chat {background:var(--sg-glass-control);border:0;box-shadow:var(--control-shadow);border-radius:var(--radius-control);}
-.assistant-update {border-left-color:var(--strong-border);}
 
 /* The thickest panes: popup content remains almost opaque over dense text. */
 .choice-menu,.agent-menu,.upload-menu,.map-pop,.tool-card,.floating-panel,
@@ -111,7 +121,7 @@ dialog.map-dialog {background:var(--surface);}
 .memory-sidebar nav a:is(:hover,[aria-current=page]),.result-card:is(:hover,[aria-pressed=true]),
 .agent-picker:is(:hover,[aria-expanded=true]),.permission-picker:is(:hover,[aria-expanded=true]),
 .choice-menu [role=option]:is(:hover,[data-active],[aria-selected=true]),
-.agent-menu button:is(:hover,[data-active=true]),.upload-menu button:hover,
+.upload-menu button:hover,
 .map-board .plan-view-switch button:is(:hover,[aria-pressed=true]),
 .dock-tab:has([role=tab][aria-selected=true]),.dock-tab:hover,
 .header-menu:is([open],:hover)>summary,.bottom-menu:is([open],:hover)>summary {

@@ -1,12 +1,21 @@
 import {byId as $, computeRequest, esc, facts} from './compute-settings-api.mjs';
 import {t} from './i18n.mjs';
+import {readConnectionCheck,saveConnectionCheck,clearConnectionCheck,checkLifetime} from './connection-checks.mjs';
 
 export function createLocalSSH() {
   let loaded=false, busy=false, servers=[];
   const shown=new Set(), checks=new Map();
+  let noticeTimer, checkStorage;
+  try {
+    checkStorage=window.sessionStorage;
+    for(const alias of JSON.parse(checkStorage.getItem('chemistry.ssh-shown') || '[]')) if(typeof alias==='string') shown.add(alias);
+  } catch {}
+  const identity=row=>JSON.stringify([row.alias,row.hostname,row.user,row.port,row.source]);
   const status=(message='',error=false)=>{
+    clearTimeout(noticeTimer);
     $('local-ssh-status').textContent=message;
     $('local-ssh-status').classList.toggle('error',error);
+    if(message) noticeTimer=setTimeout(()=>{$('local-ssh-status').textContent='';},error?8000:5000);
   };
   function availability() {
     for(const control of document.querySelectorAll('#local-ssh-list input,#local-ssh-list button,#local-ssh-picker select,#local-ssh-picker button')) {
@@ -23,18 +32,28 @@ export function createLocalSSH() {
         if(previous && ['hostname','user','port','source'].some(key=>previous[key]!==row[key])) checks.delete(row.alias);
       }
       servers=data.servers;
-      for(const row of servers) if(row.enabled) shown.add(row.alias);
+      for(const row of servers) {
+        if(row.enabled) {
+          shown.add(row.alias);
+          if(!checks.has(row.alias)) {
+            const cached=readConnectionCheck(checkStorage,'ssh:'+row.alias,identity(row));
+            if(cached) checks.set(row.alias,{ok:cached.authenticated,checkedAt:cached.checkedAt});
+          }
+        } else {checks.delete(row.alias);clearConnectionCheck(checkStorage,'ssh:'+row.alias);}
+      }
+      try {checkStorage.setItem('chemistry.ssh-shown',JSON.stringify([...shown].filter(alias=>servers.some(row=>row.alias===alias))));} catch {}
     }
     $('local-ssh-list').innerHTML=servers.filter(row=>shown.has(row.alias)).map(row=>{
       const address=[row.user,row.hostname || row.alias].filter(Boolean).join('@')+(row.port?':'+row.port:'');
-      const check=checks.get(row.alias);
-      const checkLabel=check ? t(check.ok?'上次测试通过':'上次测试失败') : row.enabled ? t('尚未测试连接') : '';
+      const stored=checks.get(row.alias),check=row.enabled && stored && Date.now()-stored.checkedAt<checkLifetime ? stored : null;
+      const checkLabel=!row.enabled ? t('未启用') : check ? t(check.ok?'上次测试通过':'上次测试失败') : t('尚未测试连接');
+      const checkedAt=check ? new Date(check.checkedAt).toLocaleString(document.documentElement.lang) : '';
       return `<article class="server-card">
-        <header><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-servers"/></svg>
-          <div class="server-identity"><strong data-no-i18n>${esc(row.alias)}</strong><div class="server-subtitle"><span class="server-address" data-no-i18n title="${esc(address)}">${esc(address)}</span><span class="server-check-state${check && !check.ok?' error':''}" data-ssh-result="${esc(row.alias)}" role="status">${esc(checkLabel)}</span></div></div>
-          <div class="server-card-actions"><button type="button" class="secondary" data-local-ssh-test="${esc(row.alias)}">${esc(t('测试连接'))}</button><label class="server-activation"><input type="checkbox" role="switch" class="settings-switch" data-ssh-alias="${esc(row.alias)}" aria-label="${esc(t('允许 Agent 使用')+' '+row.alias)}" ${row.enabled?'checked':''}></label></div>
+        <header><label class="server-activation"><input type="checkbox" role="switch" class="settings-switch" data-ssh-alias="${esc(row.alias)}" aria-label="${esc(t('允许 Agent 使用')+' '+row.alias)}" ${row.enabled?'checked':''}></label>
+          <div class="server-identity"><strong data-no-i18n title="${esc(address)}">${esc(row.alias)}</strong><div class="server-subtitle"><span class="server-check-state" data-state="${check ? (check.ok?'passed':'failed') : 'unknown'}" data-ssh-result="${esc(row.alias)}" title="${esc(checkedAt)}" role="status">${esc(checkLabel)}</span></div></div>
+          <div class="server-card-actions"><button type="button" class="secondary" data-local-ssh-test="${esc(row.alias)}">${esc(t('测试连接'))}</button></div>
         </header>
-        ${check?.message?`<details class="server-source"><summary>${esc(t('连接信息'))}</summary>${facts([['配置文件',row.source]])}<pre data-no-i18n>${esc(check.message)}</pre></details>`:''}
+        <details class="server-source"><summary>${esc(t('连接信息'))}</summary>${facts([['服务器',address],['配置文件',row.source],['测试时间',checkedAt]])}${check?.message?`<pre data-no-i18n>${esc(check.message)}</pre>`:''}</details>
       </article>`;
     }).join('') || `<p class="server-empty">${esc(t('尚未启用服务器'))}</p>`;
     const available=servers.filter(row=>!shown.has(row.alias));
@@ -85,8 +104,10 @@ export function createLocalSSH() {
       output.textContent=t('正在连接…');
       try {
         const result=await computeRequest('ssh/local-aliases/'+encodeURIComponent(alias)+'/test','POST',{});
-        checks.set(alias,{ok:result.ok,message:((result.stdout || '')+' '+(result.stderr || '')).trim()});
-      } catch(error) {checks.set(alias,{ok:false,message:error.message});}
+        checks.set(alias,{ok:result.ok,checkedAt:Date.now(),message:((result.stdout || '')+' '+(result.stderr || '')).trim()});
+      } catch(error) {checks.set(alias,{ok:false,checkedAt:Date.now(),message:error.message});}
+      const check=checks.get(alias),row=servers.find(item=>item.alias===alias);
+      if(row) saveConnectionCheck(checkStorage,'ssh:'+alias,identity(row),{authenticated:check.ok,available:check.ok},check.checkedAt);
       render();
       requestAnimationFrame(()=>$('local-ssh-list').querySelectorAll('[data-local-ssh-test]').forEach(node=>{if(node.dataset.localSshTest===alias) node.focus();}));
     });

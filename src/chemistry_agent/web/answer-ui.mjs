@@ -65,15 +65,15 @@ export function activity({id,start,end,calls=[],steps=[],running=false,draftRequ
   const label = clock ? t(running?'已用时':'用时')+' '+clock : '';
   if (!running && !calls.length && !steps.length && !draftRequest) return label ? `<div class="activity-duration">${esc(label)}</div>` : "";
   const rows = deferred ? "" : activitySteps(steps,calls);
-  const draft = draftRequest ? `<div class="answer-output activity-draft" hidden>${liveCopyButton()}<div class="markdown" data-live-request="${esc(draftRequest)}"></div></div>` : '';
+  const draft = draftRequest ? `<div class="answer-output activity-draft" hidden><div class="markdown" data-live-request="${esc(draftRequest)}"></div>${liveCopyButton()}</div>` : '';
   return `<details class="turn-activity" data-activity="${esc(id)}" data-running="${running}"${deferred ? ' data-deferred-activity' : ''}${running?' open':''}><summary aria-label="${t('处理过程')}"><span${running && start?' data-clock="'+esc(start)+'"':''}>${esc(label)}</span>${icon('chevron')}</summary><div class="activity-log"><div data-activity-steps>${rows}</div><p data-activity-placeholder${rows?' hidden':''}>${t(running?'正在生成下一步…':'未调用工具')}</p>${draft}</div></details>`;
 }
 
 export function answerBox(html,index) {
-  return `<div class="answer-output">${button('data-copy="'+index+'"','复制回答')}<div class="markdown">${html}</div></div>`;
+  return `<div class="answer-output"><div class="markdown">${html}</div>${button('data-copy="'+index+'"','复制回答')}</div>`;
 }
 export function progressMarkdown(markdown,source) {
-  return `<div class="answer-output" data-source="${esc(source)}">${button("data-copy-markdown","复制回答")}<div class="markdown">${markdown.render(source)}</div></div>`;
+  return `<div class="answer-output" data-source="${esc(source)}"><div class="markdown">${markdown.render(source)}</div>${button("data-copy-markdown","复制回答")}</div>`;
 }
 export const liveCopyButton = () => button('data-copy-live','复制回答');
 

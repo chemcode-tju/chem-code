@@ -324,7 +324,7 @@ function artifactLinks(calls) {
     const id = isStructure ? r.id : r.surface_structure_id || r.structure_id;
     if (id) links.set(id, structureButton("artifact",id,(r.name || "structure")+".extxyz","查看"+(r.name || "输入结构")));
     if (r.finished_ok && r.output_structure && r.id) links.set(r.id,structureButton("job",r.id,"optimized.extxyz","查看优化结构"));
-    if (/^calculation_(?:plan|prepare|preview|submit|job)/.test(call.name) && !isStructure) links.set("task",'<button class="view-result" data-task-panel>查看方案</button>');
+    if (/^calculation_(?:plan|prepare|preview|submit|job)/.test(call.name) && !isStructure) links.set("task",`<button type="button" class="plan-entry" data-task-panel>${icon('map')}<span>查看方案</span>${icon('chevron')}</button>`);
   }
   return [...links.values()].join(" ");
 }
@@ -354,7 +354,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label calculation-update-label"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-timeline"/></svg><span>计算更新</span></div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${turn.background ? '<div class="assistant-label calculation-update-label"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-timeline"/></svg><span>计算更新</span></div>' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div></div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn"><div class="assistant-message"><div class="assistant-body"><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</div></div></article>` : `<article class="turn">${turn.background ? '' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div></div></div></article>`
 
   ).join("");
   calculations.drawReportFigures();

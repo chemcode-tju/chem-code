@@ -43,13 +43,15 @@ export function createCascadeMenu(anchor) {
         if (row.branch) {
           button.setAttribute('aria-haspopup', 'menu');
           button.setAttribute('aria-expanded', String(Boolean(columns[depth + 1] && column.activeRow === index)));
+          if (row.selected) button.setAttribute('aria-current', 'true');
         }
         else button.setAttribute('aria-checked', String(Boolean(row.selected)));
         button.disabled = Boolean(row.disabled); button.title = row.title || '';
-        button.dataset.active = String(Boolean(row.active || (columns[depth + 1] && column.activeRow === index)));
+        // Selection is a check mark; only the currently open branch gets a fill.
+        button.dataset.active = String(Boolean(columns[depth + 1] && column.activeRow === index));
         const label = document.createElement('span'); label.textContent = row.label;
         if (row.noTranslate) label.dataset.noI18n = '';
-        const trailing = document.createElement('span'); trailing.className = 'menu-trailing'; trailing.innerHTML = row.branch ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>' : row.selected ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg>' : '';
+        const trailing = document.createElement('span'); trailing.className = 'menu-trailing'; trailing.innerHTML = (row.selected ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg>' : '') + (row.branch ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>' : '');
         button.append(label, trailing); button.onclick = () => { column.activeRow = index; row.action?.(); }; pane.append(button);
       });
       if (column.extra) pane.append(column.extra());
@@ -59,7 +61,7 @@ export function createCascadeMenu(anchor) {
     if (focus) {
       const pane = menu.lastElementChild;
       const preferred = restoreRow !== null ? pane?.querySelector(`[data-row="${restoreRow}"]:not(:disabled)`) :
-        pane?.querySelector('[aria-checked=true]:not(:disabled)') || pane?.querySelector('[data-active=true]:not(:disabled)');
+        pane?.querySelector('[aria-checked=true]:not(:disabled)') || pane?.querySelector('[aria-current=true]:not(:disabled)') || pane?.querySelector('[data-active=true]:not(:disabled)');
       (preferred || pane?.querySelector('button[data-row]:not(:disabled)') || pane?.querySelector('button:not(:disabled)') || pane)?.focus();
     }
   }

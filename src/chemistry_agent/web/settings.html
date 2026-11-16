@@ -91,16 +91,16 @@
         <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span class="agent-identity"><strong>Codex</strong><span class="agent-model" data-model-for="codex">正在读取…</span></span><span class="agent-default" data-default-for="codex" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="codex-executable">程序路径</label><input id="codex-executable" value="codex" autocomplete="off" spellcheck="false">
-          <label for="codex-model">默认模型</label><div class="model-choice-row"><select id="codex-model"><option value="">跟随 Codex</option></select><button id="codex-probe" type="button" class="secondary">检测连接</button></div>
-          <label for="codex-effort">推理强度</label><select id="codex-effort"><option value="">跟随模型</option></select><div class="agent-card-actions"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button type="button" class="secondary" data-use-backend="codex">设为新对话默认</button></div>
+          <label for="codex-model">默认模型</label><select id="codex-model"><option value="">跟随 Codex</option></select>
+          <label for="codex-effort">推理强度</label><select id="codex-effort"><option value="">跟随模型</option></select><div class="agent-probe-row"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button id="codex-probe" type="button" class="secondary">检测连接</button></div><div class="agent-card-actions"><button type="button" class="secondary" data-use-backend="codex">设为新对话默认</button></div>
         </div>
       </details>
       <details class="agent-row" id="antigravity-settings">
         <summary><img class="agent-logo" src="/assets/antigravity.svg" alt=""><span class="agent-identity"><strong>Antigravity</strong><span class="agent-model" data-model-for="antigravity">正在读取…</span></span><span class="agent-default" data-default-for="antigravity" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="antigravity-executable">程序路径</label><input id="antigravity-executable" value="agy" autocomplete="off" spellcheck="false">
-          <label for="antigravity-model">默认模型</label><div class="model-choice-row"><select id="antigravity-model"><option value="">跟随 Antigravity</option></select><button id="antigravity-probe" type="button" class="secondary">检测连接</button></div>
-          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort"><option value="">跟随模型</option></select><div class="agent-card-actions"><span class="agent-connection-state" data-connection-for="antigravity">尚未检测</span><button type="button" class="secondary" data-use-backend="antigravity">设为新对话默认</button></div>
+          <label for="antigravity-model">默认模型</label><select id="antigravity-model"><option value="">跟随 Antigravity</option></select>
+          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort"><option value="">跟随模型</option></select><div class="agent-probe-row"><span class="agent-connection-state" data-connection-for="antigravity">尚未检测</span><button id="antigravity-probe" type="button" class="secondary">检测连接</button></div><div class="agent-card-actions"><button type="button" class="secondary" data-use-backend="antigravity">设为新对话默认</button></div>
         </div>
       </details>
       </div>

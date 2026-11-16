@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {activity, activitySteps, visibleReference} from '../src/chemistry_agent/web/answer-ui.mjs';
+import {activity, activitySteps, answerBox, progressMarkdown, visibleReference} from '../src/chemistry_agent/web/answer-ui.mjs';
 
 test('only generated revision envelopes are omitted from chat presentation', () => {
   const generated = '修改方案/步骤：Cu(100) 优化；先读取 calculation_plan_get，再用 calculation_plan_save 修改 plan_id=abc-123，expected_revision=3。';
@@ -20,4 +20,14 @@ test('completed plain answers have a duration, not an empty expandable log', () 
 test('tool failure does not assume incorrect user input', () => {
   const html=activitySteps([], [{name:'remote_shell',success:false,arguments:{command:'pwd'},result:{error:'timeout'}}]);
   assert.match(html,/未完成/); assert.match(html,/timeout/); assert.doesNotMatch(html,/需调整输入/);
+});
+
+test('answer copy controls follow completed, progress and streaming text without losing their sources', () => {
+  const completed=answerBox('<p>Energy = -12.35 eV</p>',3);
+  assert.ok(completed.indexOf('</p>')<completed.indexOf('data-copy="3"'));
+  const progress=progressMarkdown({render:source=>`<p>${source}</p>`},'Energy = -12.35 eV');
+  assert.match(progress,/data-source="Energy = -12.35 eV"/);
+  assert.ok(progress.indexOf('</p>')<progress.indexOf('data-copy-markdown'));
+  const live=activity({id:'live',running:true,draftRequest:'request-1'});
+  assert.ok(live.indexOf('data-live-request="request-1"')<live.indexOf('data-copy-live'));
 });

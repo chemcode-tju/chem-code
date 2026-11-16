@@ -1,6 +1,5 @@
 import {escapeHtml as esc} from './core.mjs';
 import {CARD, buildGraph, clearDrop, edgePath, edgeRoute, kindName, layoutGraph, overviewFolds, taskLabel} from './plan-layout.mjs';
-import {inSection} from './plan-folders.mjs';
 import {bindMapGestures} from './map-gestures.mjs';
 import {createNavigator} from './map-navigator.mjs';
 import {t} from './i18n.mjs';
@@ -25,7 +24,7 @@ export function planMap(layers, key, attribute, title = '', controls = '') {
     </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
-    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="已展开 / 总步骤"></span></div><div class="map-subtools"><select data-groups aria-label="按分支查看"></select></div>${controls}<div class="map-actions">
+    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="已展开 / 总步骤"></span></div>${controls}<div class="map-actions">
       ${tool('data-command="find" aria-expanded="false"','查找步骤',icon('find'))}
       ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more'))}
       ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
@@ -67,13 +66,13 @@ function mount(map, previous) {
   $('[data-board-rows]').onchange=event=>{boardRows=event.target.checked;kanban.dataset.rows=boardRows?'two':'one';persist();save();};
   let canvasCamera={left:saved.left,top:saved.top};
   let boardScroll={left:saved.boardLeft || 0,top:saved.boardTop || 0};
-  const dialog=$('.map-dialog'), select=$('[data-groups]'), find=$('.map-search input'), results=$('[data-results]'), grip=$('.map-grip');
+  const dialog=$('.map-dialog'), find=$('.map-search input'), results=$('[data-results]'), grip=$('.map-grip');
   world.style.setProperty('--node-w',CARD.width+'px');world.style.setProperty('--node-h',CARD.height+'px');
   const nodes=[...world.querySelectorAll('[data-vertex]')].map(el=>({id:el.dataset.vertex,title:el.dataset.label,searchText:el.dataset.search,
     parents:JSON.parse(el.dataset.parents),groupPath:JSON.parse(el.dataset.groupPath),caption:el.querySelector('.map-card-caption'),reset:el.querySelector('[data-reset-card]'),auxiliary:el.hasAttribute('data-aux'),el,button:el.querySelector('.map-node'),toggle:el.querySelector('[data-branch]')}));
   const byId=new Map(nodes.map(n=>[n.id,n])), onlyAux=nodes.every(n=>n.auxiliary);
   const graphs=new Map(), modes={...saved.modes};
-  let all=saved.all!==false || onlyAux, graph, folds, moves, group, layout, active=null, lit=null, paths=[], incident;
+  let all=saved.all!==false || onlyAux, graph, folds, moves, layout, active=null, lit=null, paths=[], incident;
   let showNav=saved.showNav!==false;
   let allArrows=saved.allArrows===true;
   let direction=saved.direction || '';
@@ -83,23 +82,16 @@ function mount(map, previous) {
   const nav=createNavigator($('.map-navigator'),view,()=>({layout,scale,...camera(),...CARD}),panTo);
   let scale=bound(Number(saved.scale)||1,.005,3), height=saved.height || 0, pop='', raf=0, interacted=false;
   const cnEn=cn=>t(cn);
-  const folderTitle=folder=>folder.batch ? t('并行分支')+' '+folder.title : folder.title;
   function initMode() {
     if (!graphs.has(all)) graphs.set(all,buildGraph(nodes,all));
     graph=graphs.get(all);
     const state=modes[all] || {};
     folds=new Set((state.folds || (graph.vertices.length>32 ? [...overviewFolds(graph)] : [])).filter(id=>graph.byId.has(id)));
     moves=new Map((state.moves || []).filter(([id,p])=>graph.byId.has(id) && Number.isFinite(p?.x) && Number.isFinite(p?.y)));
-    group=graph.filters.some(g=>g.id===state.group)?state.group:null;
     $('[data-all]').checked=all; $('[data-aux-option]').hidden=onlyAux || nodes.every(n=>!n.auxiliary);
-    select.innerHTML='<option value="">'+t('全部分支')+'</option>'+graph.filters.map(g=>{
-      const label=g.folder && !g.batch ? g.path.join(' › ') : g.folder ? [g.origin,folderTitle(g)].filter(Boolean).join(' › ') : g.title;
-      return `<option data-no-i18n value="${esc(g.id)}">${esc(label)} · ${g.members.length}</option>`;
-    }).join('');
-    select.value=group || '';select.disabled=graph.filters.length<2;
   }
   function snapshot() {
-    modes[all]={folds:[...folds],moves:[...moves],group};
+    modes[all]={folds:[...folds],moves:[...moves]};
     const focused=board.contains(document.activeElement);
     return {layoutVersion:6,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,boardRows,
       ...(viewMode==='canvas'?camera():canvasCamera),viewMode,
@@ -160,7 +152,7 @@ function mount(map, previous) {
     return edgePath(layout.points.get(edge.source),layout.points.get(edge.target),edgeRoute(edge.source,edge.target,layout));
   }
   function draw() {
-    mark(null); layout=layoutGraph(graph,folds,moves,group,orientation());
+    mark(null); layout=layoutGraph(graph,folds,moves,null,orientation());
     const first=layout.points.keys().next().value;
     if (!layout.points.has(active)) active=first;
     board.dataset.direction=orientation();
@@ -177,7 +169,7 @@ function mount(map, previous) {
       n.el.style.left=p.x+'px';n.el.style.top=p.y+'px';n.button.tabIndex=n.id===active?0:-1;
       n.el.classList.toggle('is-current',interacted && n.id===active);
       if(interacted && n.id===active) n.button.setAttribute('aria-current','step');else n.button.removeAttribute('aria-current');
-      const vertex=graph.byId.get(n.id), children=vertex.children.filter(id=>inSection(graph.byId.get(id),group));
+      const vertex=graph.byId.get(n.id), children=vertex.children;
       n.toggle.hidden=!children.length;
       if (children.length) {
         const folded=folds.has(n.id);
@@ -205,7 +197,7 @@ function mount(map, previous) {
       let count=0;
       for(const row of column.querySelectorAll('[data-board-node]')) {
         const node=graph.byId.get(row.dataset.boardNode);
-        row.hidden=!node || !inSection(node,group);
+        row.hidden=!node;
         if(!row.hidden) count++;
       }
       column.querySelector('[data-column-count]').textContent=count;
@@ -311,7 +303,7 @@ function mount(map, previous) {
   dialog.addEventListener('cancel',e=>{e.preventDefault();if(pop) closePop(true);else setFull(false);});
   function search() {
     const query=find.value.trim().toLowerCase();
-    const hits=nodes.filter(n=>query?(n.id+' '+n.title+' '+n.searchText+' '+(n.groupPath || []).join(' ')).toLowerCase().includes(query):viewMode==='kanban'?graph.byId.has(n.id) && inSection(graph.byId.get(n.id),group):layout.points.has(n.id));
+    const hits=nodes.filter(n=>query?(n.id+' '+n.title+' '+n.searchText+' '+(n.groupPath || []).join(' ')).toLowerCase().includes(query):viewMode==='kanban'?graph.byId.has(n.id):layout.points.has(n.id));
     const rows=hits.slice(0,30);
     results.innerHTML=rows.map(n=>`<button type="button" data-hit="${esc(n.id)}"><strong>${esc(n.title)}</strong><small>${esc(n.id)}</small></button>`).join('') ||
       '<p>'+t('没有匹配的步骤')+'</p>';
@@ -321,7 +313,6 @@ function mount(map, previous) {
     if(!byId.has(id)) return;
     if(!graph.byId.has(id)) {snapshot();all=true;initMode();}
     const node=graph.byId.get(id);
-    if(!inSection(node,group)) {group=null;select.value='';}
     for(let p=graph.byId.get(node.primary);p;p=graph.byId.get(p.primary)) folds.delete(p.id);
     closePop();draw();
     if(viewMode==='kanban') {
@@ -342,21 +333,8 @@ function mount(map, previous) {
       e.preventDefault();buttons[bound(i+(e.key==='ArrowDown'?1:-1),0,buttons.length-1)].focus();
     } else if(e.key==='Enter' && document.activeElement===find && buttons.length) {e.preventDefault();jump(buttons[0].dataset.hit);}
   };
-  select.onchange=()=>{
-    group=select.value || null;
-    if(group) {
-      for(const id of graph.filters.find(g=>g.id===group).members) folds.delete(id);
-    }
-    draw();
-    if(scale<.7) zoom(1);
-    const first=layout.points.keys().next().value;
-    if(viewMode==='canvas') {choose(first,true);center(first);}
-    save();
-  };
   $('[data-all]').onchange=e=>{
-    const previousGroup=group;
     snapshot();all=e.target.checked;initMode();
-    if(graph.filters.some(row=>row.id===previousGroup)){group=previousGroup;select.value=group;}
     closePop();draw();center(active);save();
   };
   function command(name) {
@@ -368,7 +346,7 @@ function mount(map, previous) {
     if(name==='arrange') {moves.clear();draw();center(active);}
     if(name==='overview' || name==='unfold') {
       const suggested=overviewFolds(graph);
-      for (const n of graph.vertices) if(inSection(n,group)) {
+      for (const n of graph.vertices) {
         if(name==='overview' && suggested.has(n.id)) folds.add(n.id);else folds.delete(n.id);
       }
       draw();center(active);
