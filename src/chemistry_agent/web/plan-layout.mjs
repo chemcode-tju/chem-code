@@ -131,6 +131,7 @@ function roundedPath(points, radius = 12) {
 }
 
 export function edgePath(a,b,route = null) {
+  if(route?.points)return roundedPath(route.points);
   if (route?.direction==='TB') {
     const start={x:a.x+CARD.width/2,y:a.y+CARD.height},end={x:b.x+CARD.width/2,y:b.y};
     if (Number.isFinite(route.viaX)) return roundedPath([start,{x:start.x,y:start.y+18},
@@ -148,18 +149,39 @@ export function edgePath(a,b,route = null) {
   return roundedPath([start,{x:mid,y:start.y},{x:mid,y:end.y},end]);
 }
 
-// Skip-rank edges use the quiet strip above the grid, clear of intermediate cards.
+// Route from actual card positions, not the original grid rank. A dragged card
+// can be farther than one row without needing a detour around the entire graph.
 export function edgeRoute(source, target, layout) {
-  const a=layout.points.get(source), b=layout.points.get(target);
-  if (!a || !b) return null;
-  if (layout.direction==='TB') {
-    if (b.y-a.y <= CARD.row+1 && b.y-a.y >= CARD.height+32) return {direction:'TB'};
-    const left=Math.min(...[...layout.points.values()].map(point=>point.x));
-    return {direction:'TB',viaX:Math.max(8,left-24-(layout.ranks.get(source)%3)*12)};
-  }
-  if (b.x-a.x <= CARD.column+1 && b.x-a.x >= CARD.width+32) return null;
-  const top=Math.min(...[...layout.points.values()].map(point=>point.y));
-  return {viaY:Math.max(8,top-30-(layout.ranks.get(source)%3)*12)};
+  const a=layout.points.get(source),b=layout.points.get(target);
+  if(!a || !b)return null;
+  const vertical=layout.direction==='TB';
+  const start=vertical?{x:a.x+CARD.width/2,y:a.y+CARD.height}:{x:a.x+CARD.width,y:a.y+CARD.height/2};
+  const end=vertical?{x:b.x+CARD.width/2,y:b.y}:{x:b.x,y:b.y+CARD.height/2};
+  const obstacles=[...layout.points].map(([id,p])=>{
+    const pad=id===source || id===target?0:8;
+    return {left:p.x-pad,right:p.x+CARD.width+pad,top:p.y-pad,bottom:p.y+CARD.height+pad};
+  });
+  const clear=points=>points.every((p,i)=>!i || obstacles.every(r=>{
+    const q=points[i-1];
+    return p.x===q.x ? !(p.x>r.left && p.x<r.right && Math.max(p.y,q.y)>r.top && Math.min(p.y,q.y)<r.bottom)
+      : !(p.y>r.top && p.y<r.bottom && Math.max(p.x,q.x)>r.left && Math.min(p.x,q.x)<r.right);
+  }));
+  const mid=vertical?(start.y+end.y)/2:(start.x+end.x)/2;
+  const direct=vertical?[start,{x:start.x,y:mid},{x:end.x,y:mid},end]
+    :[start,{x:mid,y:start.y},{x:mid,y:end.y},end];
+  const forward=vertical?end.y-start.y:end.x-start.x;
+  if(forward>=32 && clear(direct))return vertical?{direction:'TB'}:null;
+  const corridors=new Set([...layout.points.values()].flatMap(p=>vertical?[p.x-24,p.x+CARD.width+24]:[p.y-32,p.y+CARD.height+32]));
+  const candidates=[...corridors].filter(value=>value>=8).map(value=>({value,points:vertical?
+    [start,{x:start.x,y:start.y+18},{x:value,y:start.y+18},{x:value,y:end.y-32},{x:end.x,y:end.y-32},end]:
+    [start,{x:start.x+24,y:start.y},{x:start.x+24,y:value},{x:end.x-24,y:value},{x:end.x-24,y:end.y},end]}));
+  const length=points=>points.reduce((sum,p,i)=>sum+(i?Math.abs(p.x-points[i-1].x)+Math.abs(p.y-points[i-1].y):0),0);
+  candidates.sort((a,b)=>length(a.points)-length(b.points) || a.value-b.value);
+  const best=candidates.find(candidate=>clear(candidate.points));
+  if(best)return vertical?{direction:'TB',viaX:best.value,points:best.points}:{viaY:best.value,points:best.points};
+  // Densely overlapping cards may have no clear corridor until the drop settles.
+  const outside=Math.max(8,Math.min(...[...layout.points.values()].map(p=>vertical?p.x:p.y))-32);
+  return vertical?{direction:'TB',viaX:outside}:{viaY:outside};
 }
 
 // Leave a free drop untouched. If it would cover another card, pick the nearest

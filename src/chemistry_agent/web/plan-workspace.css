@@ -181,7 +181,7 @@
 .map-direction {color:var(--muted);white-space:nowrap;}
 .map-zoom {padding:2px;border:1px solid var(--border);border-radius:12px;background:var(--raised);}
 .map-board .map-node:hover {background:var(--raised);}
-.map-board .map-node:focus-visible {outline:2px solid var(--accent);outline-offset:3px;}
+.map-board .map-node:focus-visible {outline:none;} /* Focus-within uses the same visible accent border as selection. */
 .map-position > [data-branch] {opacity:0;transition:opacity .12s;}
 .map-position:is(:hover,:focus-within,.is-current) > [data-branch],.map-position > [data-branch][aria-expanded=false] {opacity:1;}
 #step-parent {border:0;background:transparent;color:var(--muted);text-align:left;padding:10px 0;font-size:13px;}
