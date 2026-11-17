@@ -13,7 +13,7 @@ runtime_directory = workspace / "data" / "aiida"
 
 
 async def main() -> None:
-    settings = Settings(database_path=database_path, aiida_path=runtime_directory)
+    settings = Settings(database_path=database_path, platform_path=runtime_directory)
     async with PlatformRuntime(settings):
         await asyncio.Event().wait()
 

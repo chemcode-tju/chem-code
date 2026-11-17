@@ -27,14 +27,12 @@ from chemistry_agent.attachments import router as attachments_router
 from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthManager
 from chemistry_agent.automation.chat import CalculationChat
 from chemistry_agent.automation.chat_routes import router as calculation_chat_router
-from chemistry_agent.automation.monitor import TaskMonitor
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.automation.settings_tools import authorizes_configuration, configuration_grant
 from chemistry_agent.automation.ssh_profiles import shell_profiles
 from chemistry_agent.automation.ssh_routes import router as ssh_router
-from chemistry_agent.automation.ssh_tools import connection_tools
 from chemistry_agent.backends.routes import router as backend_router
 from chemistry_agent.backends.service import BackendRouter
 from chemistry_agent.chat_queue import ChatQueue
@@ -100,9 +98,7 @@ def create_app(
     if settings.web_search_enabled:
         extras.append(web_search_tool(settings.search_endpoint))
     ssh_hosts = settings.allowed_ssh_hosts
-    ssh_root = settings.aiida_path if calculation_enabled else None
-    if calculation_enabled and settings.aiida_enabled:
-        extras.extend(connection_tools(automation))
+    ssh_root = settings.platform_path if calculation_enabled else None
     if ssh_hosts or calculation_enabled:
         extras.append(remote_shell_tool(ssh_hosts, ssh_root))
 
@@ -161,17 +157,9 @@ def create_app(
                     app.state.agent_backends.workspace_files = app.state.workspace_files
                     app.state.context_manager = context_manager
                     app.state.chat_queue = ChatQueue(store, chat, provider)
-                    monitor = (
-                        TaskMonitor(calculation_chat, provider, session_store=store)
-                        if calculation_enabled
-                        and settings.aiida_enabled
-                        and settings.automation_monitor_enabled
-                        else None
-                    )
-                    app.state.task_monitor = monitor
-                    calculation_chat.monitor = monitor
-                    if monitor:
-                        monitor.start()
+                    # Historical event records remain available; no legacy daemon is started.
+                    app.state.task_monitor = None
+                    calculation_chat.monitor = None
                     if calculation_enabled:
                         calculation_chat.plans.start(
                             store,
@@ -185,8 +173,6 @@ def create_app(
                         await app.state.chat_queue.close()
                         await app.state.agent_backends.context.close()
                         await calculation_chat.plans.close()
-                        if monitor:
-                            await monitor.close()
                 finally:
                     await provider.close()
             finally:
@@ -320,7 +306,6 @@ def create_app(
             "context_input_budget_tokens": settings.context_input_budget,
             "context_recent_turns": settings.context_recent_turns,
             "automation_enabled": calculation_enabled,
-            "aiida_enabled": calculation_enabled and settings.aiida_enabled,
             "ssh_hosts": available_hosts() if local_shell_access else (),
         }
 

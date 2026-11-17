@@ -102,7 +102,7 @@ python scripts/run_computation_platform.py
 
 `calculation_job_hosts` 返回已启用的别名及其本机配置来源；指定 host 时查询实际 Slurm 资源。`remote_shell(host=..., command=...)` 可以直接检查已启用服务器的脚本和软件目录，无需每轮 `/shell`。软件路径由 Agent 查找，不在提示词或工作流中写死。通用 Slurm 运行不要求初始化 AiiDA。关闭某个别名会撤销后续 SSH 操作，不取消已提交的远端作业。
 
-这次已抽出记录仓库、作业/等待操作、事件调度及 Chat 适配器，通用 Slurm 路径可无模型运行。`CalculationPlans` 暂时保留为执行后端；VASP/AiiDA 专用节点、旧诊断与摘要服务仍保留兼容，没有迁移或删除用户历史数据。
+这次已抽出记录仓库、作业/等待操作、事件调度及 Chat 适配器，通用 Slurm 路径可无模型运行。`CalculationPlans` 负责通用节点执行。旧 AiiDA 专用执行器、初始化与诊断路径已移除；历史记录保持只读，没有迁移或删除用户数据。数据路径使用 `CHEMISTRY_PLATFORM_PATH`，旧路径变量仅作为存储别名兼容。
 
 界面继续读取同一份方案，已识别 Agent 研究目标及其作业；进度按研究目标汇总，历史失败子作业单独保留。本次未重做整个界面，也未把单用户会话存储改成多用户项目数据库。
 

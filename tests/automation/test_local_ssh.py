@@ -72,7 +72,7 @@ async def test_ssh_response_distinguishes_empty_and_real_errors(tmp_path, monkey
         return Process()
 
     monkeypatch.setattr("asyncio.create_subprocess_exec", create)
-    settings = SimpleNamespace(aiida_path=tmp_path, allowed_ssh_hosts=("cluster-b",))
+    settings = SimpleNamespace(platform_path=tmp_path, allowed_ssh_hosts=("cluster-b",))
     jobs = SlurmJobs(SimpleNamespace(service=SimpleNamespace(settings=settings)))
     if payload["error"]:
         with pytest.raises(AgentError, match="sinfo failed"):

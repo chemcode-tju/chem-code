@@ -1,22 +1,15 @@
-"""Expose local settings operations through the same workers used by the settings page."""
+"""Recognize explicit local configuration requests for the current platform."""
 
 import re
 from contextvars import ContextVar
-from uuid import UUID
-
-from chemistry_agent.automation.configuration import ExecutionTarget, PotentialPath
-from chemistry_agent.automation.models import CodeCreate, StrictModel
-from chemistry_agent.automation.service import AutomationService
-from chemistry_agent.errors import AgentError
-from chemistry_agent.tools import Tool, ToolContext
 
 configuration_grant: ContextVar[bool] = ContextVar("configuration_grant", default=False)
 
 
 _OBJECT = (
     r"(?:计算软件|计算程序|软件|程序|环境脚本|服务器|集群|赝势(?:源|库|目录|路径)?|执行目标|队列|资源|"
-    r"执行环境|默认(?:执行目标|环境|队列|资源)|本地\s*AiiDA|AiiDA|VASP|GROMACS|QE|"
-    r"server|cluster|software|potential source|execution target|queue|daemon)"
+    r"执行环境|默认(?:执行目标|环境|队列|资源)|VASP|GROMACS|QE|"
+    r"server|cluster|software|potential source|execution target|queue)"
 )
 _ACTION = (
     r"(?:注册|登记|添加|保存|配置|设置|修改|更新|初始化|启动|关联|绑定|录入|"
@@ -54,72 +47,3 @@ def authorizes_configuration(message: str) -> bool:
         text = re.sub(r"(?:好吗|吗)?[?？]?$", "", text).strip()
         header = text.partition("\n")[0].strip()
     return bool(_REQUEST.match(header) and not _NON_REQUEST.search(text))
-
-
-class SettingsQuery(StrictModel):
-    server_id: UUID | None = None
-
-
-class QueueQuery(StrictModel):
-    server_id: UUID
-
-
-def settings_tools(service: AutomationService) -> list[Tool]:
-    def tool(
-        name: str, description: str, model: type[StrictModel], action: str, *, write: bool = False
-    ) -> Tool:
-        async def handle(body: StrictModel, context: ToolContext) -> dict:
-            if write and not configuration_grant.get():
-                raise AgentError(
-                    "settings_grant_required",
-                    "请在本轮直接说明需要登记或更改的设置，也可用 /configure。",
-                    403,
-                )
-            return await service.call(action, body.model_dump(mode="json", exclude_none=True))
-
-        if write:
-            description += " Requires an explicit configuration request in the current user turn."
-        return Tool(name, description, model, handle, True)
-
-    return [
-        tool(
-            "calculation_settings",
-            "Check local AiiDA readiness and configuration gaps, optionally scoped to a server.",
-            SettingsQuery,
-            "settings_status",
-        ),
-        tool(
-            "calculation_initialize",
-            "Create the local profile if missing and start its daemon.",
-            StrictModel,
-            "settings_initialize",
-            write=True,
-        ),
-        tool(
-            "calculation_register_software",
-            "Register a remote software name, version, executable and optional environment script.",
-            CodeCreate,
-            "create_code",
-            write=True,
-        ),
-        tool(
-            "calculation_register_potential_source",
-            "Register a remote PBE library directory for on-demand imports.",
-            PotentialPath,
-            "register_potential_path",
-            write=True,
-        ),
-        tool(
-            "calculation_save_execution_target",
-            "Save queue/resource defaults for VASP, without scientific parameters.",
-            ExecutionTarget,
-            "save_execution_target",
-            write=True,
-        ),
-        tool(
-            "calculation_server_queues",
-            "Read advertised queue and GPU options for a managed server.",
-            QueueQuery,
-            "scheduler_options",
-        ),
-    ]

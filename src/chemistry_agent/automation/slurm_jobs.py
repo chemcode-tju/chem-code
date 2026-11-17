@@ -72,7 +72,7 @@ class SlurmJobs:
     def __init__(self, chat) -> None:
         self.chat = chat
         self.settings = chat.service.settings
-        self.root = self.settings.aiida_path
+        self.root = self.settings.platform_path
         self.locks: dict[str, asyncio.Lock] = {}
 
     def hosts(self) -> list[str]:

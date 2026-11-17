@@ -1,8 +1,6 @@
 import asyncio
-import json
 import os
 import shutil
-import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -12,19 +10,9 @@ import pytest
 from pydantic import ValidationError
 
 asyncssh = pytest.importorskip("asyncssh")
-pytest.importorskip("aiida")
-from aiida import orm  # noqa: E402
-from aiida.tools.pytest_fixtures.configuration import (  # noqa: E402,F401
-    aiida_config_factory,
-    aiida_profile_factory,
-)
-
-from chemistry_agent.automation import backend, ssh_connection  # noqa: E402
+from chemistry_agent.automation import ssh_connection  # noqa: E402
 from chemistry_agent.automation.models import ServerCreate  # noqa: E402
-from chemistry_agent.automation.ssh_profiles import load_profile, shell_profiles  # noqa: E402
 from chemistry_agent.errors import AgentError  # noqa: E402
-from chemistry_agent.runtime.shell import ShellInput, remote_shell_tool, shell_grant  # noqa: E402
-from chemistry_agent.tools import ToolContext  # noqa: E402
 
 
 class TestEndpoint(asyncssh.SSHServer):
@@ -94,81 +82,6 @@ def endpoint(tmp_path, monkeypatch):
         loop.close()
 
 
-@pytest.mark.parametrize("mode", ["password", "key", "alias"])
-def test_settings_login_is_shared_by_shell_and_aiida(
-    endpoint,
-    tmp_path,
-    monkeypatch,
-    mode,
-    aiida_config_factory,  # noqa: F811
-    aiida_profile_factory,  # noqa: F811
-):
-    port, hostkey, identity, secret = endpoint
-    root = tmp_path / "profile"
-    root.mkdir()
-    server = ServerCreate(
-        label=f"cluster-{mode}",
-        hostname="127.0.0.1",
-        port=port,
-        username="research",
-        workdir="/scratch",
-        auth_mode=mode if mode != "alias" else "key",
-        identity_file=str(identity) if mode == "key" else None,
-    )
-    if mode == "alias":
-        (tmp_path / ".ssh/config").write_text(
-            "Host loopback-ssh\n HostName 127.0.0.1\n User research\n"
-            f" Port {port}\n IdentityFile {identity}\n"
-        )
-        # OpenSSH uses the OS account home even if a test overrides HOME.
-        run = subprocess.run
-
-        def resolve_fixture(args, **kwargs):
-            if args[:2] == ["ssh", "-G"]:
-                args = args[:2] + ["-F", str(tmp_path / ".ssh/config")] + args[2:]
-            return run(args, **kwargs)
-
-        monkeypatch.setattr(subprocess, "run", resolve_fixture)
-        server = ServerCreate(label="cluster-alias", hostname="loopback-ssh", workdir="/scratch")
-    secrets_read = []
-
-    def read_secret(identifier):
-        secrets_read.append(identifier)
-        return secret
-
-    monkeypatch.setattr(ssh_connection, "load_password", read_secret)
-    monkeypatch.setenv("AIIDA_PATH", str(root))
-    target, _, result = asyncio.run(ssh_connection.discover(root, server))
-    assert target.port == port and target.username == "research"
-    assert not result["trusted"] and not secrets_read
-    with pytest.raises(AgentError, match="独立核对"):
-        asyncio.run(ssh_connection.pin_server(root, server))
-    with pytest.raises(AgentError, match="不一致"):
-        asyncio.run(ssh_connection.pin_server(root, server, "SHA256:wrong"))
-    asyncio.run(ssh_connection.pin_server(root, server, hostkey.get_fingerprint()))
-    with aiida_config_factory(root) as config, aiida_profile_factory(config):
-        monkeypatch.setenv("AIIDA_PATH", str(root))
-        saved = backend.create_server(server.model_dump(mode="json"))
-        assert backend.create_server(server.model_dump(mode="json"))["id"] == saved["id"]
-        profile = load_profile(root, saved["id"])
-        assert shell_profiles(root)[saved["shell_alias"]] == saved["id"]
-        computer = orm.load_computer(uuid=saved["id"])
-        assert secret not in json.dumps(computer.get_configuration()) + json.dumps(profile)
-        assert not secrets_read
-        with computer.get_transport() as transport:
-            code, stdout, _ = transport.exec_command_wait("hostname")
-            assert code == 0 and stdout.strip() == "transport-ok"
-        token = shell_grant.set(saved["shell_alias"])
-        try:
-            command = remote_shell_tool((), root)
-            result = asyncio.run(
-                command.handler(ShellInput(command="hostname"), ToolContext("s", "r"))
-            )
-            assert result["ok"] and result["stdout"].strip() == "transport-ok"
-        finally:
-            shell_grant.reset(token)
-        assert bool(secrets_read) == (mode == "password")
-        assert orm.QueryBuilder().append(orm.CalcJobNode).count() == 0
 
 
 async def test_known_host_on_other_port_is_not_authority(endpoint, tmp_path):
@@ -218,9 +131,9 @@ async def test_password_endpoint_is_local_and_not_an_agent_tool(
     from chemistry_agent.automation import ssh_keychain
     from chemistry_agent.automation.ssh_profiles import profile_path, write_private
 
-    app = create_app(settings_factory(automation_enabled=True, aiida_enabled=True))
+    app = create_app(settings_factory(automation_enabled=True))
     identifier = uuid4()
-    path = profile_path(app.state.settings.aiida_path, str(identifier))
+    path = profile_path(app.state.settings.platform_path, str(identifier))
     write_private(
         path, {"id": str(identifier), "auth_mode": "password", "shell_alias": "chem-test"}
     )
@@ -247,14 +160,16 @@ async def test_password_endpoint_is_local_and_not_an_agent_tool(
         assert secret not in response.text and secret not in path.read_text()
         assert (await client.delete(uri)).status_code == 200 and not saved
         names = {x["function"]["name"] for x in (await client.get("/tools")).json()}
-        assert "ssh_server_register" in names and not any("password" in name for name in names)
+        assert "ssh_server_register" not in names
+        assert "calculation_job_hosts" in names and not any("password" in name for name in names)
         direct = await client.post(
             "/tools/ssh_server_register/invoke",
             json={
                 "arguments": {"label": "test", "hostname": "server.local", "workdir": "/scratch"}
             },
         )
-        assert not direct.json()["success"]
+        assert direct.status_code == 404
+        assert direct.json()["error"]["code"] == "tool_not_found"
 
 
 @pytest.mark.skipif(

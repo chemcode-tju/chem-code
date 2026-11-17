@@ -55,7 +55,7 @@ export function renderGeneralPlan(plan) {
     boardState:plan.status==='draft'?'draft':plan.runtime[node.id].status==='running' && plan.runtime[node.id].job?.paused?'paused':plan.runtime[node.id].status,
     state:plan.runtime[node.id].status, status:(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
   })));
-  const controls = plan.status==='draft'
+  const controls = plan.read_only ? '' : plan.status==='draft'
     ? `<button type="button" data-revise-plan="${esc(plan.id)}" title="提出修改" aria-label="提出修改"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-pencil"/></svg></button><button type="button" class="tool-submit" data-confirm-plan="${esc(plan.id)}" title="确认并执行" aria-label="确认并执行"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg><span>确认并执行</span></button>`
     : ['running','paused'].includes(plan.status)
       ? `<button type="button" data-control-plan="${esc(plan.id)}" data-plan-action="${plan.status==='running'?'pause':'resume'}" title="${plan.status==='running'?'暂停后续步骤':'继续执行'}" aria-label="${plan.status==='running'?'暂停后续步骤':'继续执行'}"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${plan.status==='running'?'pause':'play'}"/></svg></button>` : '';

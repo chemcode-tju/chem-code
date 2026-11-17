@@ -6,16 +6,6 @@ from fastapi.responses import RedirectResponse
 
 from chemistry_agent.automation.configuration import (
     CalculationConfiguration,
-    CalculationProtocol,
-    ExecutionTarget,
-    PotentialPath,
-    PotentialSource,
-)
-from chemistry_agent.automation.models import (
-    CodeCreate,
-    PreviewRequest,
-    ServerCreate,
-    SubmitRequest,
 )
 from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.errors import AgentError
@@ -25,7 +15,7 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def local_service(request: Request) -> AutomationService:
-    """The first version owns one local AiiDA profile; do not expose it to shared users."""
+    """Protect local SSH and calculation state from shared or remote clients."""
     if request.app.state.settings.auth_enabled:
         raise AgentError("automation_local_only", "此版本自动化仅用于本地单用户部署。", 403)
     if (
@@ -42,82 +32,12 @@ def local_service(request: Request) -> AutomationService:
 
 @router.get("/api/automation/configuration")
 async def configuration(service: Annotated[AutomationService, Depends(local_service)]) -> dict:
-    return CalculationConfiguration(service.settings.aiida_path).read()
-
-
-@router.post("/api/automation/potential-sources")
-async def save_source(
-    body: PotentialSource, service: Annotated[AutomationService, Depends(local_service)]
-) -> dict:
-    return await service.call(
-        "save_configuration", {"kind": "sources", "value": body.model_dump(mode="json")}
-    )
-
-
-@router.post("/api/automation/protocols")
-async def save_protocol(
-    body: CalculationProtocol, service: Annotated[AutomationService, Depends(local_service)]
-) -> dict:
-    return await service.call(
-        "save_configuration", {"kind": "protocols", "value": body.model_dump(mode="json")}
-    )
+    return CalculationConfiguration(service.settings.platform_path).read()
 
 
 @router.get("/automation", include_in_schema=False)
 async def automation_page() -> RedirectResponse:
     return RedirectResponse("/settings#automation", status_code=307)
-
-
-@router.get("/api/automation/status")
-async def status(service: Annotated[AutomationService, Depends(local_service)]) -> dict:
-    return await service.call("status")
-
-
-@router.post("/api/automation/servers")
-async def create_server(
-    body: ServerCreate, service: Annotated[AutomationService, Depends(local_service)]
-) -> dict:
-    return await service.call("create_server", body.model_dump(mode="json"))
-
-
-@router.post("/api/automation/servers/{server_id}/test")
-async def test_server(
-    server_id: UUID, service: Annotated[AutomationService, Depends(local_service)]
-) -> dict:
-    return await service.call("test_server", {"server_id": str(server_id)})
-
-
-@router.post("/api/automation/previews")
-async def preview(
-    body: PreviewRequest, service: Annotated[AutomationService, Depends(local_service)]
-) -> dict:
-    return await service.call("preview", body.model_dump(mode="json"))
-
-
-@router.post("/api/automation/submissions")
-async def submit(
-    body: SubmitRequest, service: Annotated[AutomationService, Depends(local_service)]
-) -> dict:
-    return await service.call("submit", body.model_dump(mode="json"))
-
-
-@router.get("/api/automation/jobs")
-async def jobs(service: Annotated[AutomationService, Depends(local_service)]) -> dict:
-    return await service.call("jobs")
-
-
-@router.get("/api/automation/jobs/{job_id}")
-async def job_details(
-    job_id: UUID, service: Annotated[AutomationService, Depends(local_service)]
-) -> dict:
-    return await service.call("job_details", {"job_id": str(job_id)})
-
-
-@router.post("/api/automation/codes")
-async def create_code(
-    body: CodeCreate, service: Annotated[AutomationService, Depends(local_service)]
-) -> dict:
-    return await service.call("create_code", body.model_dump(mode="json"))
 
 
 @router.get("/api/automation/notifications")
@@ -149,28 +69,3 @@ async def read_notification(event_id: UUID, request: Request) -> dict:
 
 
 SettingsService = Annotated[AutomationService, Depends(local_service)]
-
-
-@router.get("/api/automation/settings")
-async def automation_settings(service: SettingsService, server_id: UUID | None = None) -> dict:
-    return await service.call("settings_status", {"server_id": str(server_id)} if server_id else {})
-
-
-@router.post("/api/automation/settings/initialize")
-async def initialize(service: SettingsService) -> dict:
-    return await service.call("settings_initialize")
-
-
-@router.post("/api/automation/settings/potential-sources")
-async def register_source(body: PotentialPath, service: SettingsService) -> dict:
-    return await service.call("register_potential_path", body.model_dump(mode="json"))
-
-
-@router.post("/api/automation/settings/execution-targets")
-async def register_execution_target(body: ExecutionTarget, service: SettingsService) -> dict:
-    return await service.call("save_execution_target", body.model_dump(mode="json"))
-
-
-@router.get("/api/automation/settings/servers/{server_id}/queues")
-async def server_queues(server_id: UUID, service: SettingsService) -> dict:
-    return await service.call("scheduler_options", {"server_id": str(server_id)})

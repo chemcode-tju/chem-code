@@ -15,7 +15,7 @@ Chem Code 是面向计算催化研究的聊天工作区。用户可以给出结�
 | 监控与结果 | 区分方案、调度器和科学收敛状态。完成或失败事件关联原会话；可停止方案，按配置诊断重试。队列配额不足时等待已接单作业结束。分析节点可读取计算文件、汇总数据并用 Matplotlib 生成图表。 |
 | 工作区与部署 | 项目与会话管理、可折叠的研究面板、中英文和明暗主题。远端账号部署支持会话隔离与备份；SSH 计算工具面向本地单用户服务。 |
 
-通用作业当前使用 Slurm；PBSPro/OpenPBS 和 Torque 仅保留旧 AiiDA 后端兼容，尚未接入通用监控。结构与轨迹支持的格式见[查看器说明](docs/structure-viewer.md)，远端部署见[部署说明](DEPLOYMENT.md)。
+通用作业当前使用 Slurm；PBSPro/OpenPBS 和 Torque 尚未接入通用监控。结构与轨迹支持的格式见[查看器说明](docs/structure-viewer.md)，远端部署见[部署说明](DEPLOYMENT.md)。
 
 ## 模型登录
 
@@ -170,11 +170,9 @@ node --test tests/frontend.test.mjs
 默认通过本机 SSH 配置连接服务器，由 Agent 写输入和提交脚本；平台登记作业、持久等待并在结束后恢复原对话。
 Agent 本地生成的结构、图片和其他文件可直接在网页预览、下载或用于后续对话。
 安装 `automation` 可选依赖不再安装 AiiDA。历史 AiiDA 数据保留在原目录；不迁移或重交旧作业。
-只有维护旧环境时才安装 `aiida` 可选依赖，并显式设置 `CHEMISTRY_AIIDA_ENABLED=true`。
+已移除旧 AiiDA 执行层；无需安装引擎或初始化 profile。数据路径使用 `CHEMISTRY_PLATFORM_PATH`，现有历史路径和记录保持兼容。
 
-## 旧 AiiDA 后端（兼容）
-
-本地单用户模式可连接 SSH 集群，通过聊天建模、预览并确认 VASP 计算。支持按需注册赝势、任务通知、优化后单点工作流和受限故障恢复。会话压缩保留原始记录与计算产物。配置及边界见 [AiiDA 自动化说明](docs/AUTOMATION.md)。共享账号服务不会开放集群执行工具。
+配置、历史记录和数据路径说明见 [计算平台说明](docs/AUTOMATION.md)。共享账号服务不会开放本地集群执行工具。
 
 [远程终端、联网搜索、流式对话与重启恢复](docs/agent-runtime.md) · [自动化计算](docs/AUTOMATION.md)
 
