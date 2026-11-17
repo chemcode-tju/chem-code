@@ -6,7 +6,7 @@
   color:var(--muted);
 }
 .answer-output>.copy-action {margin-top:6px;}
-.message-actions>.copy-action .icon,.answer-output>.copy-action .icon {width:16px;height:16px;}
+.message-actions>.copy-action .icon,.answer-output>.copy-action .icon {width:8px;height:8px;}
 .plan-entry {
   display:flex;align-items:center;gap:8px;width:100%;min-height:42px;
   margin:12px 0 0;padding:10px 12px;text-align:start;

@@ -243,9 +243,9 @@
   .map-position > [data-branch] {opacity:1;min-height:44px;min-width:44px;bottom:0;right:2px;background:transparent;}
 }
 @media (min-width:768px) and (max-width:1050px) {
-  body.inspector-open:not(.dock-max):has(#inspector-panel-calculation:not([hidden])) {grid-template-columns:var(--sidebar) minmax(0,1fr);}
-  body.inspector-open:has(#inspector-panel-calculation:not([hidden])) .main-panel {display:none;}
-  body.inspector-open:not(.dock-max):has(#inspector-panel-calculation:not([hidden])) #inspector {grid-column:2;}
+  body.inspector-open:not(.dock-max) {grid-template-columns:var(--sidebar) minmax(0,1fr);}
+  body.inspector-open .main-panel {display:none;}
+  body.inspector-open:not(.dock-max) #inspector {grid-column:2;}
 }
 
 /* The plan is the inspector surface, not a card nested inside it. */

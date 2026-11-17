@@ -71,9 +71,8 @@ body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;transit
 @container dockchrome (max-width:520px) {
   .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab [role=tab] {justify-content:center;padding-inline:4px;gap:0;}
   .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab [role=tab] span {display:none;}
-  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab .tab-close {display:none;}
-  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab:has([aria-selected=true]) {flex-grow:1.7;}
-  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab:has([aria-selected=true]) .tab-close {display:grid;width:18px;margin-right:2px;}
+  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab .tab-close {display:grid;width:18px;margin-right:2px;visibility:hidden;}
+  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab:has([aria-selected=true]) .tab-close {visibility:visible;}
 }
 svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
 @media(max-width:767px) {

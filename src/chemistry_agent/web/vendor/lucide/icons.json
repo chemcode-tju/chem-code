@@ -68,5 +68,7 @@
   "loading": "loader-circle",
   "alert": "circle-exclamation-point",
   "chevron-down": "chevron-down",
-  "memory": "brain"
+  "memory": "brain",
+  "folder-open": "folder-open",
+  "more-vertical": "ellipsis-vertical"
 }
