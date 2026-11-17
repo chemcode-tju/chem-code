@@ -9,7 +9,7 @@ from chemistry_agent.errors import AgentError
 from chemistry_agent.research_plugins.daemon import create_app
 from chemistry_agent.research_plugins.ledger import MonitorLedger
 from chemistry_agent.research_plugins.models import JobRegister, WaitControl, WaitRegister
-from chemistry_agent.research_plugins.observer import scheduler_row
+from chemistry_agent.research_plugins.observer import observe_slurm, scheduler_row
 from chemistry_agent.research_plugins.service import ResearchService
 
 
@@ -90,6 +90,42 @@ def test_slurm_accounting_never_uses_batch_row():
     assert scheduler_row("100.batch|COMPLETED|0:0\n", "100") == ("UNKNOWN", None)
     assert scheduler_row("100|CANCELLED by 22|0:15\n", "100") == ("CANCELLED", "0:15")
     assert scheduler_row("100_3|RUNNING\n", "100_3") == ("RUNNING", None)
+
+
+async def test_local_and_remote_slurm_queries(tmp_path, monkeypatch):
+    ledger = MonitorLedger(tmp_path / "monitor.sqlite3")
+    workspace = str(uuid4())
+    local = register(ledger, workspace, "local", backend="slurm", host="cluster-a", scheduler_id="100")
+    remote = register(ledger, workspace, "remote", backend="slurm", host="cluster-b", scheduler_id="101")
+    denied = register(
+        ledger, workspace, "denied", backend="slurm", host="other", scheduler_id="102"
+    )
+    calls = []
+
+    async def execute(*arguments, **kwargs):
+        calls.append(arguments)
+
+        class Process:
+            returncode = 0
+
+            async def communicate(self):
+                if arguments[0] == "squeue":
+                    return b"", b""
+                if arguments[0] == "sacct":
+                    return b"100.batch|FAILED|1:0\n100|COMPLETED|0:0\n", b""
+                return b"101|RUNNING\n", b""
+
+        return Process()
+
+    monkeypatch.setattr("asyncio.create_subprocess_exec", execute)
+    await observe_slurm(ledger, ("cluster-b",), local_host="cluster-a")
+    states = {job["id"]: job for job in ledger.jobs()}
+    assert states[local["id"]]["scheduler_state"] == "COMPLETED"
+    assert states[remote["id"]]["scheduler_state"] == "RUNNING"
+    assert states[denied["id"]]["scheduler_state"] == "UNKNOWN"
+    assert states[denied["id"]]["observation_error"]
+    assert [command[0] for command in calls] == ["squeue", "sacct", "ssh"]
+    assert calls[-1][-2:] == ("cluster-b", "squeue -h -j 101 -o '%i|%T'")
 
 
 async def test_shared_plan_revision_binding_and_folders(tmp_path):

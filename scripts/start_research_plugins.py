@@ -5,6 +5,7 @@
 data_directory = "data/research-plugins"
 listen_port = 29841
 ssh_hosts = ""
+local_host = ""
 project_directory = "."
 
 import sys
@@ -24,6 +25,7 @@ def main() -> None:
         home,
         tuple(host.strip() for host in ssh_hosts.split(",") if host.strip()),
         ((root / project_directory).resolve(),),
+        local_host=local_host,
     )
     uvicorn.run(app, host="127.0.0.1", port=listen_port)
 

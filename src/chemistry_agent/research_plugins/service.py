@@ -58,9 +58,14 @@ class WorkspaceOpen(Scope):
 
 class ResearchService:
     def __init__(
-        self, home: Path, ssh_hosts: tuple[str, ...] = (), project_roots: tuple[Path, ...] = ()
+        self,
+        home: Path,
+        ssh_hosts: tuple[str, ...] = (),
+        project_roots: tuple[Path, ...] = (),
+        local_host: str = "",
     ) -> None:
         self.home, self.ssh_hosts = home, ssh_hosts
+        self.local_host = local_host
         self.project_roots = tuple(path.resolve() for path in project_roots)
         self.ledger = MonitorLedger(home / "monitor.sqlite3")
         # Explicit isolation: never load the application's .env, agents, or production paths.
@@ -186,8 +191,12 @@ class ResearchService:
         return plan
 
     async def register_job(self, args: JobRegister) -> dict:
-        if args.backend == "slurm" and args.host not in self.ssh_hosts:
-            raise ValueError("请先在服务配置的 ssh_hosts 中启用此主机")
+        if (
+            args.backend == "slurm"
+            and args.host not in self.ssh_hosts
+            and args.host != self.local_host
+        ):
+            raise ValueError("请先在服务配置的 local_host 或 ssh_hosts 中启用此主机")
         if args.plan_id:
             self.binding(str(args.workspace_id), str(args.plan_id), args.node_id)
         return self.ledger.register(args)

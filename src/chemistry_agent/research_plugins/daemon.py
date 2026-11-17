@@ -20,7 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def create_app(
-    home: Path, ssh_hosts: tuple[str, ...] = (), project_roots: tuple[Path, ...] = ()
+    home: Path,
+    ssh_hosts: tuple[str, ...] = (),
+    project_roots: tuple[Path, ...] = (),
+    local_host: str = "",
 ) -> FastAPI:
     home = home.expanduser().resolve()
     if "archive" in home.parts:
@@ -36,7 +39,7 @@ def create_app(
     token = token_path.read_text().strip()
     if len(token) < 32:
         raise ValueError("监控服务 access-token 无效")
-    service = ResearchService(home, ssh_hosts, project_roots)
+    service = ResearchService(home, ssh_hosts, project_roots, local_host)
 
     async def simulations() -> None:
         while True:
@@ -45,7 +48,7 @@ def create_app(
 
     async def slurm() -> None:
         while True:
-            await observe_slurm(service.ledger, ssh_hosts)
+            await observe_slurm(service.ledger, ssh_hosts, local_host)
             await asyncio.sleep(15)
 
     @asynccontextmanager
@@ -80,6 +83,7 @@ def create_app(
             "delivery": "pull",
             "model_runtime": False,
             "ssh_hosts": list(ssh_hosts),
+            "local_host": local_host,
         }
 
     @app.get("/catalog/{surface}")
