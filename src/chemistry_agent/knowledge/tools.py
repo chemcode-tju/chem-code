@@ -14,7 +14,7 @@ class SkillMaterialize(BaseModel):
     skill: str
 
 
-def knowledge_tools(get_service) -> list[Tool]:
+def knowledge_tools(get_service, workspace_for_session=None) -> list[Tool]:
     async def scope(context):
         service = get_service()
         async with service.store.lock:
@@ -42,11 +42,25 @@ def knowledge_tools(get_service) -> list[Tool]:
         return await asyncio.to_thread(get_service().plugins.read, args)
 
     async def materialize(args: SkillMaterialize, context: ToolContext) -> dict:
+        from chemistry_agent.hosting.native import current_native
+
         service = get_service()
         await scope(context)
-        return await asyncio.to_thread(
-            service.plugins.materialize, args.skill, service.workspaces / context.session_id
+        remote = current_native.get()
+        if remote and remote.session == context.session_id:
+            package, source = await asyncio.to_thread(service.plugins.locate, args.skill)
+            directory = await remote.materialize_skill(args.skill, source)
+            return {
+                "directory": directory,
+                "revision": package["revision"],
+                "host": remote.config.host_id,
+            }
+        workspace = (
+            await workspace_for_session(context.session_id)
+            if workspace_for_session
+            else service.workspaces / context.session_id
         )
+        return await asyncio.to_thread(service.plugins.materialize, args.skill, workspace)
 
     return [
         Tool(

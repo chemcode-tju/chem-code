@@ -98,7 +98,12 @@ def create_app(
     extras.append(QUESTION_TOOL)
     extras.extend(workspace_tools(lambda: app.state.workspace_files))
     if settings.research_memory_enabled and not settings.auth_enabled:
-        extras.extend(knowledge_tools(lambda: app.state.knowledge))
+        extras.extend(
+            knowledge_tools(
+                lambda: app.state.knowledge,
+                lambda session: app.state.agent_backends.workspace_directory(session),
+            )
+        )
     if settings.research_memory_enabled:
         extras.extend(memory_tools(lambda: app.state.store))
     if settings.web_search_enabled:
@@ -174,8 +179,14 @@ def create_app(
                         )
                         + (MEMORY_PROMPT if settings.research_memory_enabled else ""),
                     )
+                    from chemistry_agent.hosting.registry import Hosting
+
+                    app.state.agent_backends.hosting = Hosting(
+                        settings.platform_path, settings.allowed_ssh_hosts
+                    )
                     await app.state.agent_backends.initialize()
                     app.state.agent_backends.workspace_files = app.state.workspace_files
+                    app.state.workspace_files.sync_remote = app.state.agent_backends.sync_workspace
                     app.state.context_manager = context_manager
                     app.state.chat_queue = ChatQueue(store, chat, provider)
                     # Historical event records remain available; no legacy daemon is started.
@@ -216,6 +227,9 @@ def create_app(
     app.include_router(titles_router)
     app.include_router(attachments_router)
     app.include_router(workspace_router)
+    from chemistry_agent.hosting.routes import router as hosting_router
+
+    app.include_router(hosting_router)
     app.include_router(structures_router)
 
     app.state.settings = settings

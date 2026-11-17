@@ -1,4 +1,5 @@
 import { createAgentSettings } from "./agent-settings.mjs";
+import { createHostingSettings } from "./hosting-settings.mjs";
 import { t, getLanguage, setLanguage, translateUI } from "./i18n.mjs";
 import { fillModelOptions } from "./models.mjs";
 import { createComputeSettings } from "./compute-settings.mjs";
@@ -259,6 +260,7 @@ $("settings-logout").addEventListener("click", () => action(async () => {
 
 const computeSettings = createComputeSettings(selectTab,api);
 const agentSettings = createAgentSettings(api,{saveBuiltin:save});
+const hostingSettings = createHostingSettings(api,selectTab);
 const knowledgeSettings = createKnowledgeSettings(api);
 const environmentSettings = createEnvironmentSettings(api);
 createMcpSettings(api);
@@ -279,6 +281,7 @@ function showSettingsPanel() {
   void knowledgeSettings.activate(selected);
   void environmentSettings.activate(selected);
   if (selected === "agent") void agentSettings.load();
+  if (selected === "agent") void hostingSettings.load().catch(error=>notice(error.message,true));
   if (selected === "agent" && !modelLoaded) {
     modelLoaded = true;
     action(async () => {

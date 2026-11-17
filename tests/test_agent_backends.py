@@ -203,7 +203,8 @@ def test_session_choice_reaches_codex_and_survives_reload(
         }
         response = client.put(f"/api/agents/sessions/{session}", json=choice)
         assert response.status_code == 200, response.text
-        assert response.json() == choice
+        assert {key: response.json()[key] for key in choice} == choice
+        assert response.json()["host_id"] == "local"
         assert (
             client.post("/chat", json={"session_id": session, "message": "甲醇"}).status_code == 200
         )

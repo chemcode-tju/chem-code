@@ -210,6 +210,7 @@ function updateControls() {
     (external ? !view || view.disabled : !state.health?.model_configured);
   $("agent-picker").disabled = Boolean(locked || state.metadataLoading);
   $("permission-picker").disabled = Boolean(locked || state.metadataLoading);
+  for (const id of ['host-picker','folder-picker','monitor-picker']) $(id).disabled = Boolean(locked || state.metadataLoading);
   $("message-input").disabled = state.loading;
   $("send-button").disabled = locked || state.metadataLoading || uploads.uploading || !state.health?.model_configured;
   $("composer-add").disabled = locked || uploads.uploading;

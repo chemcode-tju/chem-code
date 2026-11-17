@@ -121,5 +121,5 @@ export function createCascadeMenu(anchor) {
     if (compact !== compactLayout()) draw(menu.contains(document.activeElement)); else place();
   });
   window.addEventListener('scroll', place, true);
-  return {open, close, column, isColumnOpen:(depth, title) => !menu.hidden && columns[depth]?.title === title, get visible() { return !menu.hidden; }};
+  return {open, close, column, reposition:place, isColumnOpen:(depth, title) => !menu.hidden && columns[depth]?.title === title, get visible() { return !menu.hidden; }};
 }

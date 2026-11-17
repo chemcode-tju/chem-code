@@ -285,8 +285,13 @@ class NativeContext:
         backend, thread = binding["backend"], binding["external_thread_id"]
         status = "completed"
         try:
+            from chemistry_agent.backends.service import BackendSettings
+            from chemistry_agent.hosting.native import native_scope
+
+            config = BackendSettings.model_validate_json(binding["config"])
             async with asyncio.timeout(600):
-                await self.router.adapters[backend].context_operation(session, binding, kind)
+                async with native_scope(self.router, config, session, backend):
+                    await self.router.adapters[backend].context_operation(session, binding, kind)
         except BaseException as exc:
             # An interrupted native request is never silently replayed.
             status = (

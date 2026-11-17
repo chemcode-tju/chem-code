@@ -1,5 +1,13 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "此计算机":"This computer", "文件夹":"Folder", "作业监控":"Job monitor",
+  "选择服务器":"Choose server", "选择文件夹":"Choose folder", "选择作业监控位置":"Choose monitor location",
+  "对话运行位置":"Conversation locations", "不设置文件夹":"No folder",
+  "目录路径":"Folder path", "打开目录":"Open folder", "子文件夹":"Subfolders", "上一级":"Parent folder",
+  "使用此文件夹":"Use this folder", "开始对话时创建此文件夹":"Create this folder when the conversation starts",
+  "目录较多，可直接填写完整路径":"More folders available; enter a full path",
+  "管理服务器…":"Manage servers…", "暂无监控作业":"No monitored jobs",
+  "自动 · 跟随 Agent 主机":"Automatic · Agent host",
   "通用":"General", "智能体与知识":"Agents & knowledge", "计算与运行环境":"Compute & runtime",
   "运行概览":"Runtime overview", "服务器与环境":"Servers & environments", "托管 Agent 运行于":"Hosted Agents run on",
   "新对话默认":"Default for new chats", "未保存":"Unsaved", "未配置":"Not configured", "配置已保存，并设为新对话默认":"Saved and set as default for new chats",
@@ -256,7 +264,7 @@ const messages = {
   "在本机":"In your local",
   "中添加主机后，重新读取并选择。":"add a host, then reload and select it.",
   "执行记录":"Execution record", "当前记录":"Current record", "计算更新":"Calculation update",
-  "生成文件":"Generated files", "收起":"Collapse", "需处理":"Needs attention",
+  "生成文件":"Generated files", "相关文件":"Related files", "收起":"Collapse", "需处理":"Needs attention",
   "进行与等待":"In progress and waiting", "其他状态":"Other states", "更新记录":"Update history",
   "上游受阻":"Upstream blocked", "待核对":"Needs review", "提交被拒绝":"Submission rejected",
   "已提交":"Submitted", "已取消":"Cancelled", "记录":"Record",

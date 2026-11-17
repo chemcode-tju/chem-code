@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/assets/settings.css">
   <link rel="stylesheet" href="/assets/compute-settings.css">
   <link rel="stylesheet" href="/assets/knowledge-settings.css">
+  <link rel="stylesheet" href="/assets/hosting-settings.css">
   <script type="module" src="/assets/settings.mjs"></script>
 <link rel="stylesheet" href="/assets/choices.css">
   <script type="module" src="/assets/choices.mjs"></script>
@@ -36,10 +37,11 @@
     <section class="settings-panel" id="appearance" data-panel="appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden><h2>外观</h2><h3 id="mode-label">显示模式</h3><div class="theme-options" role="group" aria-labelledby="mode-label"><button type="button" data-mode="system" aria-pressed="false"><span class="theme-mini theme-system" aria-hidden="true"><i></i><b></b></span><span>跟随系统</span></button><button type="button" data-mode="light" aria-pressed="false"><span class="theme-mini theme-light" aria-hidden="true"><i></i><b></b></span><span>白色</span></button><button type="button" data-mode="dark" aria-pressed="false"><span class="theme-mini theme-dark" aria-hidden="true"><i></i><b></b></span><span>深夜</span></button></div><div class="setting-row"><label for="chat-font-size">对话字号</label><select id="chat-font-size"><option value="14">14 px</option><option value="16">16 px</option><option value="18">18 px</option><option value="20">20 px</option></select></div><p id="appearance-notice" class="hint" role="status"></p></section>
     <section id="agent-settings" class="settings-panel" data-panel="agent" role="tabpanel" aria-labelledby="tab-agent" hidden>
       <h2>Agent 与模型</h2>
-      <div class="runtime-location"><span>托管 Agent 运行于</span><strong id="agent-runtime-host" data-no-i18n></strong></div>
-      <div class="agent-service-list">
+      <div class="hosting-toolbar"><label for="agent-host">运行主机</label><select id="agent-host" data-no-i18n></select><button type="button" id="host-discover" class="secondary">检测 Agent</button><button type="button" id="host-add-agent" class="secondary">添加 Agent</button><a href="#servers">添加主机</a></div>
+      <span id="agent-runtime-host" hidden></span>
+      <div class="agent-service-list" id="local-agent-services">
       <details class="agent-row" id="chem-agent-settings">
-        <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-flask"/></svg><span class="agent-identity"><strong>Chem Agent</strong><span class="agent-model" data-model-for="builtin">正在读取…</span></span><span class="agent-default" data-default-for="builtin" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-flask"/></svg><span class="agent-identity"><strong>Chem Agent</strong><span class="agent-model" data-model-for="builtin">正在读取…</span></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <form id="model-form" class="agent-fields">
       <label for="provider">登录方式</label>
       <select id="provider">
@@ -88,30 +90,42 @@
         <button id="builtin-save" type="submit">保存</button>
       </div>
         </form>
-        <div class="agent-card-actions builtin-actions"><label class="backend-default"><input type="radio" name="default-backend" value="builtin" data-default-choice="builtin">新对话默认</label><span class="unsaved-state" data-dirty-for="builtin" role="status" hidden>未保存</span></div>
+        <div class="agent-card-actions builtin-actions"><span class="unsaved-state" data-dirty-for="builtin" role="status" hidden>未保存</span></div>
       </details>
       <details class="agent-row" id="codex-settings">
-        <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span class="agent-identity"><strong>Codex</strong><span class="agent-model" data-model-for="codex">正在读取…</span></span><span class="agent-default" data-default-for="codex" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span class="agent-identity"><strong>Codex</strong><span class="agent-model" data-model-for="codex">正在读取…</span></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="codex-executable">程序路径</label><input id="codex-executable" value="codex" autocomplete="off" spellcheck="false">
           <label for="codex-model">默认模型</label><select id="codex-model"><option value="">跟随 Codex</option></select>
-          <label for="codex-effort">推理强度</label><select id="codex-effort"><option value="">跟随模型</option></select><div class="agent-probe-row"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button id="codex-probe" type="button" class="secondary">检测连接</button></div><div class="agent-card-actions"><label class="backend-default"><input type="radio" name="default-backend" value="codex" data-default-choice="codex">新对话默认</label><span class="unsaved-state" data-dirty-for="codex" role="status" hidden>未保存</span><button id="codex-save" type="button">保存</button></div>
+          <label for="codex-effort">推理强度</label><select id="codex-effort"><option value="">跟随模型</option></select><div class="agent-probe-row"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button id="codex-probe" type="button" class="secondary">检测连接</button></div><div class="agent-card-actions"><span class="unsaved-state" data-dirty-for="codex" role="status" hidden>未保存</span><button id="codex-save" type="button">保存</button></div>
         </div>
       </details>
       <details class="agent-row" id="antigravity-settings">
-        <summary><img class="agent-logo" src="/assets/antigravity.svg" alt=""><span class="agent-identity"><strong>Antigravity</strong><span class="agent-model" data-model-for="antigravity">正在读取…</span></span><span class="agent-default" data-default-for="antigravity" hidden></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <summary><img class="agent-logo" src="/assets/antigravity.svg" alt=""><span class="agent-identity"><strong>Antigravity</strong><span class="agent-model" data-model-for="antigravity">正在读取…</span></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="antigravity-executable">程序路径</label><input id="antigravity-executable" value="agy" autocomplete="off" spellcheck="false">
           <label for="antigravity-model">默认模型</label><select id="antigravity-model"><option value="">跟随 Antigravity</option></select>
-          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort"><option value="">跟随模型</option></select><div class="agent-probe-row"><span class="agent-connection-state" data-connection-for="antigravity">尚未检测</span><button id="antigravity-probe" type="button" class="secondary">检测连接</button></div><div class="agent-card-actions"><label class="backend-default"><input type="radio" name="default-backend" value="antigravity" data-default-choice="antigravity">新对话默认</label><span class="unsaved-state" data-dirty-for="antigravity" role="status" hidden>未保存</span><button id="antigravity-save" type="button">保存</button></div>
+          <label for="antigravity-effort">推理强度</label><select id="antigravity-effort"><option value="">跟随模型</option></select><div class="agent-probe-row"><span class="agent-connection-state" data-connection-for="antigravity">尚未检测</span><button id="antigravity-probe" type="button" class="secondary">检测连接</button></div><div class="agent-card-actions"><span class="unsaved-state" data-dirty-for="antigravity" role="status" hidden>未保存</span><button id="antigravity-save" type="button">保存</button></div>
         </div>
       </details>
       </div>
+      <div id="host-agent-list" class="agent-service-list"></div>
+      <form id="instance-form" class="agent-fields hosting-form" hidden>
+        <h3 id="instance-title">添加 Agent</h3>
+        <label for="instance-name">名称</label><input id="instance-name" required maxlength="160">
+        <label for="instance-backend">Agent 类型</label><select id="instance-backend"><option value="codex">Codex</option><option value="antigravity">Antigravity</option></select>
+        <label for="instance-executable">程序路径</label><input id="instance-executable" required value="codex" spellcheck="false">
+        <label for="instance-model">默认模型</label><input id="instance-model" list="instance-models" placeholder="跟随 Agent"><datalist id="instance-models"></datalist>
+        <label for="instance-effort">推理强度</label><input id="instance-effort" list="instance-efforts" placeholder="跟随模型"><datalist id="instance-efforts"></datalist>
+        <label class="checkbox"><input id="instance-enabled" type="checkbox" checked>启用 Agent</label>
+        <div class="actions"><button type="submit">保存</button><button id="instance-probe" type="button" class="secondary">保存并读取模型</button><button id="instance-cancel" type="button" class="secondary">取消</button></div>
+      </form>
+      <p id="hosting-notice" role="status" aria-live="polite"></p>
       <p id="agent-notice" role="status" aria-live="polite"></p>
     </section>
     <section class="settings-panel compute-panel" id="automation" data-panel="automation" role="tabpanel" aria-labelledby="tab-automation" hidden>
       <h2>运行概览</h2>
-      <article class="runtime-summary"><div class="runtime-location"><span>平台与监控运行于</span><strong id="runtime-host" data-no-i18n></strong></div><p id="runtime-monitor" role="status"></p><p class="runtime-lifecycle">关闭网页不影响监控；平台主机需保持在线。</p><details><summary>关闭主机的影响</summary><p>平台主机关机后，轮询和自动唤醒会暂停；已提交的集群作业继续运行。浏览器通过 SSH 隧道访问时，地址不能用于判断平台是否在当前电脑上。</p></details></article>
+      <article class="runtime-summary"><div class="runtime-location"><span>平台与会话调度运行于</span><strong id="runtime-host" data-no-i18n></strong></div><p id="runtime-monitor" role="status"></p><p class="runtime-lifecycle">关闭网页不影响监控与自动唤醒。</p><details><summary>关闭主机的影响</summary><p>平台主机关机后，远端监控继续记录作业状态，本机监控和自动唤醒暂停。平台恢复后接收结果并继续原对话。已提交的集群作业不受影响。</p></details></article>
       <ol id="compute-steps" class="setup-list"></ol>
       <aside class="agent-setup"><a href="/?setup=compute" target="_top">在对话中配置</a></aside>
     </section>

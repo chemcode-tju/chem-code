@@ -96,6 +96,12 @@ class ManagedTransport:
 
     async def __aenter__(self):
         try:
+            from chemistry_agent.hosting.native import current_native
+
+            self.remote_native = current_native.get()
+            if self.remote_native:
+                # The remote bootstrap owns the private home and kernel writer lease.
+                return await self.start()
             if self.runtime_home:
                 self.lease = SessionLease(self.runtime_home, self.runtime_backend)
                 self.lease.acquire()
@@ -113,6 +119,9 @@ class ManagedTransport:
             raise
 
     async def spawn(self, *arguments: str, **kwargs) -> None:
+        if getattr(self, "remote_native", None):
+            self.process = await self.remote_native.start(arguments)
+            return
         self.process = await asyncio.create_subprocess_exec(
             *arguments,
             stdin=asyncio.subprocess.PIPE,
@@ -127,6 +136,19 @@ class ManagedTransport:
             self.lease.record(self.process.pid)
 
     async def _close(self) -> None:
+        if getattr(self, "remote_native", None):
+            if self.process:
+                self.process.stdin.write_eof()
+                try:
+                    async with asyncio.timeout(6):
+                        await self.process.wait_closed()
+                except TimeoutError:
+                    self.process.close()
+            if self.reader:
+                self.reader.cancel()
+                with suppress(asyncio.CancelledError):
+                    await self.reader
+            return
         # Also clean descendants when the group leader has already exited.
         if self.process:
             with suppress(ProcessLookupError):

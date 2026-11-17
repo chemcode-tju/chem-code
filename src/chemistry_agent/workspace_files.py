@@ -66,6 +66,9 @@ class WorkspaceFiles:
     def __init__(self, store, root: Path) -> None:
         self.store, self.root = store, root.resolve()
         self.lock = asyncio.Lock()
+        self.locations: dict[str, Path] = {}
+        self.origins: dict[str, tuple[str, Path]] = {}
+        self.sync_remote = None
 
     async def initialize(self) -> None:
         async with self.store.transaction():
@@ -78,9 +81,32 @@ class WorkspaceFiles:
                     UNIQUE(session_id,path,sha256)
                 )
             """)
+            await self.store.db.execute("""
+                CREATE TABLE IF NOT EXISTS workspace_sources (
+                    file_id TEXT NOT NULL REFERENCES attachments(id),
+                    host TEXT NOT NULL, path TEXT NOT NULL,
+                    PRIMARY KEY(file_id,host,path)
+                )
+            """)
+
+            await self.store.db.execute("""
+                CREATE TABLE IF NOT EXISTS workspace_output_exclusions (
+                    file_id TEXT PRIMARY KEY, reason TEXT NOT NULL
+                )
+            """)
+
+    async def register_source(self, session: str, file_id: str, relative: str) -> None:
+        await self.store.db.execute(
+            "DELETE FROM workspace_output_exclusions WHERE file_id=?", (file_id,)
+        )
+        host, directory = self.origins.get(session, ("local", self.workspace(session)))
+        await self.store.db.execute(
+            "INSERT OR IGNORE INTO workspace_sources VALUES(?,?,?)",
+            (file_id, host, str(directory / relative)),
+        )
 
     def workspace(self, session: str) -> Path:
-        return self.root / str(UUID(session))
+        return self.locations.get(session, self.root / str(UUID(session)))
 
     def source(self, session: str, name: str) -> Path:
         root = self.workspace(session)
@@ -100,7 +126,7 @@ class WorkspaceFiles:
             if root.is_symlink() or any(
                 parent.is_symlink()
                 for parent in [path, *path.parents]
-                if parent != self.root and self.root in parent.parents
+                if parent == root or root in parent.parents
             ):
                 raise ValueError
             path.resolve().relative_to(root.resolve())
@@ -162,6 +188,8 @@ class WorkspaceFiles:
         return digest.hexdigest(), size, text_preview(prefix), after.st_mtime_ns
 
     async def publish(self, session: str, paths: list[str], run_id: str | None = None) -> dict:
+        if self.sync_remote:
+            paths = await self.sync_remote(session, paths)
         async with self.lock:
             async with self.store.lock:
                 owner = await self.store._one(
@@ -169,7 +197,11 @@ class WorkspaceFiles:
                 )
             if owner is None:
                 raise AgentError("session_not_found", "对话不存在。", 404)
-            names = paths or await asyncio.to_thread(self.candidates, session)
+            names = (
+                paths
+                if self.sync_remote
+                else (paths or await asyncio.to_thread(self.candidates, session))
+            )
             errors = []
             for name in dict.fromkeys(names):
                 file_id = str(uuid4())
@@ -185,6 +217,8 @@ class WorkspaceFiles:
                             (session, relative, metadata.st_size, metadata.st_mtime_ns),
                         )
                     if cached:
+                        async with self.store.transaction():
+                            await self.register_source(session, cached["file_id"], relative)
                         continue
                     digest, size, excerpt, modified = await asyncio.to_thread(
                         self.snapshot, source, target
@@ -196,6 +230,7 @@ class WorkspaceFiles:
                             (session, relative, digest),
                         )
                         if existing:
+                            await self.register_source(session, existing["file_id"], relative)
                             await self.store.db.execute(
                                 "UPDATE workspace_outputs SET modified_ns=? WHERE file_id=?",
                                 (modified, existing["file_id"]),
@@ -224,6 +259,7 @@ class WorkspaceFiles:
                             "INSERT INTO workspace_outputs VALUES(?,?,?,?,?,?,?)",
                             (file_id, session, producing_run, relative, digest, size, modified),
                         )
+                        await self.register_source(session, file_id, relative)
                 except (AgentError, OSError) as exc:
                     target.unlink(missing_ok=True)
                     errors.append({"path": name, "message": str(exc)})
@@ -239,17 +275,30 @@ class WorkspaceFiles:
                 "SELECT w.*,a.name,a.excerpt IS NOT NULL AS text_available "
                 "FROM workspace_outputs w "
                 "JOIN attachments a ON a.id=w.file_id WHERE w.session_id=? "
+                "AND NOT EXISTS (SELECT 1 FROM workspace_output_exclusions e "
+                "WHERE e.file_id=w.file_id) "
                 "ORDER BY w.modified_ns,w.rowid",
                 (session,),
             ) as cursor:
                 rows = await cursor.fetchall()
+            async with self.store.db.execute(
+                "SELECT s.* FROM workspace_sources s JOIN workspace_outputs w "
+                "ON w.file_id=s.file_id WHERE w.session_id=? ORDER BY s.rowid",
+                (session,),
+            ) as cursor:
+                sources = await cursor.fetchall()
+        origins = {}
+        for source in sources:
+            origins.setdefault(source["file_id"], []).append(dict(source))
         latest = {row["path"]: dict(row) for row in rows}
         return [
             {
                 **row,
                 "id": row["file_id"],
                 "download_url": f"/api/files/{row['file_id']}",
-                "source_path": str(self.workspace(session) / row["path"]),
+                "source_path": origins.get(row["file_id"], [{}])[-1].get("path")
+                or str(self.workspace(session) / row["path"]),
+                "sources": origins.get(row["file_id"], []),
             }
             for row in latest.values()
         ]
@@ -263,7 +312,8 @@ def workspace_tools(service) -> list[Tool]:
         Tool(
             "workspace_publish",
             "Publish session workspace files as immutable downloads and web previews. "
-            "paths=[] discovers outputs. Returns download_url and reusable file IDs.",
+            "Pass exact paths to publish new results or explicitly reuse existing files. "
+            "Empty paths never scan a shared research folder. Returns download_url and file IDs.",
             PublishFiles,
             publish,
             True,

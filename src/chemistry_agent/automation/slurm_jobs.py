@@ -78,6 +78,9 @@ class SlurmJobs:
         self.settings = chat.service.settings
         self.root = self.settings.platform_path
         self.locks: dict[str, asyncio.Lock] = {}
+        from chemistry_agent.hosting.monitor import MonitorPlacement
+
+        self.placement = MonitorPlacement(self)
 
     def hosts(self) -> list[str]:
         from chemistry_agent.environments.registry import Environments
@@ -282,7 +285,9 @@ class SlurmJobs:
             record = self.load(session, identifier)
             if record.get("terminal"):
                 return record
-            result = await self.remote(record, "status")
+            result = await self.placement.inspect(session, record)
+            if result is None:
+                result = await self.remote(record, "status")
             record.update(result, checked_at=utc_now())
             if record["status"] == "quota_wait":
                 record.setdefault("quota_wait_since", utc_now())

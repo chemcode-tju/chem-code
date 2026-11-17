@@ -13,12 +13,12 @@ export function preferredStructures(files) {
 
 export function linkedWorkspaceFile(href, files, origin) {
   const local = localFilePath(href);
-  if (local !== null) return files.find(file => file.source_path === local);
+  if (local !== null) return files.find(file => file.source_path === local || file.sources?.some(source=>source.path===local));
   try {
     const url = new URL(href, origin);
     if (url.origin !== new URL(origin).origin) return undefined;
     const path = decodeURIComponent(url.pathname);
-    return files.find(file => file.source_path === path || file.download_url === path ||
+    return files.find(file => file.source_path === path || file.sources?.some(source=>source.path===path) || file.download_url === path ||
       (!href.startsWith('/') && !/^[a-z][\w+.-]*:/i.test(href) && file.path === decodeURIComponent(href).replace(/^\.\//, '')));
   } catch { return undefined; }
 }
@@ -30,7 +30,7 @@ export function createWorkspaceFiles({api, session, viewer, attach, changed, toa
   function group(items,key) {
     if(!items.length) return '';
     const open=expanded.has(key);
-    return `<section class="workspace-outputs" aria-label="生成文件"><header>${fileIcon('document')}<span>生成文件</span><span class="file-count">${items.length}</span></header><div class="workspace-output-list">${items.slice(0,open?items.length:3).map(fileRow).join('')}</div>${items.length>3?`<button type="button" class="workspace-files-toggle" data-files-toggle="${esc(key)}" aria-expanded="${open}">${open?'收起':`展开全部 ${items.length} 个文件`}${fileIcon('chevron')}</button>`:''}</section>`;
+    return `<section class="workspace-outputs" aria-label="相关文件"><header>${fileIcon('document')}<span>相关文件</span><span class="file-count">${items.length}</span></header><div class="workspace-output-list">${items.slice(0,open?items.length:3).map(fileRow).join('')}</div>${items.length>3?`<button type="button" class="workspace-files-toggle" data-files-toggle="${esc(key)}" aria-expanded="${open}">${open?'收起':`展开全部 ${items.length} 个文件`}${fileIcon('chevron')}</button>`:''}</section>`;
   }
   function replace(target,html) {
     if(rendered.get(target)===html)return;
@@ -50,7 +50,7 @@ export function createWorkspaceFiles({api, session, viewer, attach, changed, toa
     updateStructureCount();
     for(let link of document.querySelectorAll('.markdown a[href], .markdown [data-local-file-path]')) {
       const path=link.dataset.localFilePath;
-      const file=path !== undefined ? shown.find(file=>file.source_path===path) : linkedWorkspaceFile(link.getAttribute('href'),shown,location.origin);
+      const file=path !== undefined ? shown.find(file=>file.source_path===path || file.sources?.some(source=>source.path===path)) : linkedWorkspaceFile(link.getAttribute('href'),shown,location.origin);
       if(!file) continue;
       if(link.tagName !== 'A') {
         const anchor=document.createElement('a');
