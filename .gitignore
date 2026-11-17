@@ -24,4 +24,3 @@ plugins/*/server.py
 plugins/*/connection.json
 plugins/*/.mcp.json
 plugins/*/mcp.json
-plugins/*/.codex-plugin/

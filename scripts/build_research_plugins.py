@@ -69,6 +69,8 @@ def main() -> None:
         )
         for surface, package in (("monitor", "chem-job-monitor"), ("research", "chem-research")):
             target = root / "plugins" / package
+            if (target / "plugin.json").exists():
+                raise SystemExit(f"{package}: 根目录 plugin.json 会遮蔽已验证的 Codex 兼容清单")
             shutil.copyfile(source / "stdio.py", target / "server.py")
             connection = {
                 "url": backend_url,
@@ -80,25 +82,14 @@ def main() -> None:
                 "mcpServers": {package: {"command": "python3", "args": ["server.py"], "cwd": "."}}
             }
             (target / ".mcp.json").write_text(json.dumps(mcp, indent=2) + "\n")
-            mcp["$schema"] = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
-            mcp["mcpServers"][package]["type"] = "stdio"
-            (target / "mcp.json").write_text(json.dumps(mcp, indent=2) + "\n")
-            manifest = json.loads((target / "plugin.json").read_text())
-            legacy = {key: manifest[key] for key in ("name", "version", "description")}
-            legacy.update(
-                skills="./skills/",
-                mcpServers="./.mcp.json",
-                interface=manifest["extensions"]["com.openai"]["interface"],
-            )
-            (target / ".codex-plugin").mkdir(exist_ok=True)
-            (target / ".codex-plugin/plugin.json").write_text(
-                json.dumps(legacy, ensure_ascii=False, indent=2) + "\n"
-            )
+            # Codex 0.169.0 discovers this explicit compatibility manifest's MCP wiring.
+            # Do not emit a root plugin.json: it takes precedence and loses MCP discovery.
+            manifest = json.loads((target / ".codex-plugin/plugin.json").read_text())
             html = f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{legacy["interface"]["displayName"]}</title>
+<title>{manifest["interface"]["displayName"]}</title>
 <style>{css}</style></head><body data-surface="{surface}">{icons}
-<header><strong id="workspace-label">{legacy["interface"]["displayName"]}</strong>
+<header><strong id="workspace-label">{manifest["interface"]["displayName"]}</strong>
 <button id="refresh">刷新</button></header>
 <details id="connection" open><summary>工作空间</summary>
 <label for="workspace">工作空间 UUID</label><div class="connect-row">
