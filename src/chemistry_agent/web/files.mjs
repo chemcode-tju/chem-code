@@ -27,10 +27,12 @@ export function createFileUploads({ state, toast, updateControls, onChange, onUn
     trigger.setAttribute("aria-expanded", "false");
   }
   trigger.addEventListener("click", () => {
+    if (menu.hidden) document.dispatchEvent(new CustomEvent('chem:menu-open', {detail:trigger}));
     menu.hidden = !menu.hidden;
     trigger.setAttribute("aria-expanded", String(!menu.hidden));
     if (!menu.hidden) menu.querySelector("button").focus();
   });
+  document.addEventListener('chem:menu-open', event => { if (event.detail !== trigger) closeMenus(); });
   document.addEventListener("click", event => { if (!event.target.closest(".add-menu")) closeMenus(); });
   document.addEventListener("keydown", event => {
     if (event.key === "Escape" && !menu.hidden) { closeMenus(); trigger.focus(); }
@@ -41,7 +43,7 @@ export function createFileUploads({ state, toast, updateControls, onChange, onUn
   function render() {
     const files=active?.files || [], uploading=active?.loading;
     $("attachment-list").hidden = !files.length && !uploading;
-    $("attachment-list").innerHTML = files.map((file) => `<div class="attachment-chip"><a href="/api/files/${file.id}" download data-no-i18n>${escapeHtml(file.name)}</a>${fileViewer(file)}<small>${t(file.text_available ? "文本可读取" : "已上传，未解析")}</small><button type="button" data-remove-file="${file.id}" aria-label="${escapeHtml(t("移除附件"))}"${state.busy ? " disabled" : ""}><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></div>`).join("") + (uploading ? `<span class="upload-progress">${t("正在上传…")}</span>` : "");
+    $("attachment-list").innerHTML = files.map((file) => `<div class="attachment-chip"><a href="/api/files/${file.id}" download data-no-i18n>${escapeHtml(file.name)}</a>${fileViewer(file)}<button type="button" data-remove-file="${file.id}" aria-label="${escapeHtml(t("移除附件"))}"${state.busy ? " disabled" : ""}><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></div>`).join("") + (uploading ? `<span class="upload-progress">${t("正在上传…")}</span>` : "");
     updateControls(); onChange?.();
   }
   $("attachment-list").addEventListener("click", (event) => {

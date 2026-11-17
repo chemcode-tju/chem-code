@@ -81,6 +81,7 @@ function draw() {
 function open(select) {
   close();
   if (!select.options.length) return;
+  document.dispatchEvent(new CustomEvent('chem:menu-open', {detail:select}));
   select.focus({preventScroll:true});
   const observer = new MutationObserver(() => { if (current?.select === select) draw(); });
   const resize = new ResizeObserver(place);
@@ -163,3 +164,4 @@ document.addEventListener("focusin", event => {
   if (current && event.target !== current.select && !menu.contains(event.target)) close();
 });
 window.addEventListener("pagehide", close);
+document.addEventListener('chem:menu-open', event => { if (current && event.detail !== current.select) close(); });

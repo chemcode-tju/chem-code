@@ -1,4 +1,5 @@
 import { createCascadeMenu, effortLabel, permissionLabel } from './agent-menu.mjs';
+import {t} from './i18n.mjs';
 
 export function createChatModelPicker({api, state, toast, updateControls, refreshHealth}) {
   const $ = id => document.getElementById(id);
@@ -10,9 +11,12 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     const current = selection || {backend:state.health?.agent_backend || 'builtin', model:state.health?.model || '', effort:'', permission:'user'};
     const models = catalogs[current.backend]?.models || [];
     const model = models.find(item => item.id === current.model)?.name || current.model || models.find(item => item.default)?.name || names[current.backend];
-    $('agent-picker-label').textContent = `${model} · ${effortLabel(current.effort)}`;
-    picker.querySelector('.agent-logo use').setAttribute('href', `/assets/ui-icons.svg#${current.backend === 'antigravity' ? 'i-automation' : 'i-gpt'}`);
-    picker.title = `${names[current.backend]} · ${model} · ${effortLabel(current.effort)}`;
+    $('agent-picker-label').textContent = `${model}${current.effort ? " · " + t(effortLabel(current.effort)) : ""}`;
+    $('agent-picker-label').dataset.noI18n = '';
+    picker.querySelector('.agent-logo').outerHTML = current.backend === 'antigravity'
+      ? '<img class="icon agent-logo" src="/assets/antigravity.svg" alt="">'
+      : '<svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg>';
+    picker.title = `${names[current.backend]} · ${model} · ${t(effortLabel(current.effort))}`;
     $('permission-label').textContent = permissionLabel(current.permission);
     permission.title = current.backend !== 'builtin' ? `${names[current.backend]} 本机执行权限；平台工具沿用平台授权` : 'Chem Agent 工具执行权限';
     updateControls();
@@ -47,39 +51,65 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     }
     return catalogRequests.get(backend);
   }
-  function effortRows(backend, model) {
-    const next = {backend, model:model.id, permission:selection?.backend === backend ? selection.permission : backend !== 'builtin' ? 'user' : 'full'};
-    const values = ['', ...(model.efforts || []).filter(Boolean)];
-    menu.column(2, '推理强度', [...new Set(values)].map(effort => ({label:effortLabel(effort), selected:selection?.backend === backend && selection.model === model.id && selection.effort === effort, action:() => choose({...next, effort})})));
+  function currentModel() {
+    const rows = catalogs[selection?.backend]?.models || [];
+    return rows.find(model => model.id === selection?.model) || (!selection?.model ? rows.find(model => model.default) : null);
   }
-  function modelRow(backend, model) {
-    return {label:model.name || model.id, branch:Boolean(model.efforts?.length), selected:selection?.backend === backend && selection.model === model.id,
-      action:() => model.efforts?.length ? effortRows(backend, model) : choose({backend, model:model.id, effort:'', permission:selection?.backend === backend ? selection.permission : backend !== 'builtin' ? 'user' : 'full'})};
+  function overview() {
+    const model = currentModel();
+    menu.open('模型选择', [
+      {label:'Agent', value:names[selection.backend], valueNoTranslate:true, branch:true, action:agents},
+      {label:'模型', value:model?.name || selection.model || t('跟随默认模型'), valueNoTranslate:true, branch:true, action:models},
+      {label:'推理', value:t(effortLabel(selection.effort)), branch:true, action:efforts},
+    ]);
   }
-  async function models(backend, reload = false) {
-    const version = ++browsing;
-    menu.column(1, names[backend], [{message:'正在读取模型…'}]);
+  function agents() {
+    browsing++;
+    menu.column(1, 'Agent', Object.entries(names).map(([backend,name]) => ({label:name,noTranslate:true,
+      selected:selection.backend === backend, action:() => choose(backend === selection.backend ? selection :
+        {backend,model:'',effort:'',permission:backend === 'builtin' ? 'full' : 'user'})})));
+  }
+  async function efforts() {
+    const version = ++browsing, backend = selection.backend;
+    menu.column(1, '推理强度', [{message:'正在读取模型…'}]);
+    let error;
+    try {await catalog(backend);} catch (failure) {error=failure.message;}
+    if (version !== browsing || !menu.isColumnOpen(1, '推理强度')) return;
+    const model=currentModel(), values=[...new Set(['',...(model?.efforts || []).filter(Boolean)])];
+    const rows=values.map(effort=>({label:effortLabel(effort),selected:selection.effort === effort,
+      action:()=>choose({...selection,effort})}));
+    if(error) rows.push({message:error});
+    menu.column(1, '推理强度', rows);
+  }
+  function modelRow(model) {
+    return {label:model.name || model.id, noTranslate:true, searchText:[model.name,model.id].filter(Boolean).join(' '),
+      selected:selection.model === model.id, action:() => choose({...selection, model:model.id,
+        effort:model.efforts?.includes(selection.effort) ? selection.effort : ''})};
+  }
+  async function models(reload = false) {
+    const version = ++browsing, backend = selection.backend;
+    menu.column(1, '模型', [{message:'正在读取模型…'}]);
     let data, error;
     try { data = await catalog(backend, reload); } catch (failure) { error = failure.message; }
-    if (version !== browsing || !menu.visible) return;
-    const rows = (data?.models || []).map(model => modelRow(backend, model));
+    if (version !== browsing || !menu.isColumnOpen(1, '模型')) return;
+    const rows = (data?.models || []).map(modelRow);
     if (error) rows.push({message:error});
     if (data?.message && !data.authenticated && backend !== 'builtin') rows.push({message:data.message});
-    if (selection?.backend === backend && selection.model && !data?.models?.some(m => m.id === selection.model)) rows.unshift(modelRow(backend, {id:selection.model}));
-    rows.push({label:'跟随默认模型', action:() => choose({backend, model:'', effort:'', permission:backend !== 'builtin'?'user':'full'})});
-    rows.push({label:'刷新模型', action:() => models(backend, true)}, {label:'设置…', action:() => { menu.close(); $('model-status').click(); }});
+    if (selection.model && !data?.models?.some(m => m.id === selection.model)) rows.unshift(modelRow({id:selection.model}));
+    rows.push({label:'跟随默认模型', selected:!selection.model, action:() => choose({...selection,model:'',effort:''})});
+    rows.push({label:'刷新模型', action:() => models(true)}, {label:'设置…', action:() => { menu.close(); $('model-status').click(); }});
     const manual = backend === 'builtin' && data?.provider !== 'chatgpt' ? () => {
       const form = document.createElement('div'); form.className='menu-manual';
       const input = document.createElement('input'); input.placeholder='模型 ID'; input.maxLength=160; input.setAttribute('aria-label','模型 ID');
-      const apply = document.createElement('button'); apply.type='button'; apply.textContent='应用'; apply.onclick=() => { if(input.value.trim()) modelRow(backend,{id:input.value.trim()}).action(); };
+      const apply = document.createElement('button'); apply.type='button'; apply.textContent='应用'; apply.onclick=() => { if(input.value.trim()) modelRow({id:input.value.trim()}).action(); };
       input.onkeydown=event => { if(event.key==='Enter') {event.preventDefault();apply.click();} }; form.append(input, apply); return form;
     } : null;
-    menu.column(1, names[backend], rows, manual);
+    menu.column(1, '模型', rows, manual, t('搜索模型'));
   }
   picker.addEventListener('click', async () => {
     if (menu.visible) { menu.close(); return; }
     if (!selection) await defaults();
-    menu.open('Agent', Object.entries(names).map(([backend,name]) => ({label:name, branch:true, active:selection?.backend===backend, action:() => models(backend)})));
+    if (selection) overview();
   });
   permission.addEventListener('click', () => {
     if (permissions.visible) { permissions.close(); return; }

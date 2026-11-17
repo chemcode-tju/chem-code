@@ -6,6 +6,7 @@
   <title>科研记忆 · Chem Code</title>
   <link rel="icon" href="/assets/favicon.svg">
   <script src="/assets/theme.js"></script>
+  <script type="module" src="/assets/i18n.mjs"></script>
   <script src="/assets/vendor/markdown-it.min.js" defer></script>
   <link rel="stylesheet" href="/assets/vendor/katex/katex.min.css">
   <script src="/assets/vendor/katex/katex.min.js" defer></script>
@@ -14,50 +15,48 @@
   <link rel="stylesheet" href="/assets/memory.css">
   <link rel="stylesheet" href="/assets/choices.css">
   <script type="module" src="/assets/choices.mjs"></script>
+  <link rel="stylesheet" href="/assets/solid-glass.css">
 </head>
 <body>
   <aside class="memory-sidebar" aria-label="记忆导航">
     <a class="brand" href="/" aria-label="Chem Code 首页"><svg class="icon" viewBox="2 15 94 72" aria-hidden="true"><use href="/assets/favicon.svg#chem-code"/></svg><span>Chem Code</span></a>
     <nav><a id="workspace-link" href="/"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chat"/></svg>返回研究工作区</a>
-      <a href="/memory" aria-current="page"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg>科研记忆</a></nav>
+      <a href="/memory" aria-current="page"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-memory"/></svg>科研记忆</a></nav>
     <div class="source-controls">
-      <label for="project">研究项目</label><select id="project"><option value="">个人研究区</option></select>
-      <label for="session">来源对话（可选）</label><select id="session" aria-describedby="scope-hint"><option value="">不限定来源对话</option></select>
-      <label for="scope">检索范围</label><select id="scope" aria-describedby="scope-hint">
-        <option value="project">所选项目</option><option value="personal">我的全部记忆</option><option value="session">仅此对话</option>
+      <label for="scope">检索范围</label><select id="scope">
+        <option value="personal">全部记忆</option><option value="project">按项目</option><option value="session">按对话</option>
       </select>
-      <p id="scope-hint" class="hint"></p>
-      <button id="more-sessions" type="button" hidden>加载更多对话</button>
+      <div id="project-filter" hidden><label for="project">研究项目</label><select id="project"><option value="">个人研究区</option></select></div>
+      <div id="session-filter" hidden><label for="session">来源对话</label><select id="session"><option value="">选择对话</option></select><button id="more-sessions" type="button" hidden>加载更多对话</button></div>
     </div>
     <div class="sidebar-bottom"><button id="new-note" type="button"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-plus"/></svg>补充文档</button>
       <a href="/settings#appearance"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-settings"/></svg>外观与设置</a></div>
   </aside>
   <main class="memory-workspace">
-    <header class="page-header"><h1>科研记忆</h1><span>方案、计算记录与故障经验</span></header>
+    <header class="page-header"><h1>科研记忆</h1></header>
     <form id="search-form" class="search-bar">
-      <label class="search-field"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="sr-only">体系、任务或报错关键词</span><input id="query" type="search" placeholder="搜索体系、任务或报错，如 Cu(111)、BRMIX" maxlength="2000"></label>
+      <label class="search-field"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-find"/></svg><span class="sr-only">体系、任务或报错关键词</span><input id="query" type="search" placeholder="搜索体系、任务或报错，如 Cu(111)、BRMIX" maxlength="2000"></label>
       <label><span class="sr-only">文档类型</span><select id="kind"><option value="">全部类型</option><option value="plan">计算方案</option><option value="calculation">计算记录</option><option value="lesson">故障经验</option><option value="document">补充文档</option></select></label>
       <button class="primary" type="submit">检索</button>
     </form>
     <p id="status" role="status" aria-live="polite"></p>
     <div class="memory-columns">
       <section class="result-pane" aria-label="记忆检索结果"><div id="results"></div><button id="more-results" type="button" hidden>加载更多记录</button></section>
-      <section id="detail" aria-label="记忆详情"><div class="empty-state"><h2>让已有经验成为下一步的参考</h2><p>选择项目，或搜索体系与报错关键词。</p></div></section>
+      <section id="detail" aria-label="记忆详情"><div class="empty-state"><p>选择一条记忆查看详情</p></div></section>
     </div>
   </main>
   <dialog id="note-dialog" aria-labelledby="note-heading">
-    <header class="dialog-header"><h2 id="note-heading">补充文档</h2><button class="icon-button" type="button" data-close="note-dialog" aria-label="关闭补充文档">×</button></header>
+    <header class="dialog-header"><h2 id="note-heading">补充文档</h2><button class="icon-button" type="button" data-close="note-dialog" aria-label="关闭补充文档"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header>
     <p class="hint" id="note-destination"></p>
     <form id="save-form">
       <label>标题<input id="note-title" required maxlength="200"></label>
       <div class="field-pair"><label>体系标签<input id="note-systems" placeholder="Pt(111), CO, 显式水"></label><label>任务标签<input id="note-tasks" placeholder="吸附能，结构优化"></label></div>
       <label>正文与来源<textarea id="note-content" required rows="8" maxlength="100000"></textarea></label>
       <label>适用条件与局限<textarea id="note-applicability" rows="2" maxlength="4000"></textarea></label>
-      <p class="hint">补充文档标记为未核验；计算收敛证据由运行记录提供。</p>
       <p id="save-status" role="status"></p><button class="primary" id="save-note">保存文档</button>
     </form>
   </dialog>
-  <dialog id="versions-dialog" aria-labelledby="versions-heading"><header class="dialog-header"><h2 id="versions-heading">版本记录</h2><button class="icon-button" type="button" data-close="versions-dialog" aria-label="关闭版本记录">×</button></header><div id="versions-content"></div></dialog>
+  <dialog id="versions-dialog" aria-labelledby="versions-heading"><header class="dialog-header"><h2 id="versions-heading">版本记录</h2><button class="icon-button" type="button" data-close="versions-dialog" aria-label="关闭版本记录"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header><div id="versions-content"></div></dialog>
   <script type="module" src="/assets/memory.mjs"></script>
 </body>
 </html>

@@ -12,6 +12,11 @@ const StructureControls=(()=>{
     if(!indices.size)throw Error('请输入原子序号，或点击“填入当前选择”');
     return [...indices];
   }
+  function referenceIndex(value,count){
+    const frame=Number(value);
+    if(!Number.isInteger(frame)||frame<1||frame>count)throw Error('参考帧尚未加载或超出范围');
+    return frame-1;
+  }
   function timelineTicks(count,width,measure){
     if(count<1||width<=0)return [];
     const firstWidth=measure('1'),lastWidth=measure(String(count)),gap=12;
@@ -49,6 +54,6 @@ const StructureControls=(()=>{
     });
     for(const name of ['pointerup','pointercancel'])handle.addEventListener(name,()=>start=null);
   }
-  return {atomIndices,timelineTicks,draggable};
+  return {atomIndices,referenceIndex,timelineTicks,draggable};
 })();
 if(typeof module!=='undefined')module.exports=StructureControls;

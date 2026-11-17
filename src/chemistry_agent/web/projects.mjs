@@ -10,8 +10,7 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
   const expanded = new Set();
   let accountId = null;
   let revealedSession = null;
-  const folderIcon = '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg>';
-  const chevron = '<svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>';
+  const folderIcon = '<svg class="icon project-folder-closed" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg><svg class="icon project-folder-open" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder-open"/></svg>';
   const currentProject = () => projects.find((p) => p.sessions.some((s) => s.id === state.sessionId))?.id || "";
   function render() {
     if (state.sessionId) selected = currentProject();
@@ -29,7 +28,12 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
     const label = $("draft-project-name");
     label.toggleAttribute("data-no-i18n", Boolean(selected));
     label.textContent = picker.selectedOptions[0]?.textContent || t("个人工作空间");
-    $("project-list").innerHTML = projects.map((project) => `<details class="project-folder" data-project="${project.id}"${expanded.has(project.id) ? " open" : ""}><summary>${folderIcon}<span title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</span><small>${project.sessions.length}</small>${chevron}</summary><div class="project-children">${project.sessions.map(sessionButton).join("") || '<p class="sidebar-empty">暂无对话</p>'}<div class="project-actions"><button data-new-in="${project.id}"${state.busy || state.loading ? " disabled" : ""}><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-plus"/></svg> 新对话</button><button data-edit-project="${project.id}">管理项目</button></div></div></details>`).join("") || '<p class="sidebar-empty">暂无项目</p>';
+    $("project-list").innerHTML = projects.map((project) => {
+      const id=escapeHtml(project.id), name=escapeHtml(project.name);
+      // Actions sit beside details, not inside summary: they stay reachable when
+      // collapsed and do not also toggle the folder's disclosure state.
+      return `<div class="project-group"><details class="project-folder" data-project="${id}"${expanded.has(project.id) ? " open" : ""}><summary>${folderIcon}<span data-no-i18n title="${name}">${name}</span></summary><div class="project-children">${project.sessions.map(sessionButton).join("") || '<p class="sidebar-empty">暂无对话</p>'}</div></details><div class="project-row-actions"><button type="button" data-edit-project="${id}" aria-label="${t('管理项目')}" title="${t('管理项目')}"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-more-vertical"/></svg></button><button type="button" data-new-in="${id}" aria-label="${t('新对话')}" title="${t('新对话')}"${state.busy || state.loading ? " disabled" : ""}><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-plus"/></svg></button></div></div>`;
+    }).join("");
 
   }
   function reset() {
@@ -48,7 +52,6 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
     $("project-dialog-title").textContent = id ? "管理项目" : "新建项目";
     $("project-name").value = projects.find((p) => p.id === id)?.name || "";
     $("delete-project").hidden = !id;
-    $("project-hint").hidden = !id;
     $("project-error").textContent = "";
     $("project-dialog").showModal();
     $("project-name").focus();
@@ -84,11 +87,14 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
       expanded.add(project.id);
     });
   });
-  $("delete-project").addEventListener("click", () => mutate(async () => {
+  $("delete-project").addEventListener("click", () => {
+    if (!confirm(t("删除文件夹会保留所有对话，并将它们移回聊天列表。"))) return;
+    mutate(async () => {
     await api(`/api/projects/${editing}`, { method: "DELETE" });
     if (selected === editing) selected = "";
     toast("已删除文件夹，对话保留在聊天列表。");
-  }));
+    });
+  });
   $("project-list").addEventListener("toggle", (event) => {
     if (!event.target.isConnected) return;
     const id = event.target.dataset.project;

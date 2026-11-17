@@ -14,6 +14,8 @@ export function initInspectorTabs(setVisible) {
   const tablist = document.querySelector(".inspector-tabs");
   const launcher = document.getElementById("inspector-launcher");
   for (const [name, tab] of tabs) {
+    tab.title = tab.textContent.trim();
+    tab.setAttribute("aria-label", tab.textContent.trim());
     const choice = document.createElement("button");
     choice.type = "button";
     choice.dataset.launchTab = name;
@@ -25,6 +27,7 @@ export function initInspectorTabs(setVisible) {
   function render() {
     launcher.hidden = opened.length > 0;
     tablist.hidden = opened.length === 0;
+    tablist.dataset.count = String(opened.length);
     for (const name of opened) tablist.append(tabs.get(name).closest(".dock-tab"));
     for (const [name, tab] of tabs) {
       const selected = active === name, chip = tab.closest(".dock-tab");
@@ -39,8 +42,8 @@ export function initInspectorTabs(setVisible) {
     document.getElementById("dock-count").textContent = String(opened.length);
     const toggle = document.getElementById("tools-toggle");
     toggle.title = document.documentElement.lang === "en"
-      ? `Expand research panel (${opened.length} ${opened.length === 1 ? "tab" : "tabs"})`
-      : `展开研究面板（${opened.length} 个标签页）`;
+      ? "Expand research panel"
+      : "展开研究面板";
     toggle.setAttribute("aria-label", toggle.title);
   }
 

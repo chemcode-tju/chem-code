@@ -73,11 +73,11 @@ export function workflowPlan(item,job,sessionPath='') {
   const heading = active<0 ? `共 ${groups.length} 步` : `进行到第 ${active+1} / ${groups.length} 步`;
   return `<div class="workflow-plan" aria-label="计算流程"><div class="plan-heading"><strong>执行方案</strong><small>${heading}</small></div>`+groups.map((steps,i)=>{
     const parallel = steps[0].parallel;
-    return '<div class="plan-group"'+(active===i?' aria-current="step"':'')+'><span class="plan-number">'+(i+1)+'</span><div class="plan-nodes">'+(parallel?'<small>并行 · 独立提交</small>':'')+steps.map(step=>{
+    return '<div class="plan-group"'+(active===i?' aria-current="step"':'')+'><span class="plan-number">'+(i+1)+'</span><div class="plan-nodes">'+(parallel?'<small>并行</small>':'')+steps.map(step=>{
       const {key,child,title,status,tone,rows} = describeStep(item,job,step);
       if (sessionPath) {
         const count = child?.results?.run_status?.last_iteration_index?.[0];
-        return `<button class="plan-entry" type="button" data-open-step="${esc(key)}" data-state="${tone}"><span>${esc(title)}</span><small>${esc(status)}<span data-ionic-step>${count ? ' · '+esc(String(count))+' 步' : ''}</span></small><span aria-hidden="true">›</span></button>`;
+        return `<button class="plan-entry" type="button" data-open-step="${esc(key)}" data-state="${tone}"><span>${esc(title)}</span><small>${esc(status)}<span data-ionic-step>${count ? ' · '+esc(String(count))+' 步' : ''}</span></small><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`;
       }
       return `<details data-fold="step-${esc(key)}" class="plan-step" data-state="${tone}"><summary><span>${esc(title)}</span><small>${status}</small></summary><dl>${rows.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>${!job?`<button type="button" data-revise-step="${esc(title)}">提出修改</button>`:''}</details>`;
     }).join('')+'</div></div>';

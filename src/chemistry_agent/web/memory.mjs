@@ -1,5 +1,6 @@
 import {createMarkdownRenderer, escapeHtml} from './core.mjs';
-import {documentBody, resultCard, scopeDescription} from './memory-view.mjs';
+import {documentBody, resultCard, memoryScope} from './memory-view.mjs';
+import {t} from './i18n.mjs';
 
 const $ = id => document.getElementById(id);
 const markdown = globalThis.markdownit ? createMarkdownRenderer(globalThis.markdownit) : {render:text=>`<pre>${escapeHtml(text)}</pre>`};
@@ -25,7 +26,9 @@ function syncLocation(context) {
   }
   history.replaceState(null, '', url);
   $('workspace-link').href = context.session ? `/?session=${encodeURIComponent(context.session)}` : '/' ;
-  $('scope-hint').textContent = scopeDescription(context.scope);
+  $('new-note').disabled = context.scope === 'session' && !context.session;
+  $('project-filter').hidden = context.scope !== 'project';
+  $('session-filter').hidden = context.scope !== 'session';
 }
 
 async function search(event, append = false) {
@@ -34,14 +37,14 @@ async function search(event, append = false) {
   if (!append) {
     detailGeneration++;
     offset = 0; selected = null;
-    searchContext = {session:$('session').value, project_id:$('project').value, scope:$('scope').value, query:$('query').value.trim(), kind:$('kind').value};
+    searchContext = {...memoryScope($('scope').value,$('session').value,$('project').value), query:$('query').value.trim(), kind:$('kind').value};
     syncLocation(searchContext);
     $('results').replaceChildren();
-    $('detail').innerHTML = '<div class="empty-state"><p>正在检索记忆…</p></div>';
+    $('detail').replaceChildren();
   }
   const context = {...searchContext};
   if (!context.session && context.scope === 'session') {
-    status('请先选择来源对话，或使用项目/全部记忆范围。', true); return;
+    status('请选择来源对话', true); return;
   }
   $('more-results').hidden = true;
   $('results').setAttribute('aria-busy', 'true');
@@ -63,13 +66,17 @@ async function search(event, append = false) {
     offset += result.items.length;
     $('more-results').hidden = !result.truncated;
     const count = $('results').querySelectorAll('button').length;
-    const scopeLabel = $('scope').selectedOptions[0].textContent;
-    status(`${scopeLabel} · ${result.truncated ? '已显示' : '找到'} ${count} 条记忆${result.truncated ? '，可继续加载' : ''}`);
+    const scopeLabel = {project:'所选项目',personal:'我的全部记忆',session:'仅此对话'}[context.scope];
+    status('');
+    $('status').innerHTML = `<span>${scopeLabel}</span> · <span>${result.truncated ? '已显示' : '找到'}</span> ${count} <span>条记忆</span>${result.truncated ? '<span>，可继续加载</span>' : ''}`;
     if (!count) {
-      const empty = document.createElement('p'); empty.className='empty-results';
-      empty.textContent = context.scope === 'session' ? '此对话暂无匹配记忆。可清空关键词，或扩大检索范围。' : '未找到匹配记忆。试试体系名称或更短的报错关键词。';
-      $('results').replaceChildren(empty);
-      $('detail').innerHTML='<div class="empty-state"><h2>没有匹配的记忆</h2><p>普通聊天不会自动成为科研文档；计算方案和计算记录会按来源对话沉淀。</p></div>';
+      status('没有匹配的记忆');
+      $('detail').replaceChildren();
+      if (context.scope !== 'personal') {
+        const expand = document.createElement('button'); expand.type = 'button'; expand.textContent = '搜索全部记忆';
+        expand.onclick = () => { $('scope').value = 'personal'; void search(); };
+        $('results').replaceChildren(expand);
+      }
     } else if (!append) {
       const first = result.items[0];
       await show(first.id, context.session, first.session_title);
@@ -93,12 +100,12 @@ async function show(identifier, session, sourceTitle) {
   try {
     const item = await api(path);
     if (request !== detailGeneration) return;
-    $('detail').innerHTML = documentBody(item, sourceTitle || sessions.get(item.session_id)?.title || '研究平台', markdown);
+    $('detail').innerHTML = documentBody(item, sourceTitle || sessions.get(item.session_id)?.title, markdown);
     $('detail').scrollTop = 0;
     $('detail').querySelector('[data-download]').href=`${path}/document.md`;
     $('detail').querySelector('[data-versions]').addEventListener('click',()=>versions(path));
     $('detail').querySelector('[data-forget]').addEventListener('click',async()=>{
-      if (!confirm('移除后不再自动召回，后台同步也不会重新加入。原始计算及历史版本仍保留。')) return;
+      if (!confirm(t('移出后不再自动召回，原始计算与历史版本仍保留。'))) return;
       try { await api(`${path}/forget`, {method:'POST', body:JSON.stringify({expected_version:item.version})}); await search(); }
       catch(error) { status(error.message,true); }
     });
@@ -120,7 +127,7 @@ async function versions(path) {
       block.addEventListener('toggle',async()=>{
         if (!block.open || block.dataset.loaded) return;
         block.dataset.loaded='true';
-        const text=document.createElement('pre'); text.textContent='正在读取…'; block.append(text);
+        const text=document.createElement('pre'); text.textContent=t('正在读取…'); block.append(text);
         try { const version=await api(`${path}/versions/${row.version}`); text.textContent=version.content; }
         catch(error) { text.textContent=error.message; }
       });
@@ -133,7 +140,7 @@ function addSessions(rows) {
   for (const session of rows) {
     if (sessions.has(session.id)) continue;
     sessions.set(session.id,session);
-    const option=document.createElement('option'); option.value=session.id; option.textContent=session.title;
+    const option=document.createElement('option'); option.value=session.id; option.textContent=session.title; option.dataset.noI18n='';
     $('session').append(option);
   }
 }
@@ -153,9 +160,11 @@ $('more-results').addEventListener('click',event=>search(event,true));
 $('more-sessions').addEventListener('click',()=>loadSessions().catch(error=>status(error.message,true)));
 for (const button of document.querySelectorAll('[data-close]')) button.addEventListener('click',()=>$(button.dataset.close).close());
 $('new-note').addEventListener('click',()=>{
-  noteSession=$('session').value;
-  noteProject=$('project').value;
-  $('note-destination').textContent=`保存到：${noteSession ? sessions.get(noteSession)?.title : $('project').selectedOptions[0].textContent}`;
+  const destinationScope=memoryScope($('scope').value,$('session').value,$('project').value);
+  noteSession=destinationScope.session;
+  noteProject=destinationScope.project_id;
+  const destination=noteSession ? sessions.get(noteSession)?.title : noteProject ? $('project').selectedOptions[0].textContent : '个人研究区';
+  $('note-destination').innerHTML=`<span>保存到：</span><span${noteSession || noteProject ? ' data-no-i18n' : ''}>${escapeHtml(destination || '个人研究区')}</span>`;
   $('save-status').textContent=''; $('note-dialog').showModal();
 });
 $('save-form').addEventListener('submit',async event=>{
@@ -175,7 +184,7 @@ try {
   const params=new URLSearchParams(location.search);
   const projects=await api('/api/projects');
   for (const project of projects) {
-    const option=document.createElement('option'); option.value=project.id; option.textContent=project.name;
+    const option=document.createElement('option'); option.value=project.id; option.textContent=project.name; option.dataset.noI18n='';
     $('project').append(option);
   }
   if (projects.some(project=>project.id===params.get('project_id'))) $('project').value=params.get('project_id');
@@ -186,8 +195,10 @@ try {
     try { addSessions([await api(`/sessions/${encodeURIComponent(requested)}`)]); }
     catch { status('来源对话不存在或无权读取，请选择其他对话。',true); }
   }
-  if (sessions.has(requested)) $('session').value=requested;
+  if (sessions.has(requested)) { $('session').value=requested; $('scope').value='session'; }
+  else if (params.has('project_id')) $('scope').value='project';
   if (['session','project','personal'].includes(params.get('scope'))) $('scope').value=params.get('scope');
+  if ($('scope').value==='project' && sessions.has(requested)) $('project').value=sessions.get(requested).project_id || '';
   if (['plan','calculation','lesson','document'].includes(params.get('kind'))) $('kind').value=params.get('kind');
   $('query').value=params.get('query') || '';
   await search();

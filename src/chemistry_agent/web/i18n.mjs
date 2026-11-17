@@ -1,5 +1,230 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "清除密码":"Clear password", "确认清除":"Confirm removal",
+  "暂无计算方案":"No calculation plans",
+  "已展开 / 总步骤":"Expanded / total steps",
+  "搜索步骤…":"Search steps…",
+  "仅显示前 30 项":"First 30 matches",
+  "缩略图":"Minimap",
+  "技术信息":"Technical details",
+  "步骤 ID":"Step ID",
+  "示意结构（确认后按收敛结果生成）":"Illustrative structure (generated from converged results after confirmation)",
+  "读取失败，正显示缓存结果":"Read failed; showing cached results",
+  "仅显示尾部记录":"Recent records only",
+  "空心点 = 0（未入对数轴）":"Hollow point = 0 (excluded from logarithmic scale)",
+  "活动原子 Fmax":"Fmax of active atoms",
+  "全原子 Fmax（含固定原子）":"Fmax of all atoms (including fixed atoms)",
+  "原始 Fmax（未投影方向约束）":"Raw Fmax (directional constraints not projected)",
+  "原始 Fmax（约束信息不可用）":"Raw Fmax (constraint information unavailable)",
+  "并行":"Parallel",
+  "优化步 {0}":"Optimization step {0}",
+  "缓存路径 · {0}":"Cached path · {0}",
+
+  "全部记忆":"All memories",
+  "按项目":"By project",
+  "按对话":"By chat",
+  "选择对话":"Choose a chat",
+  "选择一条记忆查看详情":"Select a memory to view details",
+  "请选择来源对话":"Choose a source chat",
+  "搜索全部记忆":"Search all memories",
+  "有审核记录":"Review recorded",
+  "参数变化不等于已证实的报错根因。":"Parameter changes do not establish the root cause of an error.",
+  "移出后不再自动召回，原始计算与历史版本仍保留。":"This memory will no longer be recalled. Original calculations and version history are retained.",
+  "保存 Chem Agent 配置":"Save Chem Agent settings",
+  "保存 Codex / Antigravity 配置":"Save Codex / Antigravity settings",
+  "已保存（留空保留）":"Saved (leave blank to keep)",
+  "设备码登录":"Device code sign-in",
+  "已连接（旧授权）":"Connected (legacy authorization)",
+
+  "Slurm 作业监控":"Slurm job monitoring",
+  "已启用 {0} 台":"{0} servers enabled",
+  "无法读取服务器":"Unable to load servers",
+  "GPU 类型":"GPU type",
+  "远端环境脚本":"Remote environment script",
+  "调度账户":"Scheduler account",
+  "备用队列":"Fallback queue",
+  "未检测":"Not checked",
+
+  "未完成":"Not completed",
+  "发送状态未确认，可重试。":"Sending status is unconfirmed. You can retry.",
+  "历史已压缩":"History compacted",
+  "当前无需压缩":"No compaction needed",
+  "输入研究问题…":"Ask a research question…",
+  "参数与原始输出":"Parameters & raw output",
+  "压缩前后":"Before / after compaction",
+  "暂无计算进度":"No calculation progress",
+  "历史步骤回复":"Previous step updates",
+  "其他回答…":"Custom answer…",
+  "交互示例（非实际作业）":"Interactive example (not a real job)",
+
+
+  "返回方案":"Back to plan",
+  "暂停后续步骤？已提交的作业将继续运行。":"Pause next steps? Submitted jobs will continue running.",
+  "继续执行方案？后续步骤将按依赖启动。":"Resume this plan? Next steps will start as their dependencies are satisfied.",
+  "关闭浮层":"Close popover",
+  "上下两行":"Two rows", "确认并执行":"Confirm and run", "暂停推进":"Pause next steps", "选择方案":"Choose plan", "其他计算记录":"Other calculation records", "从左到右":"Left to right", "从上到下":"Top to bottom",
+  "刷新":"Refresh", "参数文件":"Parameter files", "提交脚本":"Submission script", "步骤":"Step",
+  "查看方案":"View plan", "方案":"Plan", "已完成":"Completed", "等待依赖":"Waiting for dependencies",
+  "已停止":"Stopped", "已暂停推进":"Progression paused", "停止中":"Stopping", "有步骤失败":"Some steps failed",
+  "待确认":"Awaiting confirmation",  "上游失败，未执行":"Blocked by upstream failure",
+   "等待执行":"Waiting to run", "等待队列名额":"Waiting for queue capacity",
+  "正在核对提交结果":"Checking submission", "等待调度记账结果":"Waiting for scheduler accounting",
+  "AiiDA 已暂停":"AiiDA paused", "运行中":"Running",  "已交调度器":"Submitted to scheduler",
+  "正在提交":"Submitting", "已修改":"Modified", "暂停后续步骤":"Pause next steps", "继续执行":"Resume execution",
+  "研究目标与版本":"Research goal & versions", "确认方案并执行":"Confirm plan and run", "方案完成步骤":"Completed plan steps",
+  "就绪即提交":"Submit when ready", "{0}/{1} 项计算":"{0}/{1} calculations", "最多 {0} 个计算并行":"Up to {0} concurrent calculations",
+  "v{0} · 修改 {1} 步":"v{0} · {1} steps changed", "正在切换至 {0}":"Switching to {0}",
+  "依赖关系 · 上游 {0} / 下游 {1}":"Dependencies · {0} upstream / {1} downstream", "{0} 项参数":"{0} parameters",
+  "简体中文":"Chinese (Simplified)", "保存 API 配置":"Save API settings", "程序路径":"Program path",
+  "检测连接":"Check connection", "推理强度":"Reasoning effort", "跟随模型":"Use model default",
+  "默认 Agent":"Default agent", "配置文件":"Configuration file", "本机 SSH 配置":"Local SSH configuration",
+  "添加":"Add", "AiiDA 连接配置（可选）":"AiiDA connection (optional)", "关闭":"Close", "完全访问":"Full access",
+  "记忆导航":"Memory navigation",
+  "返回研究工作区":"Back to workspace",
+  "科研记忆":"Research memory",
+  "研究项目":"Research project",
+  "个人研究区":"Personal workspace",
+  "来源对话（可选）":"Source chat (optional)",
+  "不限定来源对话":"Any source chat",
+  "检索范围":"Search scope",
+  "所选项目":"Selected project",
+  "我的全部记忆":"All my memories",
+  "仅此对话":"This chat only",
+  "补充文档":"Additional document",
+  "外观与设置":"Appearance & settings",
+  "方案、计算记录与故障经验":"Plans, calculation records & troubleshooting",
+  "体系、任务或报错关键词":"System, task or error keywords",
+  "搜索体系、任务或报错，如 Cu(111)、BRMIX":"Search systems, tasks or errors, e.g. Cu(111), BRMIX",
+  "文档类型":"Document type",
+  "全部类型":"All types",
+  "计算方案":"Calculation plan",
+  "计算记录":"Calculation record",
+  "故障经验":"Troubleshooting",
+  "检索":"Search",
+  "记忆检索结果":"Memory search results",
+  "加载更多记录":"Load more records",
+  "记忆详情":"Memory details",
+  "让已有经验成为下一步的参考":"Use past work to inform the next step",
+  "选择项目，或搜索体系与报错关键词。":"Select a project or search by system and error keywords.",
+  "关闭补充文档":"Close document editor",
+  "标题":"Title",
+  "体系标签":"System tags",
+  "任务标签":"Task tags",
+  "Pt(111), CO, 显式水":"Pt(111), CO, explicit water",
+  "吸附能，结构优化":"Adsorption energy, structure optimization",
+  "正文与来源":"Content & sources",
+  "适用条件与局限":"Applicability & limitations",
+  "补充文档标记为未核验；计算收敛证据由运行记录提供。":"Additional documents are unverified; calculation convergence evidence comes from execution records.",
+  "保存文档":"Save document",
+  "版本记录":"Version history",
+  "关闭版本记录":"Close version history",
+  "仅检索所选对话沉淀的文档。切换对话后自动更新结果。":"Search documents from the selected chat. Changing chats updates the results.",
+  "检索所选项目的研究记录；选择来源对话时采用其项目。同一项目内切换对话，结果可能相同。":"Search the selected project's research records. A source chat uses its own project, so chats in the same project may return the same results.",
+  "检索本人全部项目和对话。切换来源对话不会缩小此范围。":"Search all your projects and chats. Selecting a source chat does not narrow this scope.",
+  "未核验":"Unverified",
+  "已记录":"Recorded",
+  "收敛检查通过":"Convergence checks passed",
+  "未记录":"Not recorded",
+  "研究平台":"Research platform",
+  "原始报错":"Original error",
+  "当时的修复说明":"Repair explanation at the time",
+  "参数变化 · 修复前 → 修复后":"Parameter changes · Before → After",
+  "参数":"Parameter",
+  "修复前":"Before repair",
+  "修复后":"After repair",
+  "未显式记录":"Not explicitly recorded",
+  "后续结果":"Subsequent result",
+  "后续执行完成":"Subsequent execution completed",
+  "后续执行仍失败":"Subsequent execution still failed",
+  "后续执行中":"Subsequent execution running",
+  "尚无后续结果":"No subsequent result yet",
+  "电子收敛":"Electronic convergence",
+  "离子收敛":"Ionic convergence",
+  "科学精度":"Scientific accuracy",
+  "有审核记录（需核对来源）":"Review recorded (verify the source)",
+  "未验证":"Not validated",
+  "调度作业":"Scheduler job",
+  "退出码":"Exit code",
+  "下载 Markdown":"Download Markdown",
+  "来源对话":"Source chat",
+  "移出检索":"Remove from search",
+  "证据与适用性":"Evidence & applicability",
+  "检查项":"Check",
+  "复用前核对体系、参数及来源。":"Verify the system, parameters and source before reuse.",
+  "收敛记录不代表科学精度已验证；参数变化不等于已证实的报错根因。":"Convergence records do not validate scientific accuracy; parameter changes do not establish the root cause of an error.",
+  "完整原始记录与代码":"Full original record & code",
+  "计算参数与来源标识":"Calculation parameters & provenance",
+  "正在检索记忆…":"Searching memories…",
+  "请先选择来源对话，或使用项目/全部记忆范围。":"Select a source chat or search the project/all memories.",
+  "正在检索…":"Searching…",
+  "已显示":"Showing",
+  "找到":"Found",
+  "条记忆":"memories",
+  "，可继续加载":" · More available",
+  "此对话暂无匹配记忆。可清空关键词，或扩大检索范围。":"No matching memories in this chat. Clear the keywords or broaden the search.",
+  "未找到匹配记忆。试试体系名称或更短的报错关键词。":"No matching memories. Try a system name or shorter error keywords.",
+  "没有匹配的记忆":"No matching memories",
+  "普通聊天不会自动成为科研文档；计算方案和计算记录会按来源对话沉淀。":"Ordinary chats do not automatically become research documents. Plans and calculation records are retained with their source chat.",
+  "检索失败，请重试。":"Search failed. Try again.",
+  "正在读取文档…":"Loading document…",
+  "移除后不再自动召回，后台同步也不会重新加入。原始计算及历史版本仍保留。":"This document will no longer be recalled or restored by synchronization. Original calculations and version history remain available.",
+  "正在读取版本…":"Loading versions…",
+  "保存到：":"Save to: ",
+  "来源对话不存在或无权读取，请选择其他对话。":"The source chat is unavailable or inaccessible. Select another chat.",
+
+  "Agent 与模型":"Agents & models", "服务器":"Servers", "计算平台":"Compute platform",
+  "Slurm 作业监控与持久等待":"Slurm job monitoring and persistent waiting", "已启用":"Enabled",
+  "跟随 Codex":"Use Codex default", "跟随 Antigravity":"Use Antigravity default",
+  "看板":"Board", "方案看板":"Plan board", "方案视图":"Plan view", "全屏看板":"Full-screen board",
+  "看板选项":"Board options", "全屏方案看板":"Full-screen plan board", "暂无步骤":"No steps",
+  "待执行":"To do", "进行中":"In progress",  "画布":"Canvas",
+  "重新加载":"Reload", "正在打开设置…":"Opening settings…", "设置加载失败。":"Unable to load settings.",
+
+  "仅显示前 30 项，请继续输入":"First 30 matches; keep typing to narrow the list",
+  "低":"Low", "中":"Medium", "高":"High", "极低":"Minimal", "极高":"Extra high", "最高":"Maximum", "无":"None",
+  "批准":"Approve", "帮我批准":"Auto review", "执行权限":"Execution permissions",
+  "此 Agent 暂不支持自动审批":"This agent does not support automatic approval", "Chem Agent 工具执行权限":"Chem Agent tool permissions",
+  "设置…":"Settings…", "正在读取模型…":"Loading models…", "应用":"Apply", "关闭思考":"Thinking off",
+  "尚未检测":"Not checked",
+  "已设为默认":"Set as default",
+  "设为新对话默认":"Use by default in new chats",
+  "已验证登录":"Sign-in verified",
+  "未通过验证":"Verification failed",
+  "未安装":"Not installed",
+  "已安装 · 尚未检测":"Installed \u00b7 Not checked",
+  "未找到程序":"Program not found",
+  "程序路径已修改 · 需要重新检测":"Program path changed \u00b7 Check again",
+  "已设置新对话默认 Agent":"Default agent updated for new chats",
+  "保存模型设置":"Save model settings",
+  "已保存模型设置":"Model settings saved",
+  "正在检测…":"Checking\u2026",
+  "自动选择模型":"Automatic model",
+  "API 与账号":"API and account",
+  "OpenAI 兼容":"OpenAI compatible",
+  "允许 Agent 使用":"Allow agent access",
+  "已允许 Agent 使用此服务器":"Agent access enabled for this server",
+  "已停用此服务器；正在运行的计算不受影响":"Server access disabled; running calculations are unaffected",
+  "上次测试通过":"Last test passed",
+  "上次测试失败":"Last test failed",
+  "测试时间":"Checked at",
+  "模型选择":"Model selection", "推理":"Reasoning", "搜索模型":"Search models", "返回":"Back",
+  "未启用":"Disabled",
+  "尚未启用服务器":"No servers enabled",
+  "选择服务器":"Select server",
+  "没有其他 SSH 主机":"No other SSH hosts",
+  "手动配置 SSH 主机":"Configure SSH host manually",
+  "重新读取":"Reload configuration",
+  "连接信息":"Connection details",
+  "本机 SSH 主机与连接验证":"Local SSH hosts and connection checks",
+  "计算服务尚未启用":"Compute service not enabled",
+  "选择允许 Agent 使用的服务器，连接状态通过测试确认。":"Select servers the agent may use. Test each connection to verify access.",
+  "在本机":"In your local",
+  "中添加主机后，重新读取并选择。":"add a host, then reload and select it.",
+  "执行记录":"Execution record", "当前记录":"Current record", "计算更新":"Calculation update",
+  "生成文件":"Generated files", "收起":"Collapse", "需处理":"Needs attention",
+  "进行与等待":"In progress and waiting", "其他状态":"Other states", "更新记录":"Update history",
+  "上游受阻":"Upstream blocked", "待核对":"Needs review", "提交被拒绝":"Submission rejected",
+  "已提交":"Submitted", "已取消":"Cancelled", "记录":"Record",
   "等待 MD 记录":"Waiting for MD samples", "准备中":"Preparing",
   "分子动力学":"Molecular dynamics", "计算监控":"Calculation monitor", "MD 步":"MD step",
   "势能":"Potential", "总能量":"Total", "动能":"Kinetic", "压力":"Pressure",
@@ -340,7 +565,7 @@ const messages = {
   "刷新会话":"Refresh chats", "历史会话":"Chat history", "加载更多对话":"Load more", "会话导航":"Navigation", "关闭侧栏":"Close sidebar", "打开会话导航":"Open navigation",
   "打开研究工具":"Open research tools", "关闭研究面板":"Close research panel", "输入化学问题":"Message", "输入问题，或描述你的研究任务…":"Ask a question or describe your research task…", "输入问题，开始研究。":"Ask a question to get started.",
   "模型设置":"Model settings", "模型未配置":"Set up a model", "服务未连接":"Service offline", "正在连接…":"Connecting…", "已登录":"Signed in", "已配置":"Connected", "发送消息":"Send message", "正在生成回答":"Generating a response",
-  "研究面板":"Research panel", "研究工具与计算结果":"Research tools and results", "分子工具":"Molecular tools", "本地计算":"Local",
+  "显示全部方向箭头":"Show all direction arrows", "研究面板":"Research panel", "研究工具与计算结果":"Research tools and results", "分子工具":"Molecular tools", "本地计算":"Local",
   "分子 · 晶胞 · 轨迹":"Molecules · cells · trajectories", "打开查看器 ↗":"Open viewer ↗", "分子属性":"Molecular properties", "分子量 · LogP · 氢键 · TPSA":"Mass · LogP · H-bonds · TPSA",
   "结构相似度":"Structure similarity", "Morgan 指纹 · Tanimoto":"Morgan fingerprint · Tanimoto", "分子 SMILES":"Molecule SMILES", "例如 CCO（乙醇）":"e.g. CCO (ethanol)",
   "计算分子属性":"Calculate properties", "分子 A · SMILES":"Molecule A · SMILES", "分子 B · SMILES":"Molecule B · SMILES", "例如 CCO":"e.g. CCO", "例如 CO":"e.g. CO", "比较结构相似度":"Compare structures",
@@ -359,23 +584,62 @@ const messages = {
 let language = "zh-CN";
 try { language = localStorage.getItem("chemistry.language") === "en" ? "en" : "zh-CN"; } catch { /* Optional storage. */ }
 export const getLanguage = () => language;
-export function t(value) {
-  if (language !== "en" || typeof value !== "string") return value;
+const escapePattern = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const patterns = Object.entries(messages).filter(([source]) => /\{\d+\}/.test(source)).map(([source, output]) => {
+  const keys = [];
+  const expression = source.split(/(\{\d+\})/).map(part => {
+    if (/^\{\d+\}$/.test(part)) { keys.push(part); return '(.+?)'; }
+    return escapePattern(part);
+  }).join('');
+  return {regex:new RegExp('^' + expression + '$'), keys, output};
+});
+function translate(value, depth = 0) {
+  if (language !== "en" || typeof value !== "string" || depth > 5) return value;
   const trimmed = value.trim();
-  if (messages[trimmed]) return value.replace(trimmed, messages[trimmed]);
-  return value.replace(/^上下文用量 · (\d+)%$/, "Context usage · $1%")
+  if (messages[trimmed]) return value.replace(trimmed, () => messages[trimmed]);
+  if (/^v\d+ · 修改 1 步$/.test(trimmed)) return value.replace(/修改 1 步/, "1 step changed");
+  for (const {regex, keys, output} of patterns) {
+    const match = trimmed.match(regex);
+    if (match) return value.replace(trimmed, () => output.replace(/\{\d+\}/g, key => translate(match[keys.indexOf(key) + 1], depth + 1)));
+  }
+  const translated = value.replace(/^上下文用量 · (\d+)%$/, "Context usage · $1%")
+    .replace(/^(\d+(?: \/ \d+)?) 步$/, "$1 steps")
+    .replace(/^(Codex|Antigravity) 本机执行权限；平台工具沿用平台授权$/, "$1 local execution permissions; platform tools use workspace permissions")
+    .replace(/^展开全部 (\d+) 个文件$/, "Show all $1 files")
+    .replace(/^查看：/, "View: ").replace(/^下载：/, "Download: ").replace(/^用于对话：/, "Cite in chat: ")
     .replace(/^通知 · (\d+) 条未读$/, "Notifications · $1 unread")
     .replace(/^会话记忆 · 已摘要 (\d+) \/ (\d+) 条消息$/, "Chat memory · $1 of $2 messages summarized")
     .replace(/ · 已配置$/, " · Connected").replace(/ · 已登录$/, " · Signed in")
     .replace(/^(\d[\d,]* tokens · )对话已保存$/, "$1Saved")
     .replace(/^已使用 (\d+) 次研究工具(?: · (\d+) 次需调整输入)?$/, (_, n, failed) => `Used ${n} research tools${failed ? ` · ${failed} need attention` : ""}`);
+  if (translated !== value) return translated;
+  return value.includes(' · ') ? value.split(' · ').map(part => translate(part, depth + 1)).join(' · ') : value;
 }
-const ignored = 'script,style,pre,code,.markdown,[data-no-i18n],.session-button,.project-folder>summary>span,#conversation-title,input,textarea';
+// Retain the source even when a component first renders t(source) in English.
+// Bounded dynamic entries cover counts and status strings without retaining transcripts.
+const sources = new Map(Object.entries(messages).map(([source, output]) => [output, source]));
+const dynamicSources = new Map();
+function sourceOf(value) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  const source = dynamicSources.get(trimmed) || sources.get(trimmed);
+  return source ? value.replace(trimmed, () => source) : value;
+}
+export function t(value) {
+  const output = translate(value);
+  if (output !== value && !sources.has(output.trim())) {
+    dynamicSources.set(output.trim(), value.trim());
+    if (dynamicSources.size > 1000) dynamicSources.delete(dynamicSources.keys().next().value);
+  }
+  return output;
+}
+const protectedContent = '[data-no-i18n],.markdown,.session-button,.project-folder>summary>span,#conversation-title';
+const ignored = `script,style,pre,code,input,textarea,${protectedContent}`;
 const originals = new WeakMap();
 function translateNode(node) {
   if (!node.parentElement || node.parentElement.closest(ignored)) return;
   let record = originals.get(node);
-  if (!record || node.nodeValue !== record.output) record = { source: node.nodeValue };
+  if (!record || node.nodeValue !== record.output) record = { source: sourceOf(node.nodeValue) };
   record.output = t(record.source);
   if (node.nodeValue !== record.output) node.nodeValue = record.output;
   originals.set(node, record);
@@ -383,18 +647,18 @@ function translateNode(node) {
 const attributeOriginals = new WeakMap();
 function translateSubtree(root) {
   if (root.nodeType === 3) { translateNode(root); return; }
-  if (root.nodeType !== 1 || root.closest(ignored)) return;
+  if (root.nodeType !== 1 || root.closest(protectedContent)) return;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) translateNode(walker.currentNode);
   const attributes = '[placeholder],[aria-label],[title]';
   for (const element of [...(root.matches(attributes) ? [root] : []), ...root.querySelectorAll(attributes)]) {
-    if (element.closest('[data-no-i18n],.session-button,.project-folder>summary>span,.markdown')) continue;
+    if (element.closest(protectedContent)) continue;
     const records = attributeOriginals.get(element) || {};
     for (const attribute of ['placeholder','aria-label','title']) {
       const value = element.getAttribute(attribute);
       if (value === null) continue;
       let record = records[attribute];
-      if (!record || value !== record.output) record = {source:value};
+      if (!record || value !== record.output) record = {source:sourceOf(value)};
       record.output = t(record.source);
       if (value !== record.output) element.setAttribute(attribute,record.output);
       records[attribute] = record;
@@ -403,17 +667,20 @@ function translateSubtree(root) {
   }
 }
 export function translateUI() {
+  if (typeof document === 'undefined') return;
   document.documentElement.lang = language;
   translateSubtree(document.body);
   updateDocumentTitle();
 }
 function updateDocumentTitle() {
-  document.title = document.querySelector('[data-panel],#workspace-settings[open]') ? `${t('设置')} · Chem Code` : 'Chem Code';
+  const page = document.querySelector('[data-panel],#workspace-settings[open]') ? '设置' : document.querySelector('.memory-workspace') ? '科研记忆' : '';
+  const title = page ? `${t(page)} · Chem Code` : 'Chem Code';
+  if (document.title !== title) document.title = title;
 }
 export function setLanguage(value) {
   language = value === 'en' ? 'en' : 'zh-CN';
   try { localStorage.setItem('chemistry.language',language); localStorage.setItem('structure-viewer.language',language); } catch { /* Apply for this visit. */ }
-  translateUI(); window.dispatchEvent(new Event('languagechange'));
+  translateUI(); if (typeof window !== 'undefined') window.dispatchEvent(new Event('languagechange'));
 }
 if (typeof document !== 'undefined') {
   const observer = new MutationObserver(records => {
@@ -432,5 +699,5 @@ if (typeof document !== 'undefined') {
   });
   translateUI();
   observer.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['placeholder','aria-label','title']});
-  window.addEventListener('storage',(event) => { if (event.key === 'chemistry.language') { language=event.newValue==='en'?'en':'zh-CN'; translateUI(); window.dispatchEvent(new Event('languagechange')); } });
+  window.addEventListener('storage',(event) => { if (event.key === 'chemistry.language') { language=event.newValue==='en'?'en':'zh-CN'; translateUI(); if (typeof window !== 'undefined') window.dispatchEvent(new Event('languagechange')); } });
 }

@@ -4,12 +4,13 @@ import {escapeHtml as esc} from './core.mjs';
 import {createStructureBridge} from './structure-links.mjs';
 import {describeStep, planSteps, workflowGroups} from './workflow-plan.mjs';
 import {nodeStatus,graphLayers} from './general-plan.mjs';
-import {workflowView,childJobSummary} from './plan-presentation.mjs';
+import {workflowView} from './plan-presentation.mjs';
+import {executionOptions} from './step-executions.mjs';
 import {createTextEditor} from './step-editor.mjs';
 import {kindName, taskLabel} from './plan-layout.mjs';
 import {t} from './i18n.mjs';
 import {createConvergenceCard} from './convergence-card.mjs';
-import {createRegisteredResults} from './registered-results.mjs';
+import {createRegisteredResults,resultTimestamp} from './registered-results.mjs';
 
 const fileNames = ['POSCAR', 'CONTCAR', 'XDATCAR'];
 const availableFiles=info=>[...new Set([...fileNames,...Object.keys(info?.files || {})])].filter(name=>info?.files?.[name]);
@@ -19,20 +20,25 @@ export function createStepDetail({api,rememberCount}) {
   const screen = $('step-screen'), frame = $('step-viewer-frame');
   let current = null, activeFile = '', info = null, activeSnapshot = null, focusStep = null;
   const editors=new Map();
+  let selectedParameter='',viewerPosition=null;
+  const viewerShell=$('step-viewer-shell'),viewerHome=viewerShell.parentElement;
+  const restoreViewer=()=>{if(viewerShell.parentElement!==viewerHome)viewerHome.append(viewerShell);};
   let registeredSelection=null,registeredFiles=[];
-  const results=createRegisteredResults($('step-registered-results'),{api,onStructures(files){registeredFiles=files;drawFiles();},openStructure({name,url,label,identity,scroll=true,sequence=null}) {
+  const results=createRegisteredResults($('step-registered-results'),{api,onReset(){restoreViewer();registeredSelection=null;viewerShell.hidden=true;bridge.reset();},onStructures(files){registeredFiles=files;drawFiles();},openStructure({name,url,label,identity,scroll=false,sequence=null}) {
     const sameSequence=sequence && registeredSelection?.sequence?.id===sequence.id;
     registeredSelection={identity,label,url,name,sequence};activeFile='';activeSnapshot=null;
-    $('step-structures').hidden=false;$('step-structures').open=true;
+    const slot=results.viewerSlot();
+    if(slot && viewerShell.parentElement!==slot)slot.append(viewerShell);
+    $('step-registered-results').open=true;
     $('step-file-source').textContent=label;drawFiles();
     if(sameSequence && bridge.seek({frameIndex:sequence.frameIndex})) {
-      if(scroll)$('step-structures').scrollIntoView({block:'nearest',behavior:'smooth'});
+      if(scroll)viewerShell.scrollIntoView({block:'nearest',behavior:'smooth'});
       return;
     }
     bridge.reset();bridge.open(sequence?`NEB 路径 · 优化步 ${sequence.step}`:name,async()=>{
       if(sequence){
         const data=await api(sequence.url);
-        if(data.stale && registeredSelection?.sequence?.id===sequence.id)$('step-note').textContent=`缓存路径 · ${data.observed_at}`;
+        if(data.stale && !results.isStale() && registeredSelection?.sequence?.id===sequence.id)$('step-note').textContent=`缓存路径 · ${resultTimestamp(data.observed_at)}`;
         if(data.kind!=='neb_sequence'||!data.files?.length)throw Error('尚无完整路径结构');
         return data.files.map(item=>new File([item.content],item.name));
       }
@@ -40,7 +46,7 @@ export function createStepDetail({api,rememberCount}) {
       if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.error?.message || '结构读取失败');}
       return new File([await response.blob()],name);
     },sequence?{sequence:true,selection:{frameIndex:sequence.frameIndex}}:{});
-    if(scroll)$('step-structures').scrollIntoView({block:'nearest',behavior:'smooth'});
+    if(scroll)viewerShell.scrollIntoView({block:'nearest',behavior:'smooth'});
   }});
   const convergence=createConvergenceCard($('step-chart'),{onTrajectory(name,ionicStep) {
     const incar=(info?.parameters?.INCAR || '').split('\n').map(line=>line.split(/[!#]/)[0]).join('\n');
@@ -68,20 +74,49 @@ export function createStepDetail({api,rememberCount}) {
   function textDetails({purpose='',parameters={},script='',editing={},codeTitle='提交脚本'}) {
     const policy={revision:current?.revision,...editing};
     editor('purpose',$('step-purpose'),{prose:true}).update({text:purpose,editable:policy.purpose,revision:policy.revision,reason:policy.reason});
-    $('step-config').hidden=!Object.keys(parameters).length;
+    const parameterNames=Object.keys(parameters),parameterHost=$('step-actual-parameters');
+    $('step-config').hidden=!parameterNames.length;
+    if(!parameterNames.includes(selectedParameter))selectedParameter=parameterNames[0] || '';
+    let tabs=parameterHost.querySelector('[role=tablist]');
+    if(!tabs){tabs=document.createElement('div');tabs.className='step-parameter-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','参数文件');parameterHost.append(tabs);}
+    const fileKey=JSON.stringify(parameterNames);
+    if(tabs.dataset.files!==fileKey) {
+      tabs.dataset.files=fileKey;
+      tabs.innerHTML=parameterNames.map((name,index)=>`<button type="button" role="tab" id="step-parameter-tab-${index}" data-parameter-tab="${esc(name)}" aria-controls="step-parameter-panel-${index}" aria-selected="${name===selectedParameter}" tabindex="${name===selectedParameter?0:-1}">${esc(name)}</button>`).join('');
+    }
     for(const [name,text] of Object.entries(parameters)) {
       if(!editors.has(name)) {
-        const section=document.createElement('details'), summary=document.createElement('summary'), host=document.createElement('div');
-        summary.textContent=name;section.dataset.parameterFile=name;section.append(summary,host);$('step-actual-parameters').append(section);
-        editor(name,host);
+        const panel=document.createElement('div');panel.dataset.parameterFile=name;panel.setAttribute('role','tabpanel');parameterHost.append(panel);editor(name,panel);
       }
       editors.get(name).update({text,editable:policy.files && ['INCAR','KPOINTS'].includes(name),revision:policy.revision,reason:policy.reason});
     }
+    for(const panel of parameterHost.querySelectorAll('[data-parameter-file]')) {
+      const index=parameterNames.indexOf(panel.dataset.parameterFile);
+      panel.hidden=panel.dataset.parameterFile!==selectedParameter || index<0;
+      panel.id='step-parameter-panel-'+index;panel.setAttribute('aria-labelledby','step-parameter-tab-'+index);
+    }
+    selectParameter(selectedParameter);
     $('step-code-title').textContent=codeTitle;
     $('step-code-section').hidden=!script && !policy.files;
     editor('script',$('step-code')).update({text:script,editable:policy.files,revision:policy.revision,reason:policy.reason});
   }
+  function selectParameter(name,focus=false) {
+    selectedParameter=name;
+    for(const button of $('step-actual-parameters').querySelectorAll('[role=tab]')) {
+      const active=button.dataset.parameterTab===name;
+      button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;if(active&&focus)button.focus();
+    }
+    for(const panel of $('step-actual-parameters').querySelectorAll('[data-parameter-file]'))panel.hidden=panel.dataset.parameterFile!==name;
+  }
+  $('step-actual-parameters').addEventListener('click',event=>{const tab=event.target.closest('[data-parameter-tab]');if(tab)selectParameter(tab.dataset.parameterTab);});
+  $('step-actual-parameters').addEventListener('keydown',event=>{
+    if(!event.target.matches('[role=tab]') || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    const tabs=[...$('step-actual-parameters').querySelectorAll('[role=tab]')],index=tabs.indexOf(event.target);
+    const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+    event.preventDefault();selectParameter(tabs[next].dataset.parameterTab,true);
+  });
   const bridge = createStructureBridge({frame,toast:message => { focusStep=null;$('step-note').textContent=message; },onFrame(position) {
+    viewerPosition=position;
     if(registeredSelection){
       if(registeredSelection.sequence && Number.isInteger(position.frameIndex)){
         const selected=results.syncFrame(position.frameIndex);
@@ -113,6 +148,14 @@ export function createStepDetail({api,rememberCount}) {
     if(on===dialog.open) return;
     if(on) {dialog.append(screen);dialog.showModal();}
     else {dialog.close();host.insertBefore(screen,dialog);}
+    // Moving an iframe between the dock and dialog reloads its document. Replay
+    // the selected structure after that move instead of leaving an empty viewer.
+    if(registeredSelection) {
+      registeredSelection=null;bridge.reset();results.reopenSelection();
+    } else if(activeFile && current) {
+      const name=activeFile,selection=viewerPosition?{frameIndex:viewerPosition.frameIndex}:null;
+      activeFile='';selectFile(name,selection);
+    }
     syncFull();
   }
   $('step-full').onclick=()=>{
@@ -126,14 +169,13 @@ export function createStepDetail({api,rememberCount}) {
   function resetContent() {
     results.reset();registeredSelection=null;
     convergence.reset();
-    editors.clear();$('step-purpose').replaceChildren();
+    editors.clear();selectedParameter='';$('step-purpose').replaceChildren();
     $('step-job-choice').hidden=true;$('step-job-select').replaceChildren();
-    $('step-parent').hidden=true;$('step-child-jobs').hidden=true;$('step-child-jobs').open=false;
+    $('step-parent').hidden=true;$('step-dependencies').hidden=true;$('step-dependencies').open=false;
     screen.querySelector('.step-description').open=false;
-    $('step-child-jobs').querySelector('div').replaceChildren();
     $('step-actual-parameters').replaceChildren();
     $('step-group-path').hidden=true;
-    activeFile=''; activeSnapshot=null; focusStep=null; info=null; bridge.reset(); $('step-viewer-shell').hidden=true;
+    activeFile=''; activeSnapshot=null; focusStep=null; info=null;viewerPosition=null; bridge.reset(); $('step-viewer-shell').hidden=true;
     for (const id of ['step-note','step-error','step-progress','step-file-source','step-downloads','step-output','step-code','step-chart','step-figures','step-investigation-log']) $(id).replaceChildren();
     for (const id of ['step-investigation','step-output-section','step-code-section']) $(id).hidden=true;
     for (const section of screen.querySelectorAll('.step-sections > details')) section.open=false;
@@ -159,6 +201,7 @@ export function createStepDetail({api,rememberCount}) {
     screen.parentElement.scrollTop=overviewTop;
   }
   function heading(title,kind,id,index,total,planName,purpose='') {
+    for (const id of ['step-plan-name','step-title','step-purpose','step-key']) $(id).dataset.noI18n = '';
     $('step-plan-name').textContent=planName || ''; $('step-plan-name').title=planName || '';
     $('step-title').textContent=title;$('step-kind').textContent=t(kind);
     $('step-index').textContent=String(index+1).padStart(2,'0')+' / '+total;
@@ -169,29 +212,24 @@ export function createStepDetail({api,rememberCount}) {
     $('step-status').textContent=label;$('step-status').dataset.state=tone;
   }
   function relations(before,after) {
-    const chip=n=>`<button type="button" data-related="${esc(n.id)}" title="${esc(n.id)}">${esc(taskLabel(n))}</button>`;
+    const chip=n=>`<button type="button" data-no-i18n data-related="${esc(n.id)}" title="${esc(n.id)}">${esc(taskLabel(n))}</button>`;
     const line=(label,nodes)=>`<div><h3>${t(label)} <small>${nodes.length}</small></h3><div class="relation-chips">${nodes.slice(0,3).map(chip).join('')}${nodes.length>3?`<details><summary>+ ${nodes.length-3}</summary><div class="relation-chips">${nodes.slice(3).map(chip).join('')}</div></details>`:''}</div></div>`;
     $('step-relations').innerHTML=(before.length?line('直接上游',before):'')+(after.length?line('直接下游',after):'');
-    $('step-relations').hidden=!before.length && !after.length;
+    $('step-dependencies').hidden=!before.length && !after.length;
+    $('step-dependencies').querySelector('summary').textContent=`依赖关系 · 上游 ${before.length} / 下游 ${after.length}`;
   }
   $('step-relations').onclick=event=>{
     const id=event.target.closest('[data-related]')?.dataset.related;
     if(id && current?.related) current.related(id);
   };
   $('step-parent').onclick=()=>current?.related?.($('step-parent').dataset.parent);
-  $('step-child-jobs').onclick=event=>{
-    const id=event.target.closest('[data-child-job]')?.dataset.childJob;
-    if(id) current?.related?.(id);
-  };
   function drawFiles() {
     if(registeredFiles.length) {
-      const selected=registeredFiles.find(item=>item.selected);
-      $('step-files').innerHTML=registeredFiles.map(item=>`<button type="button" data-result-image="${item.index}" aria-pressed="${item.selected}" title="路径优化步 ${item.step} · ${esc(item.path)}">${esc(item.label)}</button>`).join('')
-        +(registeredSelection&&selected?`<a href="${esc(registeredSelection.url)}" download="${esc(registeredSelection.name)}" title="下载结构" aria-label="下载所选像结构"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-save"/></svg></a>`:'');
+      $('step-files').replaceChildren();$('step-structures').hidden=true;
       return;
     }
     if(registeredSelection) {
-      $('step-files').innerHTML=`<a href="${esc(registeredSelection.url)}" download="${esc(registeredSelection.name)}" title="下载结构"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-save"/></svg> ${esc(registeredSelection.name)}</a>`;
+      $('step-files').innerHTML=`<a href="${esc(registeredSelection.url)}" download="${esc(registeredSelection.name)}" title="下载结构"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-download"/></svg> ${esc(registeredSelection.name)}</a>`;
       return;
     }
     const options=availableFiles(info);
@@ -200,6 +238,7 @@ export function createStepDetail({api,rememberCount}) {
   }
   function selectFile(name,selection=null) {
     if (!current || !info?.files[name]) return;
+    restoreViewer();
     registeredSelection=null;results.clearSelection();
     if(!selection)focusStep=null;
     if(selection && name===activeFile && activeSnapshot===info.ionic_step && frame.hasAttribute('src')) {
@@ -208,14 +247,7 @@ export function createStepDetail({api,rememberCount}) {
     const source = info.files[name], view = current;
     activeFile=name;activeSnapshot=info.ionic_step; drawFiles(); $('step-note').textContent='';
     let caption = source;
-    if (name === 'POSCAR' && (source === '方案预览' || source === '实际提交')) {
-      if (view.key === 'surface') caption += source === '方案预览'
-        ? ' · 切面示意。正式输入由收敛后的体相晶格生成'
-        : ' · 由收敛后的体相晶格切面生成';
-      if (['top','bridge','hollow'].includes(view.key)) caption += source === '方案预览'
-        ? ' · 位点示意。洁净表面优化通过后，再用其末态放置 CO'
-        : ' · 在优化后的洁净表面上放置 CO';
-    }
+    if (name === 'POSCAR' && source === '方案预览' && ['surface','top','bridge','hollow'].includes(view.key)) caption='示意结构（确认后按收敛结果生成）';
     $('step-file-source').textContent=caption;
     bridge.reset();
     bridge.open(name,async () => {
@@ -246,7 +278,13 @@ export function createStepDetail({api,rememberCount}) {
       if(view.genericJob) {
         view.selectedJob=next.selected_job_id || '';
         $('step-job-choice').hidden=!(next.jobs?.length);
-        $('step-job-select').innerHTML=(next.jobs || []).map(job=>`<option value="${esc(job.id)}" ${job.id===view.selectedJob?'selected':''}>#${esc(job.scheduler_job_id || job.id)} · ${esc(job.state || '')}</option>`).join('');
+        const options=executionOptions(view.plan,view.plan.nodes.find(item=>item.id===view.key),next.jobs);
+        $('step-job-select').innerHTML=options.map(job=>`<option value="${esc(job.id)}" ${job.id===view.selectedJob?'selected':''}>${esc(job.label)}</option>`).join('');
+        $('step-job-select').title=options.find(job=>job.id===view.selectedJob)?.label || '';
+        $('step-job-select').hidden=options.length<2;
+        let record=$('step-job-choice').querySelector('.step-current-execution');
+        if(!record){record=document.createElement('span');record.className='step-current-execution';$('step-job-choice').append(record);}
+        record.hidden=options.length!==1;record.textContent=options[0]?.label || '';
         registered=view.selectedJob===initialJob?await registeredRead:await results.refresh(view.base,view.selectedJob);
         if(current!==view)return;
       }
@@ -263,13 +301,13 @@ export function createStepDetail({api,rememberCount}) {
       $('step-note').textContent=next.note || '';
       $('step-monitor-label').textContent=t(next.monitor?.kind==='md'?'分子动力学':'离子步收敛');
       $('step-progress').textContent=next.ionic_step!=null
-        ? next.monitor?.kind==='md'?`${next.ionic_step} MD 步`:`已完成 ${next.ionic_step} 个离子步${view.nsw>0?' · NSW 上限 '+view.nsw:''}`
-        : next.monitor?.kind==='md'?t(next.monitor.stage==='minimization'?'正在准备：能量最小化':'等待首个完整 MD 记录'):next.pk?'等待首个完整离子步记录':'尚无离子步记录';
+        ? next.monitor?.kind==='md'?`${next.ionic_step} MD 步`:`${next.ionic_step}${view.nsw>0?' / '+view.nsw:''} 步` : '';
       convergence.update({...next,nsw:view.nsw},view.id+':'+view.key+':'+(next.selected_job_id || next.pk || ''));
       if(view.genericJob) $('step-energies').hidden=!!registered;
+      $('step-structures').hidden=registered?.kind==='neb' || view.plan?.nodes.find(item=>item.id===view.key)?.kind==='analysis';
       if(registered?.kind==='neb') {
         const latest=registered.snapshots?.at(-1);
-        $('step-progress').textContent=latest?`最新完整路径 · 优化步 ${latest.step} · ${latest.images.length} 个像`:'等待完整路径快照';
+        $('step-progress').textContent=latest?`优化步 ${latest.step}`:'';
       }
       if (!registeredFiles.length && !registeredSelection && (!activeFile || sourceChanged)) {
         const nextFile=next.files[activeFile]?activeFile:availableFiles(next)[0];
@@ -292,7 +330,8 @@ export function createStepDetail({api,rememberCount}) {
     if(!current) return;
     current={...current,selectedJob:$('step-job-select').value,loading:false};
     results.reset();registeredSelection=null;activeFile='';info=null;bridge.reset();$('step-viewer-shell').hidden=true;
-    convergence.reset();$('step-actual-parameters').replaceChildren();$('step-code').replaceChildren();
+    $('step-progress').textContent='';$('step-note').textContent='';
+    convergence.reset();selectedParameter='';$('step-actual-parameters').replaceChildren();$('step-code').replaceChildren();
     for(const key of [...editors.keys()])if(key!=='purpose')editors.delete(key);
     refresh();
   };
@@ -317,10 +356,10 @@ export function createStepDetail({api,rememberCount}) {
     textDetails({parameters:Object.fromEntries(['INCAR','KPOINTS'].filter(name=>item.files?.[prefix+name]).map(name=>[name,item.files[prefix+name]])),script:item.files?.[prefix+'_aiidasubmit.sh'] || ''});
     const aggregate=key==='energies';
     for (const id of ['step-structures','step-energies','step-refresh','step-progress']) $(id).hidden=aggregate;
-    $('step-config').open=true;
-    $('step-structures').open=true; $('step-energies').open=false;
+    $('step-config').open=false;
+    $('step-structures').open=!job; $('step-energies').open=!aggregate && !!job;
     $('step-investigation').hidden=true; $('step-investigation-log').replaceChildren();
-    $('step-progress').textContent='读取离子步…'; $('step-note').textContent='';
+    $('step-progress').textContent=''; $('step-note').textContent='';
     $('step-file-source').textContent=''; convergence.reset();
     info={files:current.preview?{POSCAR:'方案预览'}:{},points:[]};
     drawFiles();
@@ -340,19 +379,9 @@ export function createStepDetail({api,rememberCount}) {
   setInterval(()=>{if(current && (!info?.terminal || current.failed || info?.investigations?.some(row=>!row.terminal)) && !document.hidden && screen.getClientRects().length)refresh();},20000);
   function drawGeneral(plan,node) {
     const state=plan.runtime[node.id];
-    const view=workflowView(plan), children=view.children.get(node.id) || [];
-    const jobs=$('step-child-jobs');jobs.hidden=!children.length;
-    jobs.querySelector('summary span').textContent=childJobSummary(plan,children);
-    const rows=children.map(child=>{
-      const runtime=plan.runtime[child.id] || {};
-      return `<button type="button" data-child-job="${esc(child.id)}"><span><strong>${esc(taskLabel(child))}</strong><small>${runtime.job?.scheduler_job_id?'#'+esc(runtime.job.scheduler_job_id):esc(child.id)}</small></span><span class="step-status" data-state="${esc(runtime.status)}">${esc(nodeStatus(plan,child))}</span><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`;
-    }).join('');
-    if(jobs.querySelector('div').innerHTML!==rows)jobs.querySelector('div').innerHTML=rows;
-    const owner=view.owners.get(node.id), parent=plan.nodes.find(n=>n.id===owner && n.id!==node.id);
-    $('step-parent').hidden=!parent;
-    if(parent){$('step-parent').textContent='← '+taskLabel(parent);$('step-parent').dataset.parent=parent.id;}
+    $('step-parent').hidden=true;
     const path=$('step-group-path');
-    path.textContent=(node.group_path || []).join(' › ');path.hidden=!path.textContent;
+    path.innerHTML=`<span data-no-i18n>${esc((node.group_path || []).join(' › '))}</span>`;path.hidden=!path.textContent;
     status(nodeStatus(plan,node),state.status);
     const editing={...info?.editing};
     if(!['pending','blocked','ready','waiting'].includes(state.status) || state.generic_job_id || state.job_id || state.jobs?.length)editing.purpose=editing.files=false;
@@ -388,7 +417,9 @@ export function createStepDetail({api,rememberCount}) {
     $('step-back').focus({preventScroll:true});
     $('step-energies').hidden=!['vasp','job','task'].includes(node.kind); $('step-progress').hidden=$('step-energies').hidden;$('step-refresh').hidden=false;
     $('step-structures').hidden=node.kind==='analysis';
-    $('step-config').open=true; $('step-structures').open=node.kind==='model';
+    $('step-config').open=false; $('step-structures').open=node.kind==='model';
+    const runtime=plan.runtime[node.id];
+    $('step-energies').open=node.kind==='vasp' || !!(runtime.generic_job_id || runtime.jobs?.length);
     info={files:{},points:[]}; drawFiles(); refresh();
   }
   return {open,close,openGeneral,updateGeneral(plan) {

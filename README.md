@@ -177,3 +177,9 @@ Agent 本地生成的结构、图片和其他文件可直接在网页预览、�
 本地单用户模式可连接 SSH 集群，通过聊天建模、预览并确认 VASP 计算。支持按需注册赝势、任务通知、优化后单点工作流和受限故障恢复。会话压缩保留原始记录与计算产物。配置及边界见 [AiiDA 自动化说明](docs/AUTOMATION.md)。共享账号服务不会开放集群执行工具。
 
 [远程终端、联网搜索、流式对话与重启恢复](docs/agent-runtime.md) · [自动化计算](docs/AUTOMATION.md)
+
+## 界面开发
+
+新增或修改界面请先阅读 [统一界面设计规范](docs/design/ui-spec.md)，复用 Solid Glass 语义 token、Lucide 图标和公共交互组件；Harness 别名仅用于兼容。验收包含实际浏览器的宽窄布局与键盘交互。
+
+UI 阶段进度、分支关系及统一基线的合并方案见 [UI 整合进度](docs/design/ui-integration-status.md)。新功能应从已包含本轮 UI 的 main 创建分支；仍在维护的旧分支先同步该 main，再按统一规范开发。

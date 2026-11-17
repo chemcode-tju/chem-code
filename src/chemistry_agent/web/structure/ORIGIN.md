@@ -20,3 +20,23 @@ The bundled `vendor/3Dmol-min.js` is copied unchanged, including upstream's
 manual-resize patch; its license is in `vendor/LICENSE-3Dmol.txt`.
 No runtime CDN, original Python MCP server, native helper, test trajectories,
 or private local paths are required by this integration.
+
+## UI adaptation, 2026-11-15
+
+The compact header menus, OVITO-style transport bar, source-data inspector and
+playback/resize fixes are adapted from the upstream **0.13.3 working tree** of
+`liyang-tju/extxyz-extension` (including its latest uncommitted UI changes).
+`inspector.js` is newly imported. `viewport.js` and the parser's metadata
+round-trip follow that source; icon references use Chem-Agent's shared sprite.
+
+Chem-Agent keeps its own browser upload, authenticated conversion, NEB image
+sequence, simulation-step navigation and same-origin parent bridge. No native
+or MCP file access is added. GRO and text dump preserve available source IDs,
+types, names, charges and cell origins for the inspector. Missing force-field
+types remain missing; elemental reference masses are marked explicitly.
+The existing 100,000-atom per-frame limit and supported input formats are
+unchanged. Upstream XTC/TRR/TPR support is not part of this UI adaptation.
+
+The application design tokens style menus and controls. The actual structure,
+source coordinates, scientific colors and snapshot export stay independent of
+light/dark interface chrome.

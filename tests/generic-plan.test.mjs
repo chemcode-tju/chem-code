@@ -70,3 +70,22 @@ test('interleaved ownership never introduces a dependency cycle into the canvas'
   const view=workflowView({nodes,runtime:{}});
   assert.equal(graphLayers(view.nodes).flat().length,3);
 });
+
+test('full plan surface keeps execution controls and runtime without exposing redundant metadata',()=>{
+  const node={id:'task',title:'Scientific title',kind:'task',depends_on:[],inputs:{}};
+  const plan={id:'surface',title:'Plan title',goal:'Research goal',status:'draft',revision:1,history:[],changed_nodes:[],nodes:[node],runtime:{task:{status:'pending'}}};
+  const before=JSON.stringify(plan);
+  const draft=renderGeneralPlan(plan);
+  assert.match(draft,/data-confirm-plan="surface"/);
+  assert.match(draft,/data-revise-plan="surface"/);
+  assert.match(draft,/class="plan-run-controls"/);
+  assert.doesNotMatch(draft,/<header>|data-fold="goal"/);
+  assert.match(draft,/data-board-rows/);
+  assert.match(draft,/Scientific title/);
+  assert.equal(JSON.stringify(plan),before);
+  const running=renderGeneralPlan({...plan,status:'running'});
+  assert.match(running,/data-plan-action="pause"/);
+  assert.doesNotMatch(running,/data-confirm-plan=/);
+  const paused=renderGeneralPlan({...plan,status:'paused'});
+  assert.match(paused,/data-plan-action="resume"/);
+});

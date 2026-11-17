@@ -43,7 +43,15 @@ GroupLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=
 
 class PlanNode(StrictModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
-    title: str = Field(min_length=1, max_length=120)
+    title: str = Field(
+        min_length=1,
+        max_length=120,
+        description=(
+            "Concise card label: research object + action + key distinction, normally 15–22 "
+            "Chinese characters or equivalent. Put methods, rationale and long conditions in "
+            "purpose. Do not rename existing steps solely for display."
+        ),
+    )
     kind: Literal["model", "vasp", "analysis", "job", "task"]
     executor: Literal["platform", "agent"] | None = None
     execution_host: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")

@@ -140,7 +140,7 @@ export function createConvergenceCard(host,{onTrajectory=()=>{}}={}) {
     const line=(x1,y1,x2,y2,color=c.border,dash='')=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="1" ${dash?'stroke-dasharray="'+dash+'"':''}/>`;
     const grid=scale.ticks.map((v,i)=>{const py=bottom-(v-scale.min)/(scale.max-scale.min)*(bottom-top);return line(left,py,width-right,py)+text(left-9,py+4,tickLabels[i],'end');}).join('');
     const xTicks=[...new Set([start,...(end-start>2?[visible[Math.floor(visible.length/2)].step]:[]),end])];
-    const guides=scale.guides.map(g=>line(left,y(g.value),width-right,y(g.value),c.muted,'3 4')+text(width-right-3,y(g.value)-5,g.label,'end')).join('');
+    const guides=scale.guides.map(g=>line(left,y(g.value),width-right,y(g.value),c.muted,'3 4')+text(width-right-3,y(g.value)-5,mode==='force'?`${g.label} = ${number(g.value,'force')} eV/Å`:g.label,'end')).join('');
     const last=visible.filter(p=>finite(p[mode])).at(-1);
     const zero=mode==='delta'?visible.filter(p=>p.delta===0):[];
     svg.setAttribute('viewBox',`0 0 ${width} 232`);svg.setAttribute('role','img');svg.setAttribute('aria-label',`${labels[mode]} · ${start}–${end} ${t('步')}`);
@@ -152,14 +152,11 @@ export function createConvergenceCard(host,{onTrajectory=()=>{}}={}) {
       ${text(width-right,13,timed?'ps':stepLabel(),'end')}<g data-hover></g></g>`;
     geometry={x,y,visible,left,plotWidth,top,bottom,c,text,line};
     const notes=[];
-    if(data.monitor.history_truncated)notes.push(t('显示日志尾部的完整记录'));
+    if(data.monitor.history_truncated || (mode==='force' && data.monitor.force_history_truncated))notes.push(t('仅显示尾部记录'));
     if(data.isMD && data.monitor.source_file)notes.push(data.monitor.source_file);
-    if(mode==='delta')notes.push(t('虚线为能量差参考值'));
-    if(zero.length)notes.push(t('空心点为 0，不参与对数轴'));
+    if(zero.length)notes.push(t('空心点 = 0（未入对数轴）'));
     if(mode==='force') {
-      notes.push(t(({free_atoms:'Fmax：活动原子的最大力范数',all_atoms:'Fmax：全部原子的最大力范数',raw_directional_constraints:'原始 Fmax，未投影方向约束',raw:'原始 Fmax，约束信息不可用'})[data.monitor.force_basis] || 'Fmax：全部原子的最大力范数'));
-      if(scale.guides.length)notes.push(`|EDIFFG| = ${number(-data.monitor.ediffg,'force')} eV/Å`);
-      if(data.monitor.force_history_truncated)notes.push(t('受力历史来自 OUTCAR 尾部'));
+      notes.push(t(({free_atoms:'活动原子 Fmax',all_atoms:'全原子 Fmax（含固定原子）',raw_directional_constraints:'原始 Fmax（未投影方向约束）',raw:'原始 Fmax（约束信息不可用）'})[data.monitor.force_basis] || '全原子 Fmax（含固定原子）'));
     }
     find('.conv-note').textContent=notes.join(' · ');
     drawRange(c);showHover();

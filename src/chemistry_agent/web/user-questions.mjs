@@ -43,7 +43,7 @@ export function userQuestions({root, session, api, sync, toast}) {
         const previous=saved.find(a=>a.id===q.id);
         return `<fieldset data-item="${esc(q.id)}" ><legend data-no-i18n>${esc(q.question)}</legend>
           ${q.options.map(o=>`<label class="question-option"><input type="${q.multi_select?'checkbox':'radio'}" name="q-${esc(id)}-${i}" value="${esc(o.label)}" ${previous?.selected.includes(o.label)?'checked':''}><span data-no-i18n>${esc(o.label)}${o.description?`<small>${esc(o.description)}</small>`:''}</span></label>`).join('')}
-          <textarea rows="1" maxlength="1800" aria-label="${esc(t('自己的回答'))}" placeholder="${esc(t('自己的回答'))}">${esc(previous?.custom || '')}</textarea></fieldset>`;
+          <textarea rows="1" maxlength="1800" aria-label="${esc(t('其他回答…'))}" placeholder="${esc(t('其他回答…'))}">${esc(previous?.custom || '')}</textarea></fieldset>`;
       }).join('')}
       <button type="submit" ${sending.has(id)?'disabled':''}>${esc(t('发送选择'))}</button></form>`;
   };

@@ -30,6 +30,8 @@
       if (fields[i] === "species" || fields[i] === "Z") { result.species = result.width; result.atomicNumber = fields[i] === "Z"; }
       if (["id", "atom_id", "identifier"].includes(fields[i]) && width === 1) result.id = result.width;
       if (["mass", "masses", "Mass"].includes(fields[i]) && width === 1) result.mass = result.width;
+      const aliases={type:['type','atom_type','atomtype'],typeName:['type_name'],name:['name','atom_name'],residue:['residue','resname'],resid:['resid','residue_id'],sourceId:['source_id'],charge:['charge','q','initial_charges']};
+      for(const [key,names] of Object.entries(aliases))if(width===1&&names.includes(fields[i]))result[key]=result.width;
       if (fields[i] === "pos") { if (width !== 3) throw Error("pos 必须有 3 列"); result.position = result.width; }
       result.width += width;
     }
@@ -66,9 +68,29 @@
       const elem = layout.atomicNumber ? elements[number(values[layout.species])] : values[layout.species].replace(/^['"]|['"]$/g, "");
       if (!elements.includes(elem) || elem === "X") throw Error(`未知元素：${elem}`);
       const [x, y, z] = values.slice(layout.position, layout.position + 3).map(number);
-      atoms.push({ elem, x, y, z, serial: i + 1, ...(layout.mass == null ? {} : {mass: number(values[layout.mass])}), ...(layout.id == null ? {} : {id: values[layout.id]}) });
+      const atom={ elem, x, y, z, serial: i + 1, ...(layout.mass == null||values[layout.mass]==='""' ? {} : {mass: number(values[layout.mass])}), ...(layout.id == null ? {} : {id: values[layout.id]}) };
+      for(const key of ['type','typeName','name','residue','resid','sourceId','charge'])if(layout[key]!=null){
+        const value=values[layout[key]];
+        if(key==='charge'&&value==='""')continue;
+        atom[key]=key==='charge'?number(value):value.startsWith('"')?JSON.parse(value):value.replace(/^'|'$/g,'');
+      }
+      atoms.push(atom);
     }
-    return { atoms, cell, pbc, info, header, layout };
+    const origin=info.cell_origin?info.cell_origin.split(/\s+/).map(number):[0,0,0];
+    if(origin.length!==3)throw Error('Cell origin requires three components');
+    return { atoms, cell, pbc, info, header, layout,origin };
+  }
+  function serializeFrame(atoms,cell,pbc,info={}) {
+    // Preserve source identities through the common XYZ transport. Force-field
+    // types remain distinct even when several types describe the same element.
+    const strings=[['type','atom_type'],['typeName','type_name'],['name','atom_name'],['residue','residue'],['resid','residue_id'],['sourceId','source_id']].filter(([key])=>atoms.some(a=>a[key]!=null));
+    const numbers=['mass','charge'].filter(key=>atoms.some(a=>Number.isFinite(a[key])));
+    const ids=atoms.every(a=>a.id!=null);
+    const properties='species:S:1:pos:R:3'+(ids?':id:I:1':'')+numbers.map(key=>`:${key}:${atoms.every(a=>Number.isFinite(a[key]))?'R':'S'}:1`).join('')+strings.map(([,key])=>`:${key}:S:1`).join('');
+    const header=(cell?'Lattice="'+cell.flat().join(' ')+'" ':'')+`Properties=${properties} pbc="${pbc.map(v=>v?'T':'F').join(' ')}"`;
+    const attributes=Object.entries(info).map(([key,value])=>`${key}=${JSON.stringify(Array.isArray(value)?value.join(' '):String(value))}`).join(' ');
+    const rows=atoms.map(a=>[a.elem,...(a.position||[a.x,a.y,a.z]),...(ids?[a.id]:[]),...numbers.map(key=>Number.isFinite(a[key])?a[key]:'""'),...strings.map(([key])=>JSON.stringify(String(a[key]??'')))].join(' '));
+    return `${atoms.length}\n${header} ${attributes}\n${rows.join('\n')}\n`;
   }
   function parseVASP(lines, trajectory) {
     const scales = vector(lines[1]);
@@ -173,7 +195,7 @@
       return [...header,...chunk.lines.slice(frame.start-1,frame.end)].join(chunk.newline)+chunk.newline;
     }
   }
-  const api = { StructureDocument, ProgressiveXYZDocument, ProgressiveVASPDocument, attributes, columns, elements };
+  const api = { StructureDocument, ProgressiveXYZDocument, ProgressiveVASPDocument, attributes, columns, elements, serializeFrame };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.StructureParser = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -111,7 +111,7 @@ test('the critical path is horizontal, forks align by rank, and skip edges avoid
   assert.equal(points.get('b').x,points.get('side').x);
   assert(points.get('side').y>=points.get('b').y+CARD.row);
   const route=edgeRoute('a','join',layout), path=edgePath(points.get('a'),points.get('join'),route);
-  assert(route.viaY<points.get('b').y);
+  assert(route.viaY<points.get('b').y || route.viaY>points.get('b').y+CARD.height);
   assert.match(path,/Q/);assert.doesNotMatch(path,/C|NaN|Infinity/);
   assert.ok(path.endsWith(`L${points.get('join').x} ${points.get('join').y+CARD.height/2}`));
 });
@@ -125,4 +125,22 @@ test('vertical presentation preserves edges and keeps parallel branches in separ
   const route=edgeRoute('a','end',layout);
   assert.equal(route.direction,'TB');assert(route.viaX<layout.points.get('b').x);
   assert.doesNotMatch(edgePath(layout.points.get('a'),layout.points.get('end'),route),/C|NaN|Infinity/);
+});
+
+
+test('dragging beyond a grid row keeps a clear forward connection local',()=>{
+  for(const direction of ['TB','LR']) {
+    const a={x:400,y:400},b=direction==='TB'?{x:460,y:400+CARD.row+60}:{x:400+CARD.column+60,y:460};
+    const layout={direction,points:new Map([['a',a],['b',b],['remote',{x:64,y:80}]]),ranks:new Map([['a',0],['b',1]])};
+    const route=edgeRoute('a','b',layout);
+    assert.equal(route?.viaX,undefined);assert.equal(route?.viaY,undefined);
+    const path=edgePath(a,b,route);assert.doesNotMatch(path,/NaN|Infinity/);
+  }
+});
+
+test('a backwards drag uses a nearby corridor rather than the distant graph boundary',()=>{
+  const layout={direction:'TB',points:new Map([['a',{x:500,y:600}],['b',{x:500,y:400}],['remote',{x:64,y:80}]]),ranks:new Map([['a',0],['b',1]])};
+  const route=edgeRoute('a','b',layout);
+  assert.equal(route.viaX,476);
+  assert.doesNotMatch(edgePath(layout.points.get('a'),layout.points.get('b'),route),/NaN|Infinity/);
 });

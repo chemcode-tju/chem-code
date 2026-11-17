@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {profilePoints,selectedPath,resultURL} from '../src/chemistry_agent/web/registered-results.mjs';
+import {profilePoints,selectedPath,resultURL,resultTimestamp} from '../src/chemistry_agent/web/registered-results.mjs';
+
+test('result freshness uses the requested timezone, including dates that cross midnight',()=>{
+  const value='2026-11-14T16:29:16.750560+00:00';
+  assert.equal(resultTimestamp(value,'zh-CN','Asia/Shanghai'),'2026/11/15 00:29:16');
+  assert.equal(resultTimestamp(value,'zh-CN','UTC'),'2026/11/14 16:29:16');
+  assert.equal(resultTimestamp(null),'');
+  assert.equal(resultTimestamp('not-a-timestamp'),'not-a-timestamp');
+});
 
 test('NEB iteration and image axes remain independent, including step zero',()=>{
   const first={step:0,images:[{index:0,relative_energy:0},{index:1,relative_energy:2}]};

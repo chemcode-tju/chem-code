@@ -1,0 +1,67 @@
+/* Step details share the workspace's reading hierarchy and disclosure geometry. */
+#step-screen {font-size:var(--font-size-ui,14px);line-height:1.65;}
+.step-heading {padding:20px 0 16px;}
+.step-kicker {font-size:var(--font-size-secondary,13px);font-weight:400;letter-spacing:0;}
+#step-title {font-size:22px;line-height:1.4;font-weight:600;letter-spacing:0;margin:8px 0;}
+#step-key {display:block;font-size:var(--font-size-secondary,13px);padding-top:8px;}
+.step-description > summary {display:flex;align-items:center;min-height:var(--control-height,34px);font-size:var(--font-size-ui,14px);margin-top:8px;}
+.step-description > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;margin-left:8px;color:var(--muted);}
+.step-description[open] > summary::after {transform:rotate(90deg);}
+.step-meta {gap:12px;margin-top:12px;}
+.step-status {border-radius:var(--radius-control,8px);font-weight:500;}
+#step-refresh {min-height:var(--control-height,34px);padding:6px 10px;border-radius:var(--radius-control,8px);font-size:var(--font-size-ui,14px);}
+#step-relations {padding:20px 8px 12px 14px;gap:12px;margin:0 4px 0 12px;border-left:2px solid var(--strong-border);}
+#step-relations h3 {font-size:var(--font-size-ui,14px);white-space:nowrap;}
+#step-relations h3 small {font:inherit;}
+.relation-chips button,.relation-chips summary {border-radius:var(--radius-control,8px);padding:5px 10px;font-size:var(--font-size-ui,14px);}
+#step-child-jobs > summary {min-height:44px;font-size:var(--font-size-ui,14px);gap:12px;}
+#step-child-jobs > summary span {font-size:var(--font-size-secondary,13px);}
+#step-child-jobs > div > button {gap:12px;padding:12px 8px;font-size:var(--font-size-ui,14px);}
+#step-child-jobs > div > button strong {font-size:var(--font-size-ui,14px);}
+#step-child-jobs > div > button small {font-size:var(--font-size-secondary,13px);}
+#step-child-jobs > div > button .step-status {font-size:var(--font-size-secondary,13px);white-space:nowrap;}
+.step-sections {background:transparent;border:0;border-radius:0;overflow:visible;margin-top:8px;}
+.step-sections > details,.step-sections > #step-figures:not(:empty),#step-dependencies {margin:8px 0;padding:0;border:0;}
+.step-sections > details > summary,#step-dependencies > summary {display:flex;align-items:center;gap:9px;min-height:40px;padding:8px 12px;font-size:var(--font-size-ui,14px);font-weight:500;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-control,8px);cursor:pointer;}
+.step-sections > details > summary::after,#step-dependencies > summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;margin-inline:auto 3px;color:var(--muted);}
+.step-sections > details[open] > summary::after,#step-dependencies[open] > summary::after {transform:rotate(90deg);}
+.step-sections > details[open] {padding-bottom:8px;}
+.step-sections > details > :not(summary) {margin-inline:12px 4px;padding-inline:14px 8px;border-left:2px solid var(--strong-border);}
+.step-sections > details > :nth-child(2) {margin-top:0;padding-top:18px;}
+.step-sections > details > :last-child {padding-bottom:10px;}
+.step-sections .step-section-body {min-width:0;}
+#step-registered-results > summary {font-size:var(--font-size-ui,14px);font-weight:500;}
+#step-screen .conv-metrics dt {font-size:var(--font-size-secondary,13px);}
+#step-screen .conv-metrics dd {font-size:18px;font-weight:600;letter-spacing:0;}
+#step-screen .conv-metrics small {font-size:var(--font-size-secondary,13px);font-weight:400;}
+#step-screen .conv-modes {border-radius:var(--radius-panel,12px);}
+#step-screen .conv-modes button {font-size:var(--font-size-ui,14px);min-height:var(--control-height,34px);border-radius:var(--radius-control,8px);}
+.step-parameter-tabs {display:flex;gap:4px;max-width:100%;overflow:auto;margin-bottom:10px;padding:3px;background:var(--panel);border-radius:var(--radius-control,8px);width:max-content;}
+.step-parameter-tabs button {min-height:30px;padding:4px 10px;border:0;border-radius:6px;background:transparent;font:500 var(--font-size-ui,14px) var(--font-code);color:var(--muted);white-space:nowrap;}
+.step-parameter-tabs button[aria-selected=true] {background:var(--surface);color:var(--text);box-shadow:inset 0 0 0 1px var(--border);}
+.step-parameter-tabs button:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
+.step-text-editor textarea,#step-output {font-size:var(--font-size-secondary,13px);border-radius:var(--radius-control,8px);}
+.step-editor-message {font-size:var(--font-size-secondary,13px);}
+.step-file-options {gap:8px;}
+.step-file-options button,.step-file-options a {font-size:var(--font-size-ui,14px);min-height:var(--control-height,34px);border-radius:var(--radius-control,8px);}
+#step-file-source,#step-note {font-size:var(--font-size-secondary,13px);line-height:1.6;margin:10px 0;}
+#step-job-choice {display:flex;align-items:center;gap:12px;min-width:0;margin:14px 0;font-size:var(--font-size-ui,14px);color:var(--muted);}
+#step-job-select {flex:1;min-width:0;max-width:100%;min-height:var(--control-height,34px);border-radius:var(--radius-control,8px);font:inherit;color:var(--text);padding:6px 10px;text-overflow:ellipsis;}
+.step-current-execution {color:var(--text);min-width:0;overflow-wrap:anywhere;}
+#step-note:empty,#step-file-source:empty {display:none;}
+#step-investigation-log small {font-size:var(--font-size-secondary,13px);}
+#step-screen .result-figure figcaption {font-size:var(--font-size-secondary,13px);}
+@media(max-width:600px) {
+  #step-title {font-size:20px;}
+  .step-meta {gap:8px;}
+  #step-progress {flex:1 1 150px;}
+  #step-relations > div {grid-template-columns:1fr;gap:8px;}
+}
+@media(pointer:coarse) {
+  #step-refresh,.step-file-options button,.step-file-options a,#step-job-select {min-height:44px;}
+}
+
+/* Nested disclosures use the same Lucide affordance as their parent sections. */
+.param-list>summary,.relation-chips details>summary {cursor:pointer;}
+.param-list>summary::after,.relation-chips details>summary::after {content:"";display:inline-block;width:14px;height:14px;flex:none;margin-left:8px;vertical-align:-2px;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;}
+.param-list[open]>summary::after,.relation-chips details[open]>summary::after {transform:rotate(90deg);}

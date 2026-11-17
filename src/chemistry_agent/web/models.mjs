@@ -6,9 +6,13 @@ export function fillModelOptions(select, models, current = "", { defaultLabel = 
   for (const model of models) {
     if (!model.id || seen.has(model.id)) continue;
     seen.add(model.id);
-    options.push(new Option(model.name || model.id, model.id));
+    const option = new Option(model.name || model.id, model.id);
+    option.dataset.noI18n = '';
+    options.push(option);
   }
-  if (current && !seen.has(current)) options.push(new Option(current, current));
+  if (current && !seen.has(current)) {
+    const option = new Option(current, current); option.dataset.noI18n = ''; options.push(option);
+  }
   if (manual) options.push(new Option(t("手动填写模型 ID"), "__manual__"));
   select.replaceChildren(...options);
   select.value = current;

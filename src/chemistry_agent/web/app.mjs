@@ -1,7 +1,7 @@
 import { externalContextView } from "./external-context.mjs";
 import {createWorkspaceFiles} from "./workspace-files.mjs";
 import {userQuestions} from './user-questions.mjs';
-import {activity, activityOpen, activitySteps, answerBox, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
+import {visibleReference, activity, activityOpen, activitySteps, answerBox, answerFooter, liveAnswerFooter, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
 import { initSettingsDialog } from "./settings-dialog.mjs";
@@ -71,6 +71,7 @@ const progressFeed=createProgressFeed({
 });
 const calculations = createCalculations({
   syncReport, refreshProgress:id=>progressFeed.refresh(id),
+  onPlans:(id,plans)=>progressFeed.setPlans(id,plans),
   reviseStep(id,title,planRevision) {
     const field = $("message-input");
     if (innerWidth<=767) setInspectorOpen(false);
@@ -214,6 +215,7 @@ function updateControls() {
   $("composer-add").disabled = locked || uploads.uploading;
   $("send-button").setAttribute("aria-label", state.busy ? "正在生成回答" : "发送消息");
   $("new-chat").disabled = locked;
+  $("new-chat-list").disabled = locked;
   $("new-project").disabled = locked;
   $("draft-project").disabled = locked || Boolean(state.sessionId);
   document.querySelectorAll("[data-new-in]").forEach((button) => { button.disabled = locked; });
@@ -231,7 +233,7 @@ async function refreshHealth() {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = "远程终端 · " + host;
-      button.title = "允许本轮对话使用 " + host + " 的终端";
+      button.title = "使用 " + host + " 的终端";
       button.onclick = () => {
         const field = $("message-input");
         field.value = "/shell " + host + "\n" + field.value.replace(/^\/shell[ \t]+[^\n]*\n?/, "");
@@ -244,7 +246,6 @@ async function refreshHealth() {
     }));
     calculations.enabled(Boolean(state.health.automation_enabled));
     notifications.enabled(Boolean(state.health.automation_enabled));
-    $("automation-link").hidden = !state.health.automation_enabled;
     chatModels?.render();
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
@@ -274,7 +275,7 @@ async function updateSessionTitle(id, session, turns) {
 }
 
 function sessionButton(session) {
-  return `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}">${icon("chat")}<span>${escapeHtml(session.title)}</span></button>`;
+  return `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}"><span>${escapeHtml(session.title)}</span></button>`;
 }
 
 const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
@@ -283,7 +284,7 @@ const uploads = createFileUploads({ state, toast, updateControls, onChange: () =
 
 function renderSessions() {
   const chats = state.sessions.filter((session) => !projectNavigation.includes(session.id));
-  $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无聊天</p>';
+  $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无对话</p>';
   $("load-more").hidden = !state.hasMore;
   projectNavigation.render();
   updateControls();
@@ -305,6 +306,7 @@ const workspaceFiles=createWorkspaceFiles({api,session:()=>state.sessionId,viewe
 
 function renderUser(text, context, files = [], structures = []) {
   const attachedFiles = files.length ? files : contextFiles(context);
+  context = visibleReference(context);
   return `<div class="user-message"><div class="user-bubble"><span data-no-i18n>${escapeHtml(text)}</span>${renderFiles(attachedFiles)}${structures.map(s => structureButton("artifact",s.id,s.name+".extxyz","查看 "+s.name)).join("")}${context && !attachedFiles.length ?
     `<details class="attached-reference"><summary>${icon("document")} ${t("附件与上下文")}</summary><pre>${escapeHtml(context)}</pre></details>` : ""}</div></div>`;
 }
@@ -322,7 +324,7 @@ function artifactLinks(calls) {
     const id = isStructure ? r.id : r.surface_structure_id || r.structure_id;
     if (id) links.set(id, structureButton("artifact",id,(r.name || "structure")+".extxyz","查看"+(r.name || "输入结构")));
     if (r.finished_ok && r.output_structure && r.id) links.set(r.id,structureButton("job",r.id,"optimized.extxyz","查看优化结构"));
-    if (/^calculation_(?:plan|prepare|preview|submit|job)/.test(call.name) && !isStructure) links.set("task",'<button class="view-result" data-task-panel>查看方案</button>');
+    if (/^calculation_(?:plan|prepare|preview|submit|job)/.test(call.name) && !isStructure) links.set("task",`<button type="button" class="plan-entry" data-task-panel>${icon('map')}<span>查看方案</span>${icon('chevron')}</button>`);
   }
   return [...links.values()].join(" ");
 }
@@ -331,7 +333,7 @@ const questionCard = userQuestions({root:$("conversation"), session:()=>state.se
   api, sync:()=>syncChat(), toast});
 function turnAnswer(turn,index) {
   const ask = turn.calls.find(call=>call.name==="ask_user_question" && call.success && call.result?.status==="awaiting_user");
-  if (!ask) return answerBox(markdown.render(turn.answer),index);
+  if (!ask) return answerBox(markdown.render(turn.answer));
   const active=!state.turns.slice(index+1).some(other=>!other.event) && !state.outbox.length && !state.pending;
   return questionCard(ask.result,active);
 }
@@ -352,7 +354,7 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn assistant-update"><div class="assistant-label">Chem Code · 计算更新</div><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer),index)}</article>` : `<article class="turn">${turn.background ? '<div class="assistant-label">Chem Code · 计算更新</div>' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div></div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn"><div class="assistant-message"><div class="assistant-body"><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer))}${answerFooter(index)}</div></div></article>` : `<article class="turn">${turn.background ? '' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div>${turn.answer ? answerFooter(index) : ''}</div></div></article>`
 
   ).join("");
   calculations.drawReportFigures();
@@ -362,7 +364,7 @@ function renderConversation(scroll = true) {
     const failed = ["failed","uncertain"].includes(item.status);
     const label = failed ? item.error || "处理失败" : item.status==="queued" ? "等待上一条回复" : "";
     article.innerHTML = renderUser(item.body.message, item.body.context || "") +
-      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}</div></div>`;
+      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}${liveAnswerFooter(item.id)}</div></div>`;
     $("conversation").append(article);
   }
   for (const el of $("conversation").querySelectorAll("[data-activity]")) el.open=activityOpen(el.dataset.running==='true',expanded.get(el.dataset.activity));
@@ -536,7 +538,7 @@ function restoreDraft() {
     state.pending = draft.pending ? {
       message:draft.pending.message, context:draft.pending.context || "",
       files:[], structures:[], request:draft.pending,
-      error:"正在核对发送记录；若尚未收到，可用同一编号重试。",
+      error:"发送状态未确认，可重试。",
     } : null;
   } catch { state.pending = null; }
 }
@@ -557,6 +559,8 @@ const streamed = liveAnswer({
       el.innerHTML = text ? (markdown.renderPartial?.(text) ?? markdown.render(text)) : "";
     }
     el.parentElement.hidden = !text;
+    const footer=el.closest('.assistant-body')?.querySelector(`[data-live-footer="${CSS.escape(request)}"]`);
+    if(footer) footer.hidden=!text;
     activity.querySelector('[data-activity-placeholder]').hidden = Boolean(text || activity.querySelector('[data-activity-steps]').childElementCount);
     if (pinned) scroll.scrollTop = scroll.scrollHeight;
   },
@@ -679,6 +683,7 @@ function metric(label, value, unit = "") {
 
 const emptyResult = $("result-panel").innerHTML;
 function renderResult(call) {
+  $("result-section").hidden = !call;
   if (!call) {
     $("result-panel").innerHTML = emptyResult;
     $("result-badge").textContent = "暂无记录";
@@ -688,7 +693,7 @@ function renderResult(call) {
   if (!call.success) {
     $("result-section").open = true;
     $("result-panel").innerHTML = `<div class="tool-failure">${escapeHtml(call.result?.message || "计算未完成，请检查输入的分子结构。")}</div>`;
-    $("result-badge").textContent = "请检查输入";
+    $("result-badge").textContent = "未完成";
     return;
   }
   $("result-section").open = true;
@@ -700,11 +705,11 @@ function renderResult(call) {
   } else if (call.name === "molecular_similarity") {
     const score = Number(result.tanimoto_similarity);
     const percent = Number.isFinite(score) ? Math.max(0, Math.min(100, score * 100)) : 0;
-    body = `<div class="calculation-title"><strong>结构相似度</strong><span>TANIMOTO</span></div><div class="canonical-smiles">${escapeHtml(result.canonical_smiles_a)} ↔ ${escapeHtml(result.canonical_smiles_b)}</div><div class="similarity-score"><strong>${escapeHtml(metricValue(score, 6))}</strong><div class="score-track"><span style="width:${percent}%"></span></div><small>0 无指纹重叠 · 1 指纹相同</small></div><div class="result-source">Morgan 指纹 · radius=2 · 2048 bits<br>结构相似度不代表生物活性。</div>`;
+    body = `<div class="calculation-title"><strong>结构相似度</strong><span>TANIMOTO</span></div><div class="canonical-smiles">${escapeHtml(result.canonical_smiles_a)} ↔ ${escapeHtml(result.canonical_smiles_b)}</div><div class="similarity-score"><strong>${escapeHtml(metricValue(score, 6))}</strong><div class="score-track"><span style="width:${percent}%"></span></div></div><div class="result-source">Morgan (r=2, 2048 bit) · Tanimoto</div>`;
   } else {
     body = `<div class="calculation-title"><strong>${escapeHtml(call.name)}</strong></div>`;
   }
-  $("result-panel").innerHTML = `<div class="calculation-card">${body}<div class="result-source">${escapeHtml(result.source || "")}</div><details class="raw-result"><summary>查看参数与完整结果</summary><pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, result }, null, 2))}</pre></details></div>`;
+  $("result-panel").innerHTML = `<div class="calculation-card">${body}<details class="raw-result"><summary>参数与原始输出</summary><div class="result-source" data-no-i18n>${escapeHtml(result.source || "")}</div>${call.name === "molecular_similarity" ? "<p>结构相似度不代表生物活性。</p>" : ""}<pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, result }, null, 2))}</pre></details></div>`;
 }
 
 async function runLocalTool(name, form) {
@@ -754,7 +759,7 @@ $("session-list").addEventListener("click", (event) => {
   const button = event.target.closest("[data-session]");
   if (button) selectSession(button.dataset.session);
 });
-$("refresh-sessions").addEventListener("click", () => refreshSessions().catch((error) => toast(error.message)));
+$("new-chat-list").addEventListener("click", newConversation);
 $("load-more").addEventListener("click", async () => {
   $("load-more").disabled = true;
   try { await refreshSessions(true); } catch (error) { toast(error.message); }
@@ -787,7 +792,6 @@ try {
   setSidebarCollapsed(saved === null ? innerWidth >= 768 && innerWidth < 1024 : saved === "true", false, false);
 } catch { /* Use the desktop navigation by default. */ }
 $("sidebar-collapse").addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"), true));
-$("rail-projects").addEventListener("click", () => { setSidebarCollapsed(false, true); $("new-project").focus(); });
 $("menu-toggle").addEventListener("click", () => { setInspectorOpen(false, {persist:false, focus:false}); setDrawer("sidebar", !document.body.classList.contains("sidebar-open")); });
 $("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false); setInspectorOpen(true); });
 $("inspector-close").addEventListener("click", () => setDrawer("inspector", false));
@@ -994,8 +998,9 @@ async function refreshContext() {
     const percent = Math.round(100 * info.estimated_input_tokens / Math.max(1, info.input_budget_tokens));
     setMeter(percent);
     $("context-status").textContent = `会话记忆 · 已摘要 ${info.covered_messages} / ${info.original_messages} 条消息`;
-    $("context-budget").textContent = `估算输入 ${info.estimated_input_tokens.toLocaleString()} / ${info.input_budget_tokens.toLocaleString()} tokens（${info.tokenizer}）；自动触发 ${info.trigger_tokens.toLocaleString()}，保留最近 ${info.recent_turns} 轮。`;
-    $("context-summary").textContent = info.summary || t("尚未生成历史摘要。");
+    $("context-budget").textContent = `≈ ${info.estimated_input_tokens.toLocaleString()} / ${info.input_budget_tokens.toLocaleString()} tokens (${percent}%)`;
+    $("context-summary").textContent = info.summary || "";
+    $("context-summary").hidden = !info.summary;
   } catch (error) {
     if (id !== state.sessionId || generation !== contextGeneration) return;
     setMeter();
@@ -1014,7 +1019,7 @@ $("compact-context").onclick = async () => {
     const result = await api(`/sessions/${encodeURIComponent(id)}/context/compact?operation_id=${contextRequest.id}`, { method: "POST" });
     contextRequest = null;
     if (state.sessionId === id) await refreshContext();
-    toast(external ? "已交给 Agent 压缩。" : result.context.summary_calls ? "历史摘要已更新，原文和计算产物完整保留。" : "暂无需要进一步压缩的历史，保留最近对话。");
+    toast(external ? "已交给 Agent 压缩。" : result.context.summary_calls ? "历史已压缩" : "当前无需压缩");
   } catch (error) { toast(error.message); }
   finally { state.busy = false; updateControls(); }
 };

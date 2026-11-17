@@ -1,40 +1,94 @@
 @import url("./vendor/harness/design-platform.css");
 @import url("./vendor/harness/brand-font.css");
 @import url("./vendor/harness/scrollbar.css");
+@import url("./vendor/solid-glass/tokens.css");
 
 :root {
+  --icon-chevron: url("/assets/vendor/lucide/icons/chevron-right.svg");
+  --icon-check: url("/assets/vendor/lucide/icons/check.svg");
+  --icon-alert: url("/assets/vendor/lucide/icons/circle-exclamation-point.svg");
   color-scheme: light;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-code: ui-monospace, Menlo, Monaco, Consolas, monospace;
   --font-brand: "Montserrat", var(--font-ui);
-  --surface: var(--dsw-alias-bg-base);
-  --panel: var(--dsw-alias-bg-layer-1);
-  --raised: var(--dsw-alias-bg-layer-2);
-  --subtle: var(--dsw-alias-bg-module-platform);
-  --sidebar-fill: var(--dsw-specific-sidebar-fill);
-  --selected: var(--dsw-specific-sidebar-nav-item-active);
-  --hover: var(--dsw-alias-interactive-bg-hover);
-  --text: var(--dsw-alias-label-primary);
-  --muted: var(--dsw-alias-label-secondary);
-  --faint: var(--dsw-alias-label-tertiary);
-  --border: var(--dsw-alias-border-l2);
-  --strong-border: var(--dsw-alias-border-l4);
-  --accent: var(--dsw-alias-brand-primary-new-colorprimary-new-color);
+  --surface: #fff;
+  --panel: var(--sg-panel);
+  --card: var(--sg-card);
+  --raised: var(--sg-popover);
+  --subtle: var(--sg-muted);
+  --sidebar-fill: var(--sg-sidebar);
+  --selected: var(--sg-glass-state);
+  --hover: var(--sg-hover);
+  --text: var(--sg-foreground);
+  --muted: var(--sg-muted-foreground);
+  --faint: var(--sg-muted-foreground);
+  --border: var(--sg-border);
+  --strong-border: var(--sg-input);
+  --accent: var(--sg-link);
   --on-accent: white;
-  --primary: var(--dsw-alias-button-primary-fill);
-  --on-primary: var(--dsw-alias-label-primary-inverted);
-  --danger: var(--dsw-alias-state-error-primary);
-  --bubble: var(--dsw-specific-bubble);
-  --input-fill: var(--dsw-specific-input-major);
+  --primary: var(--sg-primary);
+  --on-primary: var(--sg-primary-foreground);
+  --danger: var(--sg-destructive);
+  --success: var(--sg-success);
+  --bubble: var(--sg-glass-control);
+  --input-fill: var(--sg-field);
   --mask: var(--dsw-alias-bg-mask-1);
-  --shadow: 0 0 0 .5px var(--border), 0 4px 16px rgb(0 0 0 / 3%), 0 0 24px rgb(0 0 0 / 3%);
-  --floating-shadow: 0 0 0 .5px var(--border), 0 3px 8px rgb(0 0 0 / 4%), 0 0 20px rgb(0 0 0 / 5%);
-  --reading-size: 14px;
+  --glass-shadow: inset 0 1px 0 var(--sg-glass-rim), inset 0 0 0 1px var(--sg-glass-inner), 0 0 0 1px var(--sg-glass-edge), 0 1px 2px var(--sg-glass-contact), 0 12px 32px -14px var(--sg-glass-shade);
+  --control-shadow: inset 0 1px 0 var(--sg-glass-control-rim), 0 0 0 1px var(--sg-glass-edge), 0 1px 2px var(--sg-glass-contact);
+  --state-shadow: inset 0 1px 0 var(--sg-glass-state-rim), inset 0 0 0 1px var(--sg-glass-state-edge);
+  --field-shadow: inset 0 1px 0 var(--sg-field-rim), inset 0 0 0 1px var(--sg-field-edge);
+  --opaque-panel: oklch(0.95 0.005 265);
+  --opaque-card: oklch(0.96 0.004 265);
+  --opaque-popover: oklch(0.985 0.003 265);
+  --shadow: var(--glass-shadow);
+  --floating-shadow: inset 0 1px 0 var(--sg-glass-rim), inset 0 -1px 0 var(--sg-popover-under), 0 0 0 1px var(--sg-popover-edge), 0 24px 60px -18px var(--sg-glass-shade), 0 6px 16px -6px var(--sg-glass-lift);
+  --reading-size: 16px;
+  --font-size-ui: 14px;
+  --font-size-secondary: 13px;
+  --radius-control: var(--sg-radius-control);
+  --radius-panel: var(--sg-radius);
+  --radius-dialog: calc(var(--sg-radius) * 1.4);
+  --control-height: 34px;
+  --menu-padding: 4px;
+  --motion-fast: 120ms;
+  --motion-expand: 180ms;
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="dark"] { color-scheme: dark;--surface:var(--sg-background);--opaque-panel:oklch(0.205 0 0);--opaque-card:oklch(0.22 0 0);--opaque-popover:oklch(0.22 0 0); }
+/* Compatibility for components that still consume the original Harness names.
+   Their semantics stay stable; Solid Glass is now the palette source. */
+:root,:root[data-theme="dark"] {
+  --dsw-alias-label-primary: var(--text);
+  --dsw-alias-label-secondary: var(--muted);
+  --dsw-alias-label-tertiary: var(--faint);
+  --dsw-alias-label-primary-inverted: var(--on-primary);
+  --dsw-alias-bg-base: var(--surface);
+  --dsw-alias-bg-layer-1: var(--panel);
+  --dsw-alias-bg-layer-2: var(--raised);
+  --dsw-alias-bg-module-platform: var(--subtle);
+  --dsw-alias-border-l2: var(--border);
+  --dsw-alias-border-l4: var(--strong-border);
+  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--accent);
+  --dsw-alias-button-primary-fill: var(--primary);
+  --dsw-alias-button-primary-hover: color-mix(in oklab,var(--primary) 84%,var(--surface));
+  --dsw-alias-button-primary-dimmed: var(--subtle);
+  --dsw-alias-button-floating-hover: var(--hover);
+  --dsw-alias-interactive-bg-hover: var(--hover);
+  --dsw-alias-state-error-primary: var(--danger);
+  --dsw-alias-state-success-primary: var(--success);
+  --dsw-alias-link: var(--sg-link);
+  --dsw-alias-markdown-code-block: var(--subtle);
+  --dsw-alias-markdown-inline-code: var(--subtle);
+  --dsw-alias-toast-bg: var(--raised);
+  --dsw-alias-toast-label: var(--text);
+  --dsw-specific-bubble: var(--bubble);
+  --dsw-specific-input-major: var(--input-fill);
+  --dsw-specific-login-input: var(--input-fill);
+  --dsw-specific-sidebar-fill: var(--sidebar-fill);
+  --dsw-specific-sidebar-nav-item-active: var(--selected);
+}
 * {
   box-sizing:border-box;
 }
@@ -65,7 +119,7 @@ a {
 button {
   border:1px solid var(--border);
   background:var(--surface);
-  border-radius:12px;
+  border-radius:var(--radius-control);
   padding:6px 12px;
 }
 button:hover,a:hover {
@@ -78,7 +132,7 @@ button:disabled {
 input,select,textarea {
   background:var(--surface);
   border:1px solid var(--strong-border);
-  border-radius:12px;
+  border-radius:var(--radius-control);
   padding:7px 12px;
 }
 textarea {
@@ -112,7 +166,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   height:18px;
   fill:none;
   stroke:currentColor;
-  stroke-width:1.6;
+  stroke-width:2;
   stroke-linecap:round;
   stroke-linejoin:round;
   flex-shrink:0;

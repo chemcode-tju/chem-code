@@ -1,5 +1,17 @@
 "use strict";
-const viewQuaternions = {xy: [0, 0, 0, 1], xz: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], yz: [-0.5, 0.5, 0.5, 0.5], perspective: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2]};
+const viewQuaternions = {
+  xy:[0,0,0,1], bottom:[0,1,0,0],
+  xz:[-Math.SQRT1_2,0,0,Math.SQRT1_2], back:[0,Math.SQRT1_2,Math.SQRT1_2,0],
+  yz:[-0.5,0.5,0.5,0.5], right:[-0.5,-0.5,-0.5,0.5],
+  perspective:[-Math.SQRT1_2,0,0,Math.SQRT1_2],
+};
+const axisViews={KeyX:["right","yz"],KeyY:["back","xz"],KeyZ:["xy","bottom"]};
+function axisShortcut(event) {
+  // Option can produce a different character on macOS; code identifies the key.
+  if(event.defaultPrevented||event.isComposing||event.repeat||event.metaKey||event.ctrlKey||event.shiftKey)return;
+  if(event.target?.isContentEditable||event.target?.closest?.("input,textarea,select,dialog,[role=textbox],[role=listbox]"))return;
+  return axisViews[event.code]?.[event.altKey?1:0];
+}
 function projectToView([a,b,c], [x,y,z,w]) {
   // Match the renderer's model matrix (3Dmol Vector3.applyQuaternion uses its inverse).
   return [(1-2*(y*y+z*z))*a + 2*(x*y-z*w)*b + 2*(x*z+y*w)*c,
@@ -26,6 +38,8 @@ class StructureViews {
   createPane(preset, index) {
     const element = document.createElement("section");
     element.className = "viewport";
+    element.dataset.viewIndex = String(index);
+    element.tabIndex = -1;
     element.innerHTML = '<button class="view-title" type="button"></button><div class="view-canvas"></div><div class="pointer-layer"><div class="selection-rectangle" hidden></div></div><div class="selection-rectangle shortcut-rectangle" hidden></div><svg class="axis-gizmo" viewBox="0 0 78 78" aria-label="坐标轴"></svg>';
     this.container.append(element);
     const canvas = element.querySelector(".view-canvas");
@@ -35,7 +49,10 @@ class StructureViews {
     element.querySelector(".view-title").textContent = this.title(preset);
     element.querySelector(".view-title").onclick = () => this.activate(index);
     element.querySelector(".view-title").ondblclick = () => { this.activate(index); this.toggleExpand(); };
-    element.addEventListener("pointerdown", () => { this.commitResize(pane); this.activate(index); }, true);
+    element.addEventListener("pointerdown", event => {
+      if(!event.target.closest("button"))element.focus({preventScroll:true});
+      this.commitResize(pane); this.activate(index);
+    }, true);
     element.addEventListener("mousedown", () => this.activate(index), true);
     viewer.setViewChangeCallback(() => { this.drawAxes(pane); this.drawSelection(pane); });
     // Own resize scheduling; the pinned renderer's automatic listeners are
@@ -100,6 +117,7 @@ class StructureViews {
       if(source?.width&&source?.height){
         const cover=document.createElement('canvas');cover.className='resize-cover';
         cover.width=source.width;cover.height=source.height;
+        cover.style.width=pane.viewer.WIDTH+'px';cover.style.height=pane.viewer.HEIGHT+'px';
         try{cover.getContext('2d').drawImage(source,0,0);pane.element.append(cover);pane.resizeCover=cover;}catch{}
       }
     }
@@ -114,7 +132,7 @@ class StructureViews {
     const width=pane.canvas.clientWidth,height=pane.canvas.clientHeight;
     if(!pane.element.hidden&&width>0&&height>0){
       const size=`${width}:${height}:${globalThis.devicePixelRatio||1}`;
-      if(pane.lastSize!==size){pane.viewer.resize();pane.lastSize=size;}
+      this.resizePane(pane,width,height,size);
     }
     // Let the new WebGL frame reach the compositor before uncovering it.
     pane.resizeReveal=requestAnimationFrame(()=>{
@@ -122,6 +140,33 @@ class StructureViews {
         if(!pane.resizeTimer){pane.resizeCover?.remove();pane.resizeCover=null;}
       });
     });
+  }
+  resizeToLayout() {
+    for(const pane of this.panes){
+      clearTimeout(pane.resizeTimer);pane.resizeTimer=null;
+      cancelAnimationFrame(pane.resizeReveal);
+      const width=pane.canvas.clientWidth,height=pane.canvas.clientHeight;
+      if(!pane.element.hidden&&width>0&&height>0){
+        this.resizePane(pane,width,height,`${width}:${height}:${globalThis.devicePixelRatio||1}`);
+      }
+      // A footer toggle can also interrupt an unfinished width resize. Do not
+      // leave its stale, white-backed snapshot over the freshly painted scene.
+      pane.resizeCover?.remove();pane.resizeCover=null;
+    }
+  }
+  resizePane(pane,width,height,size) {
+    if(pane.lastSize===size)return;
+    if(pane.projectionSize){
+      // 3Dmol fixes horizontal span in orthographic mode and vertical FOV in
+      // perspective. Keep the focal length in CSS pixels for either projection.
+      const perspective=pane.preset==='perspective';
+      const ratio=perspective?height/pane.projectionSize.height:width/pane.projectionSize.width;
+      const halfAngle=perspective?10:20;
+      const angle=Math.atan(Math.tan(halfAngle*Math.PI/180)*ratio)*180/Math.PI;
+      pane.viewer.setCameraParameters({fov:perspective?2*angle:angle});
+    }
+    pane.viewer.resize();
+    pane.lastSize=size;
   }
   bindShiftSelection(pane) {
     const {element,canvas,viewer}=pane;
@@ -166,11 +211,16 @@ class StructureViews {
       if((gesture||event.shiftKey)&&!event.target.closest('button'))stop(event);
     },true);
   }
-  title(preset) { return {xy: "Top · XY", xz: "Front · XZ", yz: "Left · YZ", perspective: "Perspective"}[preset]; }
+  title(preset) { return document.querySelector(`#orientation option[value="${preset}"]`).label; }
   activate(index) {
     this.active = index;
     this.panes.forEach((pane, i) => pane.element.classList.toggle("active", i === index));
-    document.getElementById("orientation").value = this.panes[index].preset;
+    const orientation = document.getElementById("orientation");
+    orientation.value = this.panes[index].preset;
+    const shortcut = orientation.selectedOptions[0]?.dataset.shortcut;
+    const badge = document.getElementById("orientation-key");
+    badge.textContent = shortcut || "";
+    badge.hidden = !shortcut;
   }
   setLayout(layout) {
     this.layout = layout;
@@ -179,17 +229,15 @@ class StructureViews {
     if (!visible.includes(this.active)) this.activate(1);
     this.panes.forEach((pane, index) => { pane.element.hidden = !visible.includes(index); });
     this.activate(this.active);
+    this.panes.forEach(pane=>{
+      if(pane.element.hidden)return;
+      const width=pane.canvas.clientWidth,height=pane.canvas.clientHeight;
+      if(width&&height)this.resizePane(pane,width,height,`${width}:${height}:${globalThis.devicePixelRatio||1}`);
+    });
     if (this.scene) this.renderScene(this.scene,this.latest[2],false);
     document.getElementById("layout").value = layout;
     const single = layout === "single";
     document.getElementById("expand").querySelector("use").setAttribute("href", "/assets/ui-icons.svg#i-" + (single ? "multi-view" : "expand"));
-    requestAnimationFrame(() => this.panes.forEach(pane => {
-      if (!pane.element.hidden) {
-        pane.viewer.resize();
-        if (pane.ready) this.fit(pane);
-        pane.viewer.render();
-      }
-    }));
   }
   toggleExpand() {
     if (this.layout === "single") this.setLayout(this.previousLayout);
@@ -197,6 +245,7 @@ class StructureViews {
   }
   setMode(mode) {
     this.mode = mode;
+    const control=document.getElementById('navigation-mode');if(control)control.value=mode;
     this.container.dataset.mode = mode;
     document.querySelectorAll("[data-mode-button]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.modeButton === mode)));
   }
@@ -214,6 +263,11 @@ class StructureViews {
   setOrientation(preset) { this.orient(this.panes[this.active], preset); this.activate(this.active); }
   fit(pane = this.panes[this.active]) {
     if (!pane.ready || pane.element.hidden || !this.bounds) return;
+    const width=pane.canvas.clientWidth,height=pane.canvas.clientHeight;
+    if(!width||!height)return;
+    pane.projectionSize={width,height};
+    pane.viewer.setCameraParameters({fov:20});
+    this.resizePane(pane,width,height,`${width}:${height}:${globalThis.devicePixelRatio||1}`);
     const {min, max} = this.bounds;
     const center = this.follow ? [this.follow.x,this.follow.y,this.follow.z] : min.map((n, i) => (n + max[i]) / 2);
     const view = pane.viewer.getView();
@@ -307,7 +361,8 @@ class StructureViews {
   }
   captureScene() {
     const pane=this.panes[this.active];
-    return Object.freeze({scene:this.scene,preset:pane.preset,view:pane.viewer.getView().slice(),
+    this.commitResize(pane);
+    return Object.freeze({scene:this.scene,preset:pane.preset,fov:pane.viewer.fov,view:pane.viewer.getView().slice(),
       width:pane.canvas.clientWidth,height:pane.canvas.clientHeight,
       pixelRatio:pane.canvas.querySelector('canvas').width/pane.canvas.clientWidth});
   }
@@ -335,6 +390,7 @@ class StructureViews {
     pane.viewer.resize();pane.preset=capture.preset;
     exporter.renderScene({...capture.scene,options:{...capture.scene.options,labelScale:width/capture.width}},[],false);
     pane.viewer.setProjection(pane.preset==='perspective'?'perspective':'orthographic');
+    pane.viewer.setCameraParameters({fov:capture.fov});
     pane.viewer.setView(capture.view.slice());
     pane.viewer.setBackgroundColor('#ffffff',0);pane.viewer.render();
     exporter.drawSelection(pane);
@@ -371,16 +427,21 @@ class StructureViews {
         const model = viewer.addModel(xyz, "xyz", {assignBonds: rules.some(r=>r.visible&&r.style!=="sphere")});
         model.selectedAtoms({}).forEach((atom,index)=>{atom.index=index;});
         viewer.setStyle({},{});
-        const groups=new Map();
+        const groups=new Map(), palettes=new Map();
         this.visibleIndices.forEach((originalIndex,index)=>{
           const atom=frame.atoms[originalIndex],rule=rules[originalIndex];
-          const palette=StructureAppearance.palette(rule.palette,$3Dmol.elementColors);
-          const color=rule.palette==='custom'?rule.color:(palette[atom.elem]??0xff1493);
+          if(!palettes.has(rule.palette))palettes.set(rule.palette,StructureAppearance.palette(rule.palette,$3Dmol.elementColors));
+          const color=palettes.get(rule.palette)[atom.elem]??0xff1493;
           const radius=StructureAppearance.radius(atom.elem)*options.scale;
           const style=rule.style==='sphere'?{sphere:{radius,color}}:rule.style==='stick'?{stick:{radius:.16,color}}:{sphere:{radius:radius*.45,color},stick:{radius:.10,color}};
           const key=JSON.stringify(style);if(!groups.has(key))groups.set(key,{style,indices:[]});groups.get(key).indices.push(index);
         });
-        for(const {style,indices} of groups.values())viewer.setStyle({index:indices},style);
+        // 3Dmol checks an index array linearly for every atom (quadratic for
+        // large water boxes). Set membership keeps each style pass linear.
+        for(const {style,indices} of groups.values()){
+          const members=new Set(indices);
+          viewer.setStyle({predicate:atom=>members.has(atom.index)},style);
+        }
         model.setClickable({},true,atom=>this.onAtom(this.visibleIndices[atom.index]));
       }
       if (options.cell && frame.cell) {
@@ -418,4 +479,4 @@ class StructureViews {
     }
   }
 }
-if (typeof module !== "undefined" && module.exports) module.exports = {projectToView, viewQuaternions, StructureViews, labelScreenScale};
+if (typeof module !== "undefined" && module.exports) module.exports = {projectToView, viewQuaternions, StructureViews, labelScreenScale, axisShortcut};

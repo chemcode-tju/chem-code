@@ -6,6 +6,17 @@ close(projectToView([1,0,0], viewQuaternions.xz), [1,0,0]);
 close(projectToView([0,0,1], viewQuaternions.xz), [0,1,0]);
 close(projectToView([0,1,0], viewQuaternions.yz), [-1,0,0]);
 close(projectToView([0,0,1], viewQuaternions.yz), [0,1,0]);
+// The viewing axis points towards the camera (+screen Z). Keep world Z
+// upright in side views and world Y upright in top/bottom views.
+const {axisShortcut}=require('../../src/chemistry_agent/web/structure/viewport.js');
+for(const [i,key] of ['KeyX','KeyY','KeyZ'].entries())for(const reverse of [false,true]){
+  const preset=axisShortcut({code:key,altKey:reverse,key:reverse?'≈':key.slice(-1)});
+  const eye=[0,0,0];eye[i]=reverse?-1:1;
+  close(projectToView(eye,viewQuaternions[preset]),[0,0,1]);
+  close(projectToView(i===2?[0,1,0]:[0,0,1],viewQuaternions[preset]),[0,1,0]);
+}
+for(const ignored of [{metaKey:true},{ctrlKey:true},{isComposing:true},{repeat:true},{target:{closest:()=>true}}])
+  assert.equal(axisShortcut({code:'KeyX',...ignored}),undefined);
 const frame = [10,10,45];
 close(projectToView(frame, viewQuaternions.yz), [-10,45,-10]);
 assert.equal(radius('H'), .46);
@@ -45,11 +56,11 @@ console.log('Selection updates preserve the atom model and camera, including cle
  const canvas={clientWidth:400,clientHeight:600};
  const layer={querySelector:()=>({hidden:true,style:{}}),addEventListener:()=>{},setPointerCapture:()=>{},getBoundingClientRect:()=>({left:0,top:0})};
  const title={};
- const element={hidden:false,querySelector:selector=>selector==='.view-canvas'?canvas:selector==='.pointer-layer'?layer:title,
+ const element={hidden:false,dataset:{},focus(){},querySelector:selector=>selector==='.view-canvas'?canvas:selector==='.pointer-layer'?layer:title,
    addEventListener:(name,fn)=>{(handlers[name]??=[]).push(fn);},setPointerCapture:()=>{}};
  let resizeCallback;
  const fakeViewer={setViewChangeCallback:()=>{},resize:()=>resizes.push([canvas.clientWidth,canvas.clientHeight]),render:()=>paints.push(1),translateScene:(dx,dy)=>translations.push([dx,dy])};
- global.document={createElement:tag=>tag==='section'?element:{}};
+ global.document={createElement:tag=>tag==='section'?element:{},querySelector:()=>({label:'Front · XZ'})};
  global.$3Dmol={createViewer:()=>fakeViewer};
  global.ResizeObserver=class {constructor(callback){resizeCallback=callback;}observe(){}};
  const interaction=Object.create(StructureViews.prototype);
@@ -72,7 +83,7 @@ console.log('Selection updates preserve the atom model and camera, including cle
  let copies=0,removals=0;
  canvas.querySelector=()=>({width:900,height:1200});
  element.append=()=>{};
- global.document.createElement=()=>({getContext:()=>({drawImage:()=>copies++}),remove:()=>removals++});
+ global.document.createElement=()=>({style:{},getContext:()=>({drawImage:()=>copies++}),remove:()=>removals++});
  const pane=interaction.panes[0];pane.ready=true;
  canvas.clientWidth=460;resizeCallback();
  canvas.clientWidth=470;resizeCallback();
@@ -81,12 +92,24 @@ console.log('Selection updates preserve the atom model and camera, including cle
  assert.deepEqual(resizes.at(-1),[470,600]);assert.ok(pane.resizeCover);
  flush();assert.ok(pane.resizeCover);flush();assert.equal(pane.resizeCover,null);assert.equal(removals,1);
  canvas.clientWidth=480;resizeCallback();settle();assert.equal(copies,2);assert.equal(removals,2);
+ // Footer expansion changes height in one step, so the canvas must already
+ // match before the next paint, with no delayed white cover or extra redraw.
+ canvas.clientHeight=540;interaction.resizeToLayout();
+ assert.deepEqual(resizes.at(-1),[480,540]);assert.equal(pane.resizeCover,null);
+ const afterFooter=resizes.length;resizeCallback();settle();
+ assert.equal(resizes.length,afterFooter);assert.equal(copies,2);
+ // Collapsing during a sidebar drag must also cancel its pending snapshot.
+ canvas.clientWidth=490;resizeCallback();assert.ok(pane.resizeCover);
+ canvas.clientHeight=600;interaction.resizeToLayout();
+ assert.deepEqual(resizes.at(-1),[490,600]);assert.equal(pane.resizeCover,null);
+ assert.equal(timers.size,0);assert.equal(removals,3);
+ const afterInterrupt=resizes.length;settle();assert.equal(resizes.length,afterInterrupt);
  interaction.mode='box';let boxes=0;interaction.onBox=()=>boxes++;
  const mouse={button:0,pointerId:1,clientX:100,clientY:100,preventDefault(){}};
  layer.onpointerdown(mouse);layer.onpointerup(mouse);assert.equal(boxes,0);
  layer.onpointerdown(mouse);layer.onpointermove({...mouse,clientX:102});layer.onpointerup({...mouse,clientX:102});assert.equal(boxes,0);
  layer.onpointerdown(mouse);layer.onpointercancel();layer.onpointerup(mouse);assert.equal(boxes,0);
- console.log('Settled resize paints once; duplicate sizes and box-mode clicks do not reset the view or selection.');
+ console.log('Sidebar resize settles once; footer toggles paint immediately and clear stale covers without resetting the view.');
 }
 
 // Shift bypasses rotation/zoom, ray-picks the front atom, and toggles a dragged
@@ -142,4 +165,19 @@ console.log('Selection updates preserve the atom model and camera, including cle
  label.sprite.material={};views.drawSelection(pane);
  assert.equal(scales.length,2);assert.deepEqual(scales[0],scales[1]);assert.equal(paints,2);
  console.log('Context recovery reapplies label scales without requiring a camera change.');
+}
+
+// Check both 3Dmol projection conventions while width and height vary
+// independently. Repeated resize must not accumulate any change in scale.
+for(const preset of ['xz','perspective']){
+ const viewer={fov:20,setCameraParameters({fov}){this.fov=fov;},resize(){}};
+ const pane={viewer,preset,projectionSize:{width:650,height:800}};
+ const focalLength=(width,height)=>preset==='xz'
+   ?width/(2*Math.tan(viewer.fov*Math.PI/180))
+   :height/(2*Math.tan(viewer.fov*Math.PI/360));
+ const initial=focalLength(650,800);
+ for(const [w,h] of [[490,800],[810,575],[340,290],[650,800]]){
+   StructureViews.prototype.resizePane(pane,w,h,`${w}:${h}:2`);
+   assert.ok(Math.abs(focalLength(w,h)-initial)<1e-9);
+ }
 }
