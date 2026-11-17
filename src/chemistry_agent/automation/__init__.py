@@ -1,1 +1,1 @@
-"""Optional, local-only AiiDA automation integration."""
+"""Session-scoped research plans and local SSH/Slurm calculation services."""

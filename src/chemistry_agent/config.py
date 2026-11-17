@@ -1,7 +1,7 @@
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -34,16 +34,13 @@ class Settings(BaseSettings):
         return () if self.auth_enabled else hosts
 
     automation_enabled: bool = Field(default=False, validation_alias="CHEMISTRY_AUTOMATION_ENABLED")
-    aiida_enabled: bool = Field(default=False, validation_alias="CHEMISTRY_AIIDA_ENABLED")
     platform_agent_enabled: bool = Field(
         default=True, validation_alias="CHEMISTRY_PLATFORM_AGENT_ENABLED"
     )
-    automation_monitor_enabled: bool = Field(
-        default=True, validation_alias="CHEMISTRY_AUTOMATION_MONITOR_ENABLED"
-    )
-    aiida_profile: str = Field(default="chem-agent", validation_alias="CHEMISTRY_AIIDA_PROFILE")
-    aiida_path: Path = Field(
-        default=PROJECT_ROOT / "data" / "aiida", validation_alias="CHEMISTRY_AIIDA_PATH"
+    platform_path: Path = Field(
+        # Preserve existing records; the directory name is not a backend dependency.
+        default=PROJECT_ROOT / "data" / "aiida",
+        validation_alias=AliasChoices("CHEMISTRY_PLATFORM_PATH", "CHEMISTRY_AIIDA_PATH"),
     )
 
     deepseek_api_key: SecretStr | None = None
@@ -114,7 +111,7 @@ class Settings(BaseSettings):
             raise ValueError("DEEPSEEK_BASE_URL must not contain credentials, query, or fragment")
         return value.rstrip("/")
 
-    @field_validator("database_path", "tokenizer_path", "aiida_path")
+    @field_validator("database_path", "tokenizer_path", "platform_path")
     @classmethod
     def resolve_project_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value

@@ -12,7 +12,6 @@ from pydantic import ValidationError
 from chemistry_agent.automation.chat import CalculationChat, ImportInput
 from chemistry_agent.automation.models import StructureInput
 from chemistry_agent.automation.plan_models import PlanDraft
-from chemistry_agent.automation.plans import CalculationPlans
 from chemistry_agent.errors import AgentError
 from chemistry_agent.tools import ToolContext
 
@@ -31,7 +30,7 @@ class Engine:
         self.submits = []
         self.identity = "unchanged"
         self.unavailable = False
-        settings.aiida_path.mkdir(parents=True, exist_ok=True)
+        settings.platform_path.mkdir(parents=True, exist_ok=True)
         self.protocol = {
             "id": "pbe",
             "description": "test protocol",
@@ -43,7 +42,7 @@ class Engine:
             "kmesh": [9, 9, 9],
             "max_atoms": 512,
         }
-        (settings.aiida_path / "calculation-configuration.json").write_text(
+        (settings.platform_path / "calculation-configuration.json").write_text(
             json.dumps(
                 {
                     "protocols": [self.protocol],
@@ -144,7 +143,7 @@ class Engine:
 @pytest.fixture
 async def graph(settings_factory):
     # Legacy VASP lifecycle remains available only by explicit opt-in.
-    engine = Engine(settings_factory(automation_enabled=True, aiida_enabled=True))
+    engine = Engine(settings_factory(automation_enabled=True))
     chat = CalculationChat(engine)
     context = ToolContext(str(uuid4()), str(uuid4()))
     initial = await chat.import_structure(
@@ -187,235 +186,6 @@ def test_graph_validation_and_auto_dependencies():
     ]:
         with pytest.raises(ValidationError):
             draft(nodes)
-
-
-async def test_plan_lifecycle_populates_cross_session_memory(graph, tmp_path):
-    from chemistry_agent.memory.models import MemorySearch
-    from chemistry_agent.memory.service import ResearchMemory
-    from chemistry_agent.store import Store
-
-    chat, context, engine, structure = graph
-    store = await Store.open(tmp_path / "research-memory.sqlite3")
-    try:
-        session = (await store.create_session("原始体系"))["id"]
-        other = (await store.create_session("后续研究"))["id"]
-        # Move the fixture's source geometry into the actual persisted conversation.
-        artifact = chat.load(context.session_id, "structures", structure)
-        chat.save(session, "structures", structure, artifact)
-        context = ToolContext(session, context.run_id)
-        chat.plans.store = store
-        plan = await chat.plans.draft(
-            draft(
-                [vasp("relax", {"structure_id": structure})],
-                research_systems=["Cu"],
-                research_tasks=["结构优化"],
-            ),
-            context,
-        )
-        memory = ResearchMemory(store)
-        assert (await memory.search(other, MemorySearch(query="Cu reaction")))["items"]
-        assert not engine.submits  # Remembering the draft grants no submission authority.
-        await chat.plans.confirm(session, plan["id"], 1)
-        await chat.plans.tick_plan(session, plan["id"])
-        engine.finish(engine.submits[0])
-        await chat.plans.tick_plan(session, plan["id"])
-        records = await memory.search(other, MemorySearch(kind="calculation"))
-        item = await memory.read(other, records["items"][0]["id"])
-        assert item["evidence"]["level"] == "converged"
-        assert item["parameters"]["incar"]["ENCUT"] == 520
-        assert item["parameters"]["potential_family"] == "PBE"
-        assert len(item["parameters"]["structure_fingerprint"]) == 64
-        assert item["evidence"]["input_structure_id"] == structure
-    finally:
-        chat.plans.store = None
-        await store.close()
-
-
-async def test_review_revisions_and_no_unapproved_execution(graph):
-    chat, context, engine, structure = graph
-    plan = await chat.plans.draft(draft([vasp("a", {"structure_id": structure})]), context)
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert not engine.submits
-    new = await chat.plans.draft(
-        draft(
-            [vasp("a", {"structure_id": structure}, incar={"ENCUT": 600})],
-            plan_id=plan["id"],
-            expected_revision=1,
-        ),
-        context,
-    )
-    assert new["revision"] == 2 and new["changed_nodes"] == ["a"]
-    with pytest.raises(AgentError, match="方案已更新"):
-        await chat.plans.confirm(context.session_id, plan["id"], 1)
-    await chat.plans.confirm(context.session_id, plan["id"], 2)
-    with pytest.raises(AgentError, match="方案已确认"):
-        await chat.plans.draft(
-            draft(
-                [vasp("a", {"structure_id": structure})], plan_id=plan["id"], expected_revision=2
-            ),
-            context,
-        )
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert len(engine.submits) == 1
-    assert engine.requests[engine.submits[0]]["incar"]["ENCUT"] == 600
-
-
-async def test_actual_relaxed_structure_parallel_branches_and_restart(graph, monkeypatch):
-    chat, context, engine, structure = graph
-    observed = []
-
-    async def execute(directory, code, *, output_format):
-        inputs = json.loads((directory / "inputs.json").read_text())
-        if output_format == "vasp":
-            atoms = read(directory / "bulk.vasp")
-            observed.append(atoms.cell.lengths()[0])
-            return structure_text(atoms.cell.lengths()[0])
-        assert inputs["left"]["result"]["total_energies"]["energy_extrapolated"] == -10.5
-        assert inputs["right"]["result"]["total_energies"]["energy_extrapolated"] == -10.5
-        assert (
-            directory / inputs["left"]["files"]["OUTCAR"]
-        ).read_text() == "retrieved frequencies"
-        return '{"adsorption_energy_ev": -1.2}'
-
-    monkeypatch.setattr("chemistry_agent.automation.plans.execute_model", execute)
-    nodes = [
-        vasp("bulk", {"structure_id": structure}),
-        {
-            "id": "slab",
-            "title": "切面",
-            "kind": "model",
-            "code": "pass",
-            "inputs": {"bulk": {"node": "bulk"}},
-        },
-        vasp("left", {"node": "slab"}),
-        vasp("right", {"node": "slab"}),
-        {
-            "id": "summary",
-            "title": "汇总",
-            "kind": "analysis",
-            "code": "pass",
-            "result_files": ["OUTCAR"],
-            "inputs": {
-                "left": {"node": "left", "output": "result"},
-                "right": {"node": "right", "output": "result"},
-            },
-        },
-    ]
-    plan = await chat.plans.draft(draft(nodes), context)
-    await chat.plans.confirm(context.session_id, plan["id"], 1)
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert len(engine.submits) == 1 and not observed
-    engine.finish(engine.submits[0])
-    # A new executor loads the persisted graph without submitting the bulk twice.
-    chat.plans = CalculationPlans(chat)
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert observed == [3.75]  # Actual optimized lattice, not the initial 3.6.
-    assert len(engine.submits) == 3
-    assert (
-        chat.load(context.session_id, "plans", plan["id"])["runtime"]["summary"]["status"]
-        == "pending"
-    )
-    for preview in engine.submits[1:]:
-        engine.finish(preview)
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    done = chat.load(context.session_id, "plans", plan["id"])
-    assert done["status"] == "completed"
-    assert done["runtime"]["summary"]["outputs"]["result"]["adsorption_energy_ev"] == -1.2
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert len(engine.submits) == 3
-
-
-async def test_concurrency_pause_failure_and_transport_outage(graph):
-    chat, context, engine, structure = graph
-    plan = await chat.plans.draft(
-        draft(
-            [
-                vasp("a", {"structure_id": structure}),
-                vasp("b", {"structure_id": structure}),
-                vasp("dependent", {"node": "a"}),
-            ],
-            max_parallel=1,
-        ),
-        context,
-    )
-    await chat.plans.confirm(context.session_id, plan["id"], 1)
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert len(engine.submits) == 1
-    engine.unavailable = True
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert chat.load(context.session_id, "plans", plan["id"])["runtime"]["a"]["status"] == "running"
-    engine.unavailable = False
-    await chat.plans.control(context.session_id, plan["id"], "pause")
-    engine.finish(engine.submits[0], converged=False)
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert len(engine.submits) == 1
-    await chat.plans.control(context.session_id, plan["id"], "resume")
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    saved = chat.load(context.session_id, "plans", plan["id"])
-    assert saved["runtime"]["dependent"]["status"] == "blocked"
-    assert len(engine.submits) == 2  # Independent branch still proceeds.
-    engine.finish(engine.submits[1])
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert chat.load(context.session_id, "plans", plan["id"])["status"] == "failed"
-
-
-async def test_submission_checkpoint_prevents_duplicate_after_disconnect(graph, monkeypatch):
-    chat, context, engine, structure = graph
-    plan = await chat.plans.draft(draft([vasp("a", {"structure_id": structure})]), context)
-    await chat.plans.confirm(context.session_id, plan["id"], 1)
-    original = chat.submit_reviewed
-
-    async def interrupted(session, preview):
-        await engine.call("submit", {"preview_id": preview})
-        raise asyncio.CancelledError()
-
-    import asyncio
-
-    monkeypatch.setattr(chat, "submit_reviewed", interrupted)
-    with pytest.raises(asyncio.CancelledError):
-        await chat.plans.tick_plan(context.session_id, plan["id"])
-    assert len(engine.submits) == 1
-    monkeypatch.setattr(chat, "submit_reviewed", original)
-    await CalculationPlans(chat).tick_plan(context.session_id, plan["id"])
-    assert len(engine.submits) == 1
-    assert chat.load(context.session_id, "plans", plan["id"])["runtime"]["a"]["status"] == "running"
-
-
-async def test_frozen_protocol_and_environment_drift(graph):
-    chat, context, engine, structure = graph
-    plan = await chat.plans.draft(draft([vasp("a", {"structure_id": structure})]), context)
-    engine.protocol["incar"]["ENCUT"] = 999
-    await chat.plans.confirm(context.session_id, plan["id"], 1)
-    engine.identity = "changed"
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    saved = chat.load(context.session_id, "plans", plan["id"])
-    assert saved["nodes"][0]["effective"]["incar"]["ENCUT"] == 520
-    assert saved["runtime"]["a"]["error_code"] == "plan_environment_changed"
-    assert not engine.submits
-
-
-async def test_analysis_condition_blocks_downstream(graph, monkeypatch):
-    chat, context, engine, structure = graph
-
-    async def failed_gate(*args, **kwargs):
-        return '{"passed":false,"reason":"发现虚频"}'
-
-    monkeypatch.setattr("chemistry_agent.automation.plans.execute_model", failed_gate)
-    plan = await chat.plans.draft(
-        draft(
-            [
-                {"id": "gate", "title": "虚频检查", "kind": "analysis", "code": "pass"},
-                {**vasp("a", {"structure_id": structure}), "depends_on": ["gate"]},
-            ]
-        ),
-        context,
-    )
-    await chat.plans.confirm(context.session_id, plan["id"], 1)
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    saved = chat.load(context.session_id, "plans", plan["id"])
-    assert saved["runtime"]["gate"]["error"] == "发现虚频"
-    assert saved["runtime"]["a"]["status"] == "blocked"
-    assert not engine.submits
 
 
 def test_agent_can_create_and_revise_executable_plan_through_conversation(settings_factory):
@@ -548,78 +318,6 @@ async def test_model_can_use_structure_as_input_alias(graph, monkeypatch):
     )
 
 
-async def test_auto_large_plan_is_idempotent_and_queue_scoped(graph):
-    from chemistry_agent.automation.plan_authority import authorized_queue, auto_queue
-
-    chat, context, engine, structure = graph
-    assert authorized_queue("/auto low\n直接运行") == "low"
-    assert authorized_queue("解释一下 /auto low") is None
-    nodes = [vasp(f"site_{i}", {"structure_id": structure}) for i in range(105)]
-    spec = draft(nodes)
-    token = auto_queue.set("low")
-    try:
-        with pytest.raises(AgentError, match="low"):
-            await chat.plans.draft(spec, context)
-        auto_queue.set("batch")
-        plan = await chat.plans.draft(spec, context)
-        again = await chat.plans.draft(spec, context)
-        assert plan["status"] == "running" and plan["max_parallel"] is None
-        assert again["id"] == plan["id"]
-        await chat.plans.tick_plan(context.session_id, plan["id"])
-        assert len(set(engine.submits)) == 105
-    finally:
-        auto_queue.reset(token)
-
-
-async def test_repair_preserves_completed_sibling_and_reopens_descendants(graph):
-    from chemistry_agent.automation.plan_authority import auto_queue, repair_target
-    from chemistry_agent.automation.plan_models import NodeRepair
-
-    chat, ctx, engine, structure = graph
-    ref = {"structure_id": structure}
-    spec = draft([vasp("good", ref), vasp("bad", ref), vasp("child", {"node": "bad"})])
-    grant = auto_queue.set("batch")
-    try:
-        p = await chat.plans.draft(spec, ctx)
-    finally:
-        auto_queue.reset(grant)
-    await chat.plans.tick_plan(ctx.session_id, p["id"])
-    good, bad = engine.submits
-    engine.finish(good)
-    engine.finish(bad, success=False)
-    await chat.plans.tick_plan(ctx.session_id, p["id"])
-    args = NodeRepair(
-        plan_id=p["id"],
-        node=vasp("bad", ref, incar={"NELM": 100}),
-        reason="continue relaxation",
-        restart_from_last_structure=True,
-    )
-    with pytest.raises(AgentError, match="故障处理"):
-        await chat.plans.repair_node(args, ctx)
-    grant = repair_target.set((ctx.session_id, p["id"]))
-    try:
-        await chat.plans.repair_node(args, ctx)
-        with pytest.raises(AgentError):
-            await chat.plans.repair_node(args, ctx)
-    finally:
-        repair_target.reset(grant)
-    await chat.plans.tick_plan(ctx.session_id, p["id"])
-    fixed = chat.load(ctx.session_id, "plans", p["id"])
-    retry_preview = fixed["runtime"]["bad"]["preview_id"]
-    assert (
-        engine.requests[retry_preview]["structure"]["content"]
-        != engine.requests[bad]["structure"]["content"]
-    )
-    checkpoint_id = fixed["runtime"]["bad"]["input_structure_id"]
-    assert (
-        chat.load(ctx.session_id, "structures", checkpoint_id)["source_job_id"]
-        == engine.jobs[bad]["id"]
-    )
-    assert len(engine.submits) == 3 and fixed["runtime"]["good"]["status"] == "completed"
-    assert fixed["runtime"]["bad"]["attempts"][0]["state"]["preview_id"] == bad
-    assert fixed["runtime"]["child"]["status"] == "pending"
-
-
 async def test_failed_auto_node_wakes_model_with_tools_and_hides_wake_prompt(graph, tmp_path):
     from types import SimpleNamespace
 
@@ -700,268 +398,6 @@ def test_vasp_accepts_chemistry_named_structure_port():
         )
 
 
-async def test_append_plot_after_completion_does_not_repeat_job(graph):
-    from chemistry_agent.automation.plan_models import PlanFigure
-
-    chat, ctx, engine, structure = graph
-    plan = await chat.plans.draft(draft([vasp("energy", {"structure_id": structure})]), ctx)
-    await chat.plans.confirm(ctx.session_id, plan["id"], 1)
-    await chat.plans.tick_plan(ctx.session_id, plan["id"])
-    engine.finish(engine.submits[0])
-    await chat.plans.tick_plan(ctx.session_id, plan["id"])
-    args = PlanFigure(
-        plan_id=plan["id"],
-        source_node="energy",
-        title="E",
-        code="from matplotlib import pyplot as plt\nplt.savefig('plot.png')",
-    )
-    added = await chat.plans.add_figure(args, ctx)
-    assert await chat.plans.add_figure(args, ctx) == added
-    record = chat.load(ctx.session_id, "plans", plan["id"])
-    assert record["runtime"]["energy"]["status"] == "completed" and len(engine.submits) == 1
-    assert record["nodes"][-1]["inputs"]["data"]["output"] == "result"
-    assert record["revision"] == 2 and record["status"] == "running"
-
-
-async def test_fork_completed_chain_for_failed_thermochemistry(graph):
-    from chemistry_agent.automation.plan_authority import auto_queue, repair_target
-    from chemistry_agent.automation.plan_models import NodeRepair
-
-    chat, ctx, _, structure = graph
-    spec = draft(
-        [
-            vasp("relax", {"structure_id": structure}),
-            vasp("freq", {"node": "relax"}),
-            {
-                "kind": "analysis",
-                "id": "thermo",
-                "title": "G",
-                "code": "pass",
-                "inputs": {"freq": {"node": "freq", "output": "result"}},
-            },
-            vasp("other", {"node": "relax"}),
-        ]
-    )
-    grant = auto_queue.set("batch")
-    try:
-        p = await chat.plans.draft(spec, ctx)
-    finally:
-        auto_queue.reset(grant)
-    pid = p["id"]
-    p = chat.load(ctx.session_id, "plans", pid)
-    for key in ("relax", "freq", "other"):
-        p["runtime"][key] = {"status": "completed", "outputs": {"structure_id": structure}}
-    p["runtime"]["thermo"] = {"status": "failed", "error": "imaginary modes"}
-    chat.plans.save(ctx.session_id, p)
-    grant = repair_target.set((ctx.session_id, pid))
-    try:
-        args = NodeRepair(
-            plan_id=pid,
-            node_id="thermo",
-            reason="refine stationary point",
-            rerun_upstream=[
-                {"node_id": "relax", "incar": {"EDIFFG": -0.01}, "use_final_structure": True},
-                {"node_id": "freq"},
-            ],
-        )
-        await chat.plans.repair_node(args, ctx)
-        with pytest.raises(AgentError):
-            await chat.plans.repair_node(args, ctx)
-    finally:
-        repair_target.reset(grant)
-    result = chat.load(ctx.session_id, "plans", pid)
-    nodes = {n["id"]: n for n in result["nodes"]}
-    updated_freq = nodes["thermo"]["inputs"]["freq"]["node"]
-    updated_relax = nodes[updated_freq]["inputs"]["structure"]["node"]
-    assert nodes[updated_relax]["depends_on"] == ["relax"]
-    assert nodes[updated_relax]["effective"]["incar"]["EDIFFG"] == -0.01
-    assert nodes[updated_freq]["effective"]["resources"] == nodes["freq"]["effective"]["resources"]
-    assert nodes["other"]["depends_on"] == ["relax"]
-    assert all(result["runtime"][k] == p["runtime"][k] for k in ["other", "relax", "freq"])
-    assert result["revision"] == 2 and result["runtime"]["thermo"]["status"] == "pending"
-
-
-@pytest.mark.parametrize("fallback", [False, True])
-async def test_quota_waits_for_one_real_queue_completion(graph, monkeypatch, fallback):
-    from types import SimpleNamespace
-
-    from chemistry_agent.automation.events import EventStore, utc_now
-
-    chat, ctx, engine, structure = graph
-    plan = await chat.plans.draft(draft([vasp("energy", {"structure_id": structure})]), ctx)
-    plan = chat.load(ctx.session_id, "plans", plan["id"])
-    plan.update(auto_queue="batch", status="running")
-    node = plan["nodes"][0]
-    protocol = plan["snapshots"]["energy"]["protocol"]
-    target = "low" if fallback else "batch"
-    if fallback:
-        protocol["quota_fallback"] = {"source": "batch", "target": "low"}
-    events = EventStore(chat.root / "events.sqlite3")
-    chat.monitor = SimpleNamespace(events=events)
-    job = {
-        "paused": True,
-        "pk": 9,
-        "process_state": "waiting",
-        "process_status": "Pausing after failed transport task: submit_calculation",
-        "submission_state": "rejected_by_scheduler",
-        "recent_process_errors": [
-            {"message": "sbatch: error: QOSMaxSubmitJobPerUserLimit", "time": utc_now()}
-        ],
-    }
-    calls = []
-
-    async def record(action, payload):
-        calls.append((action, payload))
-        return {"requested": True}
-
-    monkeypatch.setattr(engine, "call", record)
-    state = {"job_id": "existing", "preview_id": "old", "status": "running", "job": job}
-    plan["runtime"]["energy"] = state
-    for _ in range(2):
-        await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
-    assert calls == []
-    done = dict(
-        job,
-        id="finished",
-        finished_ok=True,
-        scheduler_job_id="123",
-        queue=target,
-        server_id=protocol["server_id"],
-        updated_at=utc_now(),
-        process_state="finished",
-    )
-    events.observe("other-session", "preview", dict(done, queue="another", id="unrelated"))
-    await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
-    assert calls == []
-    events.observe("other-session", "preview", done)
-    state["job"] = job | {"scheduler_job_id": "already-accepted"}
-    await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
-    assert calls == []
-    state["job"] = job
-    await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
-    assert calls[0][0] == ("retire_quota_job" if fallback else "resume_quota_job")
-    assert calls[0][1]["job_id"] == "existing"
-    events.observe("other-session", "preview", done)
-    assert events.claim_quota_release(protocol["server_id"], "", target, "another", "", "r") is None
-    if fallback:
-        assert calls[0][1]["resources"] == protocol["resources"] | {"queue": "low"}
-
-        async def killed(action, payload):
-            return job | {"process_state": "killed"}
-
-        monkeypatch.setattr(engine, "call", killed)
-        await chat.plans.inspect_vasp(ctx.session_id, plan, node, state)
-        assert state["status"] == "pending" and "job_id" not in state
-        assert state["quota_history"][0]["job_id"] == "existing"
-        assert node["effective"]["resources"]["queue"] == protocol["resources"]["queue"] == "low"
-    else:
-        await chat.plans.resume_quota_waiter(ctx.session_id, plan, node, state)
-        assert len(calls) == 1
-
-
-async def test_manual_plan_final_only_after_all_steps_and_chat_turn(graph, tmp_path):
-    from chemistry_agent.schemas import TokenUsage
-    from chemistry_agent.store import Store
-
-    chat, _, engine, _ = graph
-    store = await Store.open(tmp_path / "final.sqlite3")
-    try:
-        sid = (await store.create_session("manual plan"))["id"]
-        ctx = ToolContext(sid, str(uuid4()))
-        structure = await chat.import_structure(
-            ImportInput(
-                name="Cu", structure=StructureInput(format="vasp", content=structure_text())
-            ),
-            ctx,
-        )
-        nodes = [vasp("a", {"structure_id": structure["id"]}), vasp("b", {"node": "a"})]
-        plan = await chat.plans.draft(draft(nodes), ctx)
-        pid = plan["id"]
-        chat.plans.store = store
-        await chat.plans.confirm(sid, pid, 1)
-        await chat.plans.tick_plan(sid, pid)
-        engine.finish(engine.submits[0])
-        await chat.plans.tick_plan(sid, pid)
-        assert ("a", "completed") in [
-            (e["node_id"], e["status"]) for e in chat.progress.timeline(sid, 0, 100, pid)["events"]
-        ]
-        assert not (await store.get_session(sid))["messages"]
-        run, _ = await store.begin_run(sid)
-        engine.finish(engine.submits[1])
-        await chat.plans.tick_plan(sid, pid)
-        assert not (await store.get_session(sid))["messages"]
-        await store.fail_run(sid, run, "test", tool_calls=[], usage=TokenUsage())
-        await chat.plans.tick_plan(sid, pid)
-        await chat.plans.tick_plan(sid, pid)
-        messages = (await store.get_session(sid))["messages"]
-        finals = [
-            e for e in chat.progress.timeline(sid, 0, 100, pid)["events"] if e["kind"] == "plan"
-        ]
-        assert len(finals) == len(messages) == 1
-        assert finals[0]["detail"]["chat_event"] == messages[0]["task_event"]
-    finally:
-        await store.close()
-
-
-async def test_agent_stop_blocks_dispatch_and_checks_remaining_jobs(graph, monkeypatch):
-    from chemistry_agent.automation.plan_authority import auto_request
-    from chemistry_agent.automation.plan_stop import PlanStop
-
-    chat, context, engine, structure = graph
-    plan = await chat.plans.draft(draft([vasp("a", {"structure_id": structure})]), context)
-    args = PlanStop(plan_id=plan["id"])
-    with pytest.raises(AgentError):
-        await chat.plans.stop(args, context)
-    await chat.plans.confirm(context.session_id, plan["id"], 1)
-    await chat.plans.tick_plan(context.session_id, plan["id"])
-    expected = engine.jobs[engine.submits[0]]["id"]
-    verified = False
-
-    async def stop(action, payload):
-        assert action == "stop_plan_jobs" and payload["job_ids"] == [expected]
-        return {"verified_stopped": verified}
-
-    monkeypatch.setattr(engine, "call", stop)
-    token = auto_request.set(context.run_id)
-    try:
-        assert (await chat.plans.stop(args, context))["status"] == "stopping"
-        await chat.plans.tick_plan(context.session_id, plan["id"])
-        verified = True
-        assert (await chat.plans.stop(args, context))["status"] == "stopped"
-    finally:
-        auto_request.reset(token)
-
-
-async def test_stopped_plan_projects_all_279_nodes_without_external_work(graph, monkeypatch):
-    chat, ctx, engine, _ = graph
-    pid = str(uuid4())
-    nodes = [{"id": f"s{i}", "title": f"步骤 {i}", "kind": "vasp"} for i in range(279)]
-    runtime = {n["id"]: {"status": "stopped"} for n in nodes}
-    runtime["s0"] = {"status": "completed", "job": {"id": str(uuid4()), "pk": 3}}
-    chat.save(
-        ctx.session_id,
-        "plans",
-        pid,
-        {"id": pid, "revision": 1, "status": "stopped", "nodes": nodes, "runtime": runtime},
-    )
-    path = chat.directory(ctx.session_id, "plans") / f"{pid}.json"
-    original = path.read_bytes()
-
-    async def no_server(*args, **kwargs):
-        pytest.fail("历史投影不能访问计算后端")
-
-    monkeypatch.setattr(engine, "call", no_server)
-    for runtime_plans in (chat.plans, chat.plans, CalculationPlans(chat)):
-        await runtime_plans.tick_plan(ctx.session_id, pid)
-        assert not await runtime_plans.interpret_next_step()
-    first = chat.progress.timeline(ctx.session_id, 0, 200, pid)
-    second = chat.progress.timeline(ctx.session_id, first["next_cursor"], 200, pid)
-    rows = first["events"] + second["events"]
-    assert len(rows) == len({r["node_id"] for r in rows}) == 279
-    assert {r["kind"] for r in rows} == {"step"}
-    assert path.read_bytes() == original
-
-
 @pytest.fixture
 async def summary_event_store(tmp_path):
     from chemistry_agent.store import Store
@@ -970,64 +406,6 @@ async def summary_event_store(tmp_path):
     store.research_memory_enabled = False
     yield store
     await store.close()
-
-
-@pytest.mark.parametrize("available", [True, False])
-async def test_new_vasp_completion_queues_one_background_interpretation(
-    graph, available, summary_event_store
-):
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock, Mock
-
-    chat, ctx, engine, structure = graph
-    plan = await chat.plans.draft(
-        draft([vasp("a", {"structure_id": structure}), vasp("b", {"node": "a"})]), ctx
-    )
-    pid, sid = plan["id"], ctx.session_id
-    await chat.plans.confirm(sid, pid, 1)
-    await chat.plans.tick_plan(sid, pid)
-    preview = engine.submits[0]
-    engine.finish(preview)
-    await chat.plans.tick_plan(sid, pid)
-    # The dependent step was submitted before the summary worker/model ran.
-    assert len(engine.submits) == 2
-    store = summary_event_store
-    store.get_session = AsyncMock(return_value={"messages": []})
-    store.get_session_model = AsyncMock(return_value="test")
-    provider = SimpleNamespace(
-        configuration=lambda: (None, SimpleNamespace(provider="test", base_url="")),
-        select_model=Mock(),
-        ready=AsyncMock(return_value=available),
-        complete=AsyncMock(
-            return_value=SimpleNamespace(
-                message=SimpleNamespace(
-                    content="电子和离子收敛，外推能量 −10.5 eV。", tool_calls=[]
-                )
-            )
-        ),
-    )
-    restarted = CalculationPlans(chat)
-    restarted.store, restarted.provider = store, provider
-    await restarted.tick_plan(sid, pid)
-    assert await restarted.interpret_next_step()
-    assert not await restarted.interpret_next_step()
-    await CalculationPlans(chat).tick_plan(sid, pid)
-    assert not await restarted.interpret_next_step()
-    rows = chat.progress.timeline(sid, 0, 100, pid, "a")["events"]
-    (summary,) = [r for r in rows if r["kind"] == "interpretation"]
-    assert summary["detail"]["step_seq"] in {
-        r["seq"] for r in rows if r["status"] == "completed" and r["kind"] == "step"
-    }
-    assert summary["detail"]["job_id"] == engine.jobs[preview]["id"]
-    assert summary["status"] == ("completed" if available else "unavailable")
-    assert ("−10.5" if available else "暂不可用") in summary["message"]
-    provider.ready.assert_awaited_once()
-    assert provider.complete.await_count == int(available)
-    if available:
-        args, kwargs = provider.complete.await_args
-        evidence = json.loads(args[0][-1]["content"])
-        assert evidence["step"] == "a" and evidence["energies"]["energy_extrapolated"] == -10.5
-        assert not kwargs["allow_tools"]
 
 
 def test_step_summary_expired_claim_recovers_without_duplicate_event(tmp_path, monkeypatch):
@@ -1055,40 +433,18 @@ def test_step_summary_expired_claim_recovers_without_duplicate_event(tmp_path, m
     ]
 
 
-async def test_restore_only_enqueues_checkpointed_vasp_summary_intent(graph):
-    chat, ctx, _, _ = graph
-    pid = str(uuid4())
-    kinds = ("vasp", "vasp", "model", "analysis")
-    nodes = [{"id": str(i), "title": kind, "kind": kind} for i, kind in enumerate(kinds)]
-    runtime = {n["id"]: {"status": "completed"} for n in nodes}
-    for key in ("0", "1"):
-        runtime[key]["job"] = {"id": str(uuid4()), "pk": 10 + int(key)}
-    # The first job predates interpretations. The second completed just before
-    # a crash between saving its plan JSON and projecting the SQLite event.
-    runtime["1"]["summary_requested"] = True
-    plan = {
-        "id": pid,
-        "status": "completed",
-        "runtime": runtime,
-        "revision": 1,
-        "nodes": nodes,
-        "reported": True,
-    }
-    chat.save(ctx.session_id, "plans", pid, plan)
-    await chat.plans.tick_plan(ctx.session_id, pid)
-    await CalculationPlans(chat).tick_plan(ctx.session_id, pid)
-    item = chat.progress.claim_summary()
-    assert item["node_id"] == "1"
-    assert chat.progress.claim_summary() is None
-
-
 async def test_group_paths_survive_draft_revision_and_match_single_node_query(graph):
     from chemistry_agent.automation.plan_models import PlanQuery
 
     chat, context, engine, _ = graph
     seed = {"kind": "model", "id": "opaque", "title": "Seed", "code": "pass"}
-    analysis = {"kind": "analysis", "id": "inspect", "title": "Inspect", "code": "pass",
-                "inputs": {"sample": {"node": "opaque"}}}
+    analysis = {
+        "kind": "analysis",
+        "id": "inspect",
+        "title": "Inspect",
+        "code": "pass",
+        "inputs": {"sample": {"node": "opaque"}},
+    }
     first = await chat.plans.draft(
         draft([{**seed, "group_path": ["Method B", "High T"]}, analysis]), context
     )
@@ -1108,27 +464,4 @@ async def test_group_paths_survive_draft_revision_and_match_single_node_query(gr
     )
     assert cleared["changed_nodes"] == ["opaque"]
     assert not cleared["nodes"][1].get("group_path")
-    assert not engine.submits
-
-
-async def test_plan_uses_default_target_with_chat_science(graph):
-    from chemistry_agent.automation.configuration import CalculationConfiguration, ExecutionTarget
-
-    chat, context, engine, initial = graph
-    config = CalculationConfiguration(engine.settings.aiida_path)
-    target = ExecutionTarget(
-        id="default-low",
-        resources={"queue": "low"},
-        default=True,
-        **{k: engine.protocol[k] for k in ("server_id", "code_id", "potential_source_id")},
-    )
-    config.save("execution_targets", target)
-    node = vasp("relax", {"structure_id": initial}, incar={"ENCUT": 300}, kmesh=[2, 2, 1])
-    del node["calculation"]["protocol_id"]
-    result = await chat.plans.draft(draft([node]), context)
-    snapshot = chat.load(context.session_id, "plans", result["id"])["snapshots"]["relax"][
-        "protocol"
-    ]
-    assert snapshot["id"] == "default-low" and snapshot["resources"]["queue"] == "low"
-    assert snapshot["incar"] == {"ENCUT": 300} and snapshot["kmesh"] == [2, 2, 1]
     assert not engine.submits

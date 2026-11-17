@@ -24,10 +24,6 @@
     <span class="settings-group-title">计算工作区</span>
     <button id="tab-automation" role="tab" aria-controls="automation" aria-selected="false" tabindex="-1" data-tab="automation"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-automation"/></svg>配置概览</button>
     <button id="tab-servers" role="tab" aria-controls="servers" aria-selected="false" tabindex="-1" data-tab="servers"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-servers"/></svg>服务器连接</button>
-    <button id="tab-software" hidden role="tab" aria-controls="software" aria-selected="false" tabindex="-1" data-tab="software"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-software"/></svg>计算软件</button>
-    <button id="tab-potentials" hidden role="tab" aria-controls="potentials" aria-selected="false" tabindex="-1" data-tab="potentials"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-potentials"/></svg>赝势目录</button>
-    <button id="tab-queues" hidden role="tab" aria-controls="queues" aria-selected="false" tabindex="-1" data-tab="queues"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-queues"/></svg>调度队列</button>
-    <button id="tab-environments" hidden role="tab" aria-controls="environments" aria-selected="false" tabindex="-1" data-tab="environments"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-environments"/></svg>执行环境</button>
   </nav></aside>
   <main>
     <section class="settings-panel" id="general" data-panel="general" role="tabpanel" aria-labelledby="tab-general"><h2>常规</h2><div class="setting-row"><div><label for="language">语言</label></div><select id="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></div><div class="account-section"><h3>工作空间账户</h3><div class="account-row"><span class="account-avatar" id="settings-avatar">C</span><div><strong id="settings-username">正在读取…</strong><p id="settings-account-note" class="hint"></p></div><button class="secondary" id="settings-logout" type="button" hidden>退出登录</button></div></div></section>
@@ -107,16 +103,9 @@
       <div hidden><label for="agent-backend">默认 Agent</label><select id="agent-backend"><option value="builtin">Chem Agent</option><option value="codex">Codex</option><option value="antigravity">Antigravity</option></select></div>
       <div class="actions footer agent-save-actions"><p id="agent-notice" role="status" aria-live="polite"></p><button id="agent-save" type="button">保存 Codex / Antigravity 配置</button></div>
     </section>
-    <div id="compute-scope" class="compute-scope" hidden>
-      <label for="active-server">当前服务器</label><select id="active-server" data-no-i18n></select>
-      <button id="compute-refresh" type="button" class="secondary">刷新配置</button>
-    </div>
-    <p id="compute-notice" role="status" aria-live="polite" hidden></p>
     <section class="settings-panel compute-panel" id="automation" data-panel="automation" role="tabpanel" aria-labelledby="tab-automation" hidden>
       <h2>计算配置概览</h2>
       <ol id="compute-steps" class="setup-list"></ol>
-      <div id="setup-local" hidden><button type="button" id="compute-initialize">初始化本地计算服务</button></div>
-      <div id="setup-default"></div>
       <aside class="agent-setup"><a href="/?setup=compute" target="_top">在对话中配置</a></aside>
     </section>
     <section class="settings-panel compute-panel" id="servers" data-panel="servers" role="tabpanel" aria-labelledby="tab-servers" hidden>
@@ -132,82 +121,7 @@
   IdentityFile ~/.ssh/id_ed25519</pre></details></div>
       </details>
       </div>
-      <details id="legacy-aiida-connection" class="config-editor" hidden><summary>AiiDA 连接配置（可选）</summary>
-      <div id="server-record"></div>
-      <div id="server-actions" class="compute-actions" hidden>
-        <button type="button" id="server-test">测试连接</button><button type="button" id="existing-probe">检查主机指纹</button>
-        <button type="button" id="password-open" hidden>管理 SSH 密码</button>
-      </div>
-      <div id="server-checks" aria-live="polite"></div><div id="existing-trust" class="trust-result" hidden></div>
-      <details id="new-server" class="config-editor"><summary>添加服务器</summary>
-        <form id="server-form"><fieldset>
-          <label>连接名称<input name="label" required maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="research-cluster" spellcheck="false"></label>
-          <label>SSH 登录方式<select name="auth_mode"><option value="alias">OpenSSH 别名</option><option value="key">私钥或 SSH Agent</option><option value="password">用户名和密码</option></select></label>
-          <div class="field-pair"><label><span id="host-label">SSH 别名</span><input name="hostname" required maxlength="253" placeholder="cluster" autocomplete="off" spellcheck="false"></label>
-          <label data-direct>SSH 端口<input name="port" type="number" min="1" max="65535" step="1" placeholder="22"></label></div>
-
-          <label data-direct>SSH 用户名<input name="username" maxlength="128" autocomplete="off" spellcheck="false"></label>
-          <label data-key>本机私钥路径（可选）<input name="identity_file" maxlength="500" placeholder="~/.ssh/id_ed25519" spellcheck="false" autocomplete="off"></label>
-          <label>远端工作目录<input name="workdir" required maxlength="240" placeholder="/home/user/calculations" spellcheck="false"></label>
-          <label>调度系统<select name="scheduler"><option value="slurm">Slurm</option><option value="pbspro">PBS Pro</option><option value="torque">Torque</option></select></label>
-          <div class="compute-actions"><button type="submit" id="server-probe">检查主机指纹</button></div>
-          <div id="new-trust" class="trust-result" hidden></div>
-          <div class="compute-actions"><button type="button" class="primary" id="server-save" disabled>保存服务器</button></div>
-        </fieldset></form>
-      </details>
-      </details>
     </section>
-    <section class="settings-panel compute-panel" id="software" data-panel="software" role="tabpanel" aria-labelledby="tab-software" hidden>
-      <h2>计算软件</h2>
-      <div id="software-list"></div>
-      <details class="config-editor" id="code-editor"><summary>登记软件版本</summary><form id="code-form"><fieldset>
-        <div class="field-pair"><label>软件名称<input name="name" required maxlength="64" placeholder="VASP"></label>
-        <label>软件版本<input name="version" required maxlength="64" placeholder="6.3.2"></label></div>
-        <label>远端可执行文件<input name="executable" required maxlength="500" placeholder="/opt/vasp/6.3.2/bin/vasp_std" spellcheck="false"></label>
-        <label>远端环境脚本（可选）<input name="environment_script" maxlength="500" placeholder="/opt/vasp/6.3.2/env.sh" spellcheck="false"></label>
-        <button class="primary" type="submit">保存软件</button>
-      </fieldset></form></details>
-    </section>
-    <section class="settings-panel compute-panel" id="potentials" data-panel="potentials" role="tabpanel" aria-labelledby="tab-potentials" hidden>
-      <h2>赝势目录</h2><div id="potential-list"></div>
-      <details id="potential-editor" class="config-editor"><summary>关联远端目录</summary><form id="potential-form"><fieldset>
-        <label>赝势库绝对路径<input required name="root" maxlength="500" placeholder="/opt/potentials/potpaw_PBE" spellcheck="false"></label>
-        <button class="primary" type="submit">保存赝势目录</button>
-      </fieldset></form></details>
-    </section>
-    <section class="settings-panel compute-panel" id="queues" data-panel="queues" role="tabpanel" aria-labelledby="tab-queues" hidden>
-      <h2>调度队列</h2>
-      <button id="query-queues" type="button">查询远端队列</button><div id="queue-list" aria-live="polite"></div>
-    </section>
-    <section class="settings-panel compute-panel" id="environments" data-panel="environments" role="tabpanel" aria-labelledby="tab-environments" hidden>
-      <h2>执行环境</h2>
-      <div id="environment-list"></div>
-      <details id="environment-editor" class="config-editor"><summary id="environment-editor-label">添加执行环境</summary>
-        <form id="environment-form"><fieldset>
-          <label>环境 ID<input name="id" required maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="cluster-batch" spellcheck="false"></label>
-          <div class="field-pair"><label>软件版本<select name="code_id" data-no-i18n required></select></label><label>赝势目录<select name="potential_source_id" data-no-i18n required></select></label></div>
-          <label>队列名称<input name="queue" required maxlength="64" list="known-queues" spellcheck="false" placeholder="batch"></label><datalist id="known-queues"></datalist>
-          <div class="field-pair"><label>节点数<input name="nodes" required type="number" min="1" max="128" step="1" value="1"></label><label>每节点进程数<input name="ranks_per_node" required type="number" min="1" max="256" step="1" value="1"></label></div>
-          <div class="field-pair"><label>时限（分钟）<input name="minutes" required type="number" min="0.5" max="10080" step="any" value="60"></label><label>内存（MB）<input name="memory_mb" required type="number" min="128" max="1048576" step="1" value="4096"></label></div>
-          <details class="extra-resources"><summary>账户、GPU 和备用队列</summary>
-            <label>调度账户（可选）<input name="account" maxlength="64" spellcheck="false"></label>
-            <div class="field-pair"><label>每节点 GPU 数<input name="gpus_per_node" type="number" min="0" max="16" step="1" value="0" required></label><label>GPU 类型（可选）<input name="gpu_type" maxlength="64" spellcheck="false" disabled></label></div>
-            <label>备用队列（可选）<input name="fallback" maxlength="64" list="known-queues" spellcheck="false"></label>
-          </details>
-          <label class="inline-check"><input name="default" type="checkbox">设为默认执行环境</label>
-          <div class="compute-actions"><button class="primary" type="submit">保存执行环境</button><button type="button" id="environment-clear">清空表单</button></div>
-        </fieldset></form>
-      </details>
-      <details id="legacy-environments" class="compatibility" hidden><summary>已有兼容配置</summary><div id="legacy-list"></div></details>
-    </section>
-    <dialog id="ssh-secret" aria-labelledby="ssh-secret-title"><form id="ssh-secret-form">
-      <h2 id="ssh-secret-title">SSH 密码</h2><p id="ssh-secret-server" data-no-i18n></p>
-
-      <label>服务器登录密码<input id="ssh-password" type="password" maxlength="1024" required autocomplete="new-password" spellcheck="false"></label>
-      <p id="secret-notice" class="hint" role="status"></p>
-      <div class="compute-actions"><button type="submit" class="primary">保存密码</button><button type="button" id="secret-cancel">关闭</button></div>
-      <details id="secret-removal"><summary>清除密码</summary><button type="button" id="secret-clear" aria-label="确认清除密码">确认清除</button></details>
-    </form></dialog>
     <p id="notice" role="status" aria-live="polite"></p>
   </main>
   </div>

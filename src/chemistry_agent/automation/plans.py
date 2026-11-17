@@ -1,12 +1,11 @@
 """Durable, user-approved DAGs composed by the conversation agent.
 
-The web worker owns graph scheduling; AiiDA owns each remote calculation. Every
-submission is checkpointed by preview ID before the idempotent AiiDA submit call.
+The platform persists graph state and Slurm receipts before progressing dependent steps.
+Historical engine-specific plans are readable but cannot be executed.
 """
 
 import asyncio
 import contextlib
-import hashlib
 import io
 import json
 import logging
@@ -18,14 +17,10 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from ase.io import read
 
-from chemistry_agent.automation.configuration import CalculationConfiguration
 from chemistry_agent.automation.constraints import poscar_text, restore_constraints
 from chemistry_agent.automation.events import (
-    QUOTA_HOLD,
-    quota_rejection,
     task_state,
     utc_now,
-    waiting_for_submit_quota,
 )
 from chemistry_agent.automation.job_models import JobSettings
 from chemistry_agent.automation.modeling import execute_model
@@ -115,19 +110,27 @@ class CalculationPlans:
     def public(plan: dict) -> dict:
         # Execution snapshots are retained privately; effective inputs remain reviewable.
         return {key: value for key, value in plan.items() if key != "snapshots"} | {
-            "nodes": display_nodes(plan)
+            "nodes": display_nodes(plan),
+            "read_only": any(node["kind"] == "vasp" for node in plan["nodes"]),
         }
 
     def records(self, session: str) -> list[dict]:
         return [self.public(item) for item in self.chat.list_records(session, "plans")]
 
+    @staticmethod
+    def require_current_backend(plan: dict) -> None:
+        if any(node["kind"] == "vasp" for node in plan["nodes"]) or job_ids(plan):
+            raise AgentError(
+                "legacy_backend_removed",
+                "此历史方案为只读；请用 task/job 节点创建当前平台方案。",
+                410,
+            )
+
     async def draft(self, args: PlanDraft, context: ToolContext) -> dict:
-        if not self.chat.service.settings.aiida_enabled and any(
-            n.kind == "vasp" for n in args.nodes
-        ):
+        if any(n.kind == "vasp" for n in args.nodes):
             raise AgentError(
                 "legacy_backend_disabled",
-                "请使用 task 或 job 节点写脚本执行 VASP，当前平台无需 AiiDA。",
+                "请使用 task 或 job 节点写脚本执行 VASP，旧专用节点已停用。",
                 422,
             )
         session, identifier = context.session_id, str(args.plan_id or uuid4())
@@ -141,13 +144,14 @@ class CalculationPlans:
                 if path.is_file():
                     return self.public(self.chat.load(session, "plans", identifier))
             old = self.chat.load(session, "plans", identifier) if args.plan_id else None
+            if old:
+                self.require_current_backend(old)
             if old and (old["status"] != "draft" or old["revision"] != args.expected_revision):
                 raise AgentError(
                     "plan_revision_conflict", "方案已确认或版本已变化，请读取当前方案。", 409
                 )
-            snapshots, identities = {}, {}
+            snapshots = {}
             queue = auto_queue.get()
-            configuration = CalculationConfiguration(self.chat.service.settings.aiida_path)
             for node in args.nodes:
                 if node.execution_host and node.execution_host not in self.slurm.hosts():
                     raise AgentError("job_host_unknown", "请先登记研究步骤使用的 SSH 服务器。", 422)
@@ -164,26 +168,9 @@ class CalculationPlans:
                     if queue and node.job.resources.queue != queue:
                         raise AgentError("wrong_queue", f"本轮只授权 {queue} 队列。", 422)
                 if node.calculation:
-                    settings = node.calculation
-                    protocol = configuration.resolve(
-                        settings.protocol_id, settings.incar, settings.kmesh
-                    ).model_dump(mode="json")
-                    protocol["incar"] = {k.upper(): v for k, v in protocol["incar"].items()}
-                    protocol["incar"].update({k.upper(): v for k, v in settings.incar.items()})
-                    if settings.kmesh:
-                        protocol.update(kmesh=list(settings.kmesh), kpoint_spacing=None)
-                    if settings.resources:
-                        protocol["resources"].update(
-                            settings.resources.model_dump(mode="json", exclude_unset=True)
-                        )
-                    source = configuration.get("sources", protocol["potential_source_id"])
-                    if queue and protocol["resources"]["queue"] != queue:
-                        raise AgentError("wrong_queue", f"本轮只授权 {queue} 队列。", 422)
-                    key = (protocol["server_id"], protocol["code_id"])
-                    if key not in identities:
-                        identities[key] = await self.chat.service.call("plan_identity", protocol)
-                    identity = identities[key]
-                    snapshots[node.id] = {"protocol": protocol, "source": source, **identity}
+                    raise AgentError(
+                        "legacy_backend_removed", "请使用 task/job 节点执行计算。", 410
+                    )
             previous = {node["id"]: node for node in old["nodes"]} if old else {}
             nodes = [node.stored_record(previous.get(node.id)) for node in args.nodes]
             for node in nodes:
@@ -263,6 +250,7 @@ class CalculationPlans:
             raise AgentError("extension_scope", "请在此方案的任务结束回合追加步骤。", 403)
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
+            self.require_current_backend(plan)
             if not plan.get("auto_queue") or plan["status"] in {"paused", "stopping", "stopped"}:
                 raise AgentError(
                     "extension_not_authorized", "未授权自动后续计算，请提出草稿。", 403
@@ -297,7 +285,6 @@ class CalculationPlans:
             )
             additions = validated.nodes[len(previous) :]
             snapshots = {}
-            configuration = CalculationConfiguration(self.chat.service.settings.aiida_path)
             for node in additions:
                 if node.execution_host and node.execution_host not in self.slurm.hosts():
                     raise AgentError("job_host_unknown", "未登记此服务器。", 422)
@@ -310,21 +297,9 @@ class CalculationPlans:
                 if node.job and node.job.host not in self.slurm.hosts():
                     raise AgentError("job_host_unknown", "未登记此服务器。", 422)
                 if node.calculation:
-                    c = node.calculation
-                    protocol = configuration.resolve(c.protocol_id, c.incar, c.kmesh).model_dump(
-                        mode="json"
+                    raise AgentError(
+                        "legacy_backend_removed", "请使用 task/job 节点执行计算。", 410
                     )
-                    if c.resources:
-                        protocol["resources"].update(
-                            c.resources.model_dump(mode="json", exclude_unset=True)
-                        )
-                    if protocol["resources"]["queue"] != plan["auto_queue"]:
-                        raise AgentError("wrong_queue", "后续任务沿用已授权队列。", 422)
-                    snapshots[node.id] = {
-                        "protocol": protocol,
-                        "source": configuration.get("sources", protocol["potential_source_id"]),
-                        **await self.chat.service.call("plan_identity", protocol),
-                    }
             self.chat.save(session, "plan_versions", str(uuid4()), plan)
             plan["snapshots"].update(snapshots)
             plan["nodes"].extend(node.stored_record() for node in additions)
@@ -462,7 +437,7 @@ class CalculationPlans:
         if not auto_request.get() or repair_target.get():
             raise AgentError("stop_not_authorized", "仅可在用户对话回合中按要求停止本方案。", 403)
         session, identifier = context.session_id, str(args.plan_id)
-        self.chat.load(session, "plans", identifier)
+        self.require_current_backend(self.chat.load(session, "plans", identifier))
         self.stop_requests.add((session, identifier))
         event_task = self.event_tasks.get((session, identifier))
         if event_task:
@@ -486,12 +461,7 @@ class CalculationPlans:
                     )
             plan["status"] = "stopping"
             self.save(session, plan)
-            ids = job_ids(plan)
-            result = (
-                await self.chat.service.call("stop_plan_jobs", {"job_ids": ids})
-                if ids
-                else {"verified_stopped": True, "active_aiida": [], "active_scheduler": []}
-            )
+            result = {"verified_stopped": True, "active_scheduler": []}
             for state in plan["runtime"].values():
                 for attempt in [
                     state,
@@ -549,6 +519,7 @@ class CalculationPlans:
     async def confirm(self, session: str, identifier: str, revision: int) -> dict:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
+            self.require_current_backend(plan)
             if plan["revision"] != revision:
                 raise AgentError("plan_revision_conflict", "方案已更新，请查看新版后确认。", 409)
             if plan["status"] == "draft":
@@ -559,6 +530,7 @@ class CalculationPlans:
     async def control(self, session: str, identifier: str, action: str) -> dict:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
+            self.require_current_backend(plan)
             if action == "rediagnose":
                 if not plan.get("auto_queue") or plan["status"] not in {"failed", "running"}:
                     raise AgentError("plan_state_conflict", "仅可重新诊断自动方案的失败节点。", 409)
@@ -740,7 +712,11 @@ class CalculationPlans:
         state.update(status="running", job=self.generic_snapshot(record))
         self.save(session, plan)
         await self.platform.results.ensure_job(
-            session, plan["id"], node["id"], identifier, settings.results,
+            session,
+            plan["id"],
+            node["id"],
+            identifier,
+            settings.results,
             node.get("parent_task"),
         )
         if record["status"] == "rejected":
@@ -804,176 +780,6 @@ class CalculationPlans:
             )
         state.update(status="completed")
 
-    async def start_vasp(self, session: str, plan: dict, node: dict, state: dict) -> None:
-        from chemistry_agent.automation.chat import ChatPreviewInput
-
-        if not state.get("preview_id"):
-            snapshot = plan["snapshots"][node["id"]]
-            current = await self.chat.service.call("plan_identity", snapshot["protocol"])
-            if current["identity"] != snapshot["identity"]:
-                raise AgentError(
-                    "plan_environment_changed", "服务器或 VASP 环境已变化，请重新设计并确认。", 409
-                )
-            inputs = self.resolved_inputs(session, plan, node)
-            structure_id = inputs["structure"]["structure_id"]
-            structure = self.chat.load(session, "structures", structure_id)
-            resolved = await self.chat.service.call(
-                "resolve_calculation",
-                {
-                    "protocol_id": snapshot["protocol"]["id"],
-                    "protocol_snapshot": snapshot["protocol"],
-                    "source_snapshot": snapshot["source"],
-                    "structure": structure["structure"],
-                },
-            )
-            request = {k: v for k, v in resolved["request"].items() if k != "structure"}
-            preview = await self.chat.preview(
-                ChatPreviewInput(structure_id=structure_id, **request),
-                ToolContext(session, plan["id"]),
-            )
-            state.update(
-                preview_id=preview["preview_id"],
-                input_structure_id=structure_id,
-                input_structure_fingerprint=hashlib.sha256(
-                    json.dumps(structure["structure"], sort_keys=True).encode()
-                ).hexdigest(),
-            )
-            artifact = self.chat.load(session, "previews", preview["preview_id"])
-            artifact.update(
-                plan_id=plan["id"],
-                plan_node=node["id"],
-                plan_revision=plan["revision"],
-                plan_auto=bool(plan.get("auto_queue")),
-            )
-            self.chat.save(session, "previews", preview["preview_id"], artifact)
-            # Persist BEFORE submission. Recovery always uses this same preview.
-            self.save(session, plan)
-        submission = await self.chat.submit_reviewed(session, state["preview_id"])
-        state.update(status="running", job_id=submission["job"]["id"], job=submission["job"])
-
-    async def inspect_vasp(self, session: str, plan: dict, node: dict, state: dict) -> None:
-        from chemistry_agent.automation.chat import JobInput
-
-        job = await self.chat.service.call("job_details", {"job_id": state["job_id"]})
-        state["job"] = job
-        if job.get("scheduler_job_id"):
-            state.pop("quota_wait_since", None)
-            state.pop("quota_move", None)
-        move = state.get("quota_move")
-        if move and job["process_state"] == "killed" and not job.get("scheduler_job_id"):
-            protocol = plan["snapshots"][node["id"]]["protocol"]
-            resources = protocol["resources"] | {"queue": move["target"]}
-            protocol["resources"] = resources
-            node["effective"]["resources"] = node["calculation"]["resources"] = resources
-            history = state.get("quota_history", []) + [
-                dict(move, job_id=state["job_id"], pk=job["pk"], preview_id=state["preview_id"])
-            ]
-            attempts = state.get("attempts", [])
-            state.clear()
-            state.update(status="pending", attempts=attempts, quota_history=history)
-            self.save(session, plan)
-            return
-        if job["process_state"] not in {"finished", "excepted", "killed"}:
-            return
-        if not job.get("finished_ok"):
-            raise AgentError(
-                "plan_calculation_failed", job.get("exit_message") or "计算异常结束。", 422
-            )
-        run_status = job.get("results", {}).get("run_status", {})
-        settings = node["calculation"]
-        for flag in ("electronic", "ionic"):
-            if settings[f"require_{flag}"] and run_status.get(f"{flag}_converged") is not True:
-                raise AgentError("plan_not_converged", f"{flag} 收敛未通过或缺少证据。", 422)
-        outputs = {"result": {"job_id": job["id"], "pk": job["pk"], **job.get("results", {})}}
-        if job.get("output_structure"):
-            imported = await self.chat.import_job_structure(
-                JobInput(job_id=job["id"]), ToolContext(session, job["id"])
-            )
-            outputs["structure_id"] = imported["id"]
-        else:
-            # Static jobs may not expose a new structure: their input geometry is the output.
-            incar = {k.upper(): v for k, v in node["effective"]["incar"].items()}
-            if not int(incar.get("NSW", 0)):
-                outputs["structure_id"] = state["input_structure_id"]
-        state.update(
-            status="completed", outputs=outputs, completed_at=utc_now(), summary_requested=True
-        )
-
-    async def resume_quota_waiter(self, session: str, plan: dict, node: dict, state: dict) -> None:
-        job = state.get("job", {})
-        if plan["status"] != "running" or state.get("status") != "running":
-            return
-        if (
-            job.get("paused")
-            and job.get("scheduler_job_id")
-            and job.get("process_status") == QUOTA_HOLD
-        ):
-            await self.chat.service.call("hold_quota_job", {"job_id": state["job_id"]})
-            return
-        rejection = quota_rejection(job)
-        if not rejection:
-            return
-        protocol = plan["snapshots"][node["id"]]["protocol"]
-        policy = protocol.get("quota_fallback")
-        if "quota_fallback" not in protocol:
-            # Plans reviewed before this feature may use the owner's registered policy.
-            config = CalculationConfiguration(self.chat.service.settings.aiida_path)
-            registered = config.get("protocols", protocol["id"])
-            if registered["server_id"] == protocol["server_id"]:
-                policy = registered.get("quota_fallback")
-        if not (policy or plan.get("auto_queue")):
-            return
-        if not waiting_for_submit_quota(job):
-            if (
-                not job.get("paused")
-                and job.get("process_status") == "Waiting for transport task: submit"
-                and rejection.get("time")
-                and rejection["time"] != state.get("quota_released_error")
-            ):
-                state.setdefault("quota_wait_since", utc_now())
-                await self.chat.service.call(
-                    "hold_quota_job", {"job_id": state["job_id"], "time": rejection["time"]}
-                )
-            return
-        resources = protocol["resources"]
-        queue = resources["queue"]
-        target = policy["target"] if policy and queue == policy["source"] else queue
-        since = state.setdefault("quota_wait_since", utc_now())
-        move = state.get("quota_move")
-        if not move:
-            monitor = getattr(self.chat, "monitor", None)
-            if not monitor:
-                return
-            release = monitor.events.claim_quota_release(
-                protocol["server_id"],
-                resources.get("account") or "",
-                target,
-                state["job_id"],
-                since,
-                rejection.get("time") or since,
-                source_queue=queue,
-            )
-            if not release:
-                return
-            state["quota_released_error"] = rejection.get("time")
-            state["quota_release"] = release
-            state["quota_wait_since"] = utc_now()
-            if target != queue:
-                state["quota_move"] = {"source": queue, "target": target, "released_by": release}
-            self.save(session, plan)
-        if state.get("quota_move"):
-            target = state["quota_move"]["target"]
-            await self.chat.service.call(
-                "retire_quota_job",
-                {
-                    "job_id": state["job_id"],
-                    "source": queue,
-                    "resources": resources | {"queue": target},
-                },
-            )
-        else:
-            await self.chat.service.call("resume_quota_job", {"job_id": state["job_id"]})
-
     @staticmethod
     def step_status(state: dict) -> str:
         if state["status"] == "running" and state.get("job"):
@@ -1031,10 +837,8 @@ class CalculationPlans:
     async def tick_plan(self, session: str, identifier: str) -> None:
         async with self.lock(session, identifier):
             plan = self.chat.load(session, "plans", identifier)
-            if not self.chat.service.settings.aiida_enabled and any(
-                n["kind"] == "vasp" for n in plan["nodes"]
-            ):
-                return  # Historical AiiDA plans remain readable; do not advance or resubmit them.
+            if any(n["kind"] == "vasp" for n in plan["nodes"]):
+                return  # Historical engine plans remain readable; do not advance or resubmit them.
             stopped = plan["status"] in {"stopping", "stopped"}
             projection_key = (session, identifier, plan["revision"], plan["status"] == "stopped")
             if projection_key not in self.projected:
@@ -1052,9 +856,6 @@ class CalculationPlans:
                     try:
                         if state.get("generic_job_id") and state["status"] == "running":
                             await self.inspect_job(session, plan, node, state)
-                        if state.get("job_id") and state["status"] == "running":
-                            await self.inspect_vasp(session, plan, node, state)
-                            await self.resume_quota_waiter(session, plan, node, state)
                         if state["status"] in TERMINAL or plan["status"] == "paused":
                             continue
                         dependencies = [
@@ -1077,7 +878,7 @@ class CalculationPlans:
                             for s in plan["runtime"].values()
                         )
                         if (
-                            node["kind"] in {"vasp", "job"}
+                            node["kind"] == "job"
                             and plan.get("max_parallel")
                             and active >= plan["max_parallel"]
                         ):
@@ -1088,8 +889,6 @@ class CalculationPlans:
                         self.save(session, plan)
                         if node["kind"] == "job":
                             await self.start_job(session, plan, node, state)
-                        elif node["kind"] == "vasp":
-                            await self.start_vasp(session, plan, node, state)
                         else:
                             outputs = await self.run_code(session, plan, node, state)
                             state.update(

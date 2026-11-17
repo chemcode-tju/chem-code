@@ -8,13 +8,13 @@ from chemistry_agent.errors import AgentError
 
 class RuntimeLease:
     def __init__(self, settings: Settings) -> None:
-        settings.aiida_path.mkdir(parents=True, exist_ok=True)
+        settings.platform_path.mkdir(parents=True, exist_ok=True)
         settings.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.locks = [
             FileLock(path)
             for path in sorted(
                 {
-                    settings.aiida_path / ".computation-platform.lock",
+                    settings.platform_path / ".computation-platform.lock",
                     settings.database_path.with_suffix(".platform.lock"),
                 }
             )

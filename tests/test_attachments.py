@@ -110,11 +110,11 @@ async def test_file_download_and_model_access_are_account_scoped(settings_factor
 
 
 def test_uploaded_geometry_is_bound_to_its_chat_and_reusable(settings_factory, monkeypatch):
-    from chemistry_agent.automation import backend
+    from chemistry_agent import structure_inputs
 
     async def validate(action: str, payload: dict) -> dict:
         assert action == "validate_structure_file"
-        return backend.validate_structure_file(payload)
+        return structure_inputs.validate_structure_file(payload)
 
     def reply(_: httpx.Request) -> httpx.Response:
         return httpx.Response(

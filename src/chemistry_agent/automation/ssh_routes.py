@@ -25,7 +25,7 @@ class AliasSelection(StrictModel):
 @router.get("/ssh/local-aliases")
 async def local_aliases(service: Local) -> dict:
     require_automation(service)
-    selected = enabled_aliases(service.settings.aiida_path, service.settings.allowed_ssh_hosts)
+    selected = enabled_aliases(service.settings.platform_path, service.settings.allowed_ssh_hosts)
     rows = await asyncio.to_thread(discover_aliases)
     known = {row["alias"] for row in rows}
     rows.extend(
@@ -41,7 +41,7 @@ async def select_aliases(body: AliasSelection, service: Local) -> dict:
     known.update(service.settings.allowed_ssh_hosts)
     if set(body.hosts) - known:
         raise AgentError("ssh_alias_unknown", "请选择本机 SSH 配置中已有的服务器。", 422)
-    save_aliases(service.settings.aiida_path, body.hosts)
+    save_aliases(service.settings.platform_path, body.hosts)
     return await local_aliases(service)
 
 
@@ -51,7 +51,7 @@ async def test_alias(host: str, service: Local) -> dict:
     from chemistry_agent.runtime.shell import ShellInput, remote_shell_tool
     from chemistry_agent.tools import ToolContext
 
-    tool = remote_shell_tool(service.settings.allowed_ssh_hosts, service.settings.aiida_path)
+    tool = remote_shell_tool(service.settings.allowed_ssh_hosts, service.settings.platform_path)
     return await tool.handler(
         ShellInput(host=host, command="hostname; command -v sbatch; command -v squeue"),
         ToolContext("connection-test", "connection-test"),
@@ -79,7 +79,7 @@ async def probe(body: ServerCreate, service: Local) -> dict:
     require_automation(service)
     from chemistry_agent.automation.ssh_connection import discover
 
-    _, _, result = await discover(service.settings.aiida_path, body)
+    _, _, result = await discover(service.settings.platform_path, body)
     return result
 
 
@@ -89,7 +89,7 @@ async def trust(body: TrustHost, service: Local) -> dict:
     from chemistry_agent.automation.ssh_connection import pin_server
 
     _, result = await pin_server(
-        service.settings.aiida_path, body.server, body.fingerprint, body.previous_fingerprint
+        service.settings.platform_path, body.server, body.fingerprint, body.previous_fingerprint
     )
     return result
 
@@ -98,11 +98,11 @@ async def change_password(identifier: UUID, value: str | None, service: Automati
     require_automation(service)
     from chemistry_agent.automation.ssh_keychain import set_password
 
-    profile = load_profile(service.settings.aiida_path, str(identifier))
+    profile = load_profile(service.settings.platform_path, str(identifier))
     if profile["auth_mode"] != "password":
         raise AgentError("password_not_used", "此服务器使用密钥或 SSH 别名。", 422)
     await asyncio.to_thread(set_password, str(identifier), value)
-    check_path(service.settings.aiida_path, str(identifier)).unlink(missing_ok=True)
+    check_path(service.settings.platform_path, str(identifier)).unlink(missing_ok=True)
     return {"stored": value is not None}
 
 

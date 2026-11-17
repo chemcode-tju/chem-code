@@ -52,7 +52,10 @@ class PlanNode(StrictModel):
             "purpose. Do not rename existing steps solely for display."
         ),
     )
-    kind: Literal["model", "vasp", "analysis", "job", "task"]
+    # Retain parsing of historical records while advertising only current execution kinds.
+    kind: Literal["model", "vasp", "analysis", "job", "task"] = Field(
+        json_schema_extra={"enum": ["model", "analysis", "job", "task"]}
+    )
     executor: Literal["platform", "agent"] | None = None
     execution_host: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
     parent_task: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,63}$")

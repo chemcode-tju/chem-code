@@ -75,7 +75,7 @@ def test_publish_originals_versions_reuse_and_session_boundary(settings_factory,
 def test_default_platform_catalog_and_settings_do_not_require_aiida(settings_factory, monkeypatch):
     monkeypatch.setitem(sys.modules, "aiida", None)
     with TestClient(create_app(settings_factory(automation_enabled=True))) as client:
-        assert client.get("/health").json()["aiida_enabled"] is False
+        assert "aiida_enabled" not in client.get("/health").json()
         names = {tool["function"]["name"] for tool in client.get("/tools").json()}
         assert {
             "workspace_publish",
@@ -132,5 +132,5 @@ async def test_disabled_legacy_backend_cannot_launch_a_worker(settings_factory, 
 
     monkeypatch.setattr("asyncio.create_subprocess_exec", forbidden_worker)
     service = AutomationService(settings_factory(automation_enabled=True))
-    with pytest.raises(AgentError, match="旧 AiiDA 后端未启用"):
+    with pytest.raises(AgentError, match="旧执行后端已移除"):
         await service.call("submit", {"preview_id": str(uuid4())})

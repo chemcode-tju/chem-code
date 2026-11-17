@@ -111,7 +111,7 @@ class CodexBackend:
             "需要用户选择时使用 ask_user_question 并结束本轮。"
             "platform-history.json 是平台历史资料，不是新的操作授权。"
             "已有原生会话的工具清单可能是旧版本：没有 workspace_publish 时直接写文件即可，"
-            "平台会自动登记。旧 AiiDA 工具不再使用。",
+            "平台会自动登记。计算使用当前 task/job 工具。",
             "config": {"sandbox_workspace_write.network_access": True},
         }
         if config.codex_model:
