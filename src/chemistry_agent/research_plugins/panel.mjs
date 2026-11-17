@@ -118,6 +118,8 @@ $('#detail').addEventListener('click',async event=>{
     if(page){await showFolder(folderData.relative_path,Number(page.dataset.page));return;}
     const file=event.target.closest('[data-file-index]');if(!file)return;
     const entry=folderData.entries[Number(file.dataset.fileIndex)];
+    $('#status').textContent='';
+    if(entry.open_error)throw new Error(entry.open_error);
     if(entry.kind==='directory'){await showFolder(entry.path);return;}
     if(!hostCapabilities.experimental?.['openai/files'] && !hostCapabilities.extensions?.['openai/files']){
       $('#status').textContent='文件路径：'+entry.absolute_path;return;

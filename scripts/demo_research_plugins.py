@@ -67,6 +67,13 @@ def main() -> None:
         )
     (project / "02-co-top/outputs").mkdir(exist_ok=True)
     (project / "02-co-top/outputs/summary.txt").write_text("模拟作业记录；非真实科研结果。\n")
+    for directory in (".config", "archive"):
+        (project / "02-co-top" / directory).mkdir(exist_ok=True)
+        (project / "02-co-top" / directory / "README.md").write_text("文件导航演示。\n")
+    (project / "02-co-top/.metadata").write_text("仅用于隐藏文件导航测试。\n")
+    directory_link = project / "02-co-top/outputs-link"
+    if not directory_link.is_symlink():
+        directory_link.symlink_to("outputs", target_is_directory=True)
     try:
         for client in (monitor, research):
             client.call(
@@ -148,7 +155,14 @@ def main() -> None:
         files = research.call(
             "research_read_folder", scope | {"plan_id": plan["id"], "node_id": "top"}
         )
-        assert {entry["name"] for entry in files["entries"]} == {"README.md", "outputs"}
+        assert {entry["name"] for entry in files["entries"]} == {
+            "README.md",
+            "outputs",
+            ".config",
+            "archive",
+            ".metadata",
+            "outputs-link",
+        }
         shared = research.call("research_read_plan", scope)
         assert shared["jobs"][0]["scheduler_state"] == "COMPLETED"
         assert shared["plans"][0]["runtime"]["top"]["status"] == "pending"

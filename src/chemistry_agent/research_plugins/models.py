@@ -58,5 +58,9 @@ class FolderLink(Scope):
 class FolderRead(Scope):
     plan_id: UUID
     node_id: str
-    path: str = Field(default="", max_length=4096)
+    path: str = Field(
+        default="",
+        max_length=4096,
+        description="Project-relative path; empty opens the step directory, '.' the project root.",
+    )
     offset: int = Field(default=0, ge=0)

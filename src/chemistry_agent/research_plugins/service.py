@@ -114,8 +114,10 @@ class ResearchService:
             "research_read_plan": "Read the workflow, associated jobs and step directory links.",
             "research_link_folder": "Associate a step with an existing project directory.",
             "research_read_folder": (
-                "List the step's directory and files, 100 per page. Excludes archive, hidden "
-                "paths and symlinks. Does not read file contents or calculation parameters."
+                "List all files and directories, including hidden entries, archive and symlinks, "
+                "100 per page. Empty path opens the step directory; other paths are "
+                "project-relative. Link targets must stay inside the project. "
+                "Does not read file contents."
             ),
         }
         names = [
@@ -257,7 +259,7 @@ class ResearchService:
         )
         folder = checked_directory(Path(link["path"]), (root,)) if link else root
         node = next(node for node in plan["nodes"] if node["id"] == args.node_id)
-        return list_folder(folder, args.path, args.offset) | {
+        return list_folder(root, args.path or str(folder.relative_to(root)), args.offset) | {
             "node_title": node["title"],
             "project_path": str(root),
             "linked": link is not None,

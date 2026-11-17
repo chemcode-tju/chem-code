@@ -129,9 +129,19 @@ async def test_shared_plan_revision_binding_and_folders(tmp_path):
     folder.mkdir()
     (folder / "README.md").write_text("fixture")
     (folder / "nested").mkdir()
-    (folder / ".hidden").write_text("not listed")
+    (folder / ".hidden").write_text("hidden file fixture")
+    (folder / ".config").mkdir()
+    (folder / "archive").mkdir()
+    (folder / "archive" / "previous.txt").write_text("archive fixture")
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "result.txt").write_text("shared fixture")
+    (folder / "linked-folder").symlink_to(shared, target_is_directory=True)
+    (folder / "linked-file").symlink_to(folder / ".hidden")
+    (folder / "broken").symlink_to(folder / "missing.txt")
+    (folder / "loop").symlink_to(folder / "loop")
     (folder / "escape").symlink_to(tmp_path.parent, target_is_directory=True)
-    # Name-only exclusion; no archive content is created or inspected by this test.
+    (folder / "escape-file").symlink_to(tmp_path.parent / "outside.txt")
     link = await service.execute(
         "research_link_folder",
         {
@@ -147,10 +157,35 @@ async def test_shared_plan_revision_binding_and_folders(tmp_path):
     assert data["folders"][0]["id"] == link["id"]
     args = {"workspace_id": workspace, "plan_id": plan["id"], "node_id": "relax"}
     listing = await restarted.execute("research_read_folder", args)
-    assert [entry["name"] for entry in listing["entries"]] == ["nested", "README.md"]
-    child = await restarted.execute("research_read_folder", args | {"path": "nested"})
-    assert child["parent"] == "."
-    for bad_path in ("../..", "archive", ".hidden", "escape"):
+    entries = {entry["name"]: entry for entry in listing["entries"]}
+    assert set(entries) == {
+        "nested",
+        "README.md",
+        ".hidden",
+        ".config",
+        "archive",
+        "linked-folder",
+        "linked-file",
+        "broken",
+        "loop",
+        "escape",
+        "escape-file",
+    }
+    assert entries["linked-file"]["absolute_path"] == str(folder / ".hidden")
+    assert entries["linked-file"]["is_symlink"] is True
+    assert entries["linked-file"]["open_error"] is None
+    for name in ("broken", "loop", "escape", "escape-file"):
+        assert entries[name]["open_error"]
+    for name in ("nested", ".config", "archive", "linked-folder"):
+        child = await restarted.execute(
+            "research_read_folder", args | {"path": entries[name]["path"]}
+        )
+        assert child["directory"] == str(shared if name == "linked-folder" else folder / name)
+        assert child["parent"] == ("." if name == "linked-folder" else "calculation")
+    project = await restarted.execute("research_read_folder", args | {"path": listing["parent"]})
+    assert project["directory"] == str(tmp_path)
+    assert project["parent"] is None
+    for bad_path in ("../..", "calculation/escape", "calculation/loop"):
         with pytest.raises(ValueError):
             await restarted.execute("research_read_folder", args | {"path": bad_path})
     assert data["plans"][0]["runtime"]["relax"]["status"] == "pending"
