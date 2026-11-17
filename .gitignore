@@ -19,3 +19,9 @@ build/
 .conda/
 .local-backup/
 node_modules/
+plugins/*/panel.html
+plugins/*/server.py
+plugins/*/connection.json
+plugins/*/.mcp.json
+plugins/*/mcp.json
+plugins/*/.codex-plugin/

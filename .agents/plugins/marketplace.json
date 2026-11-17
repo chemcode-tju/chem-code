@@ -1,0 +1,32 @@
+{
+  "name": "chem-research-local",
+  "interface": {
+    "displayName": "Chem 科研插件原型"
+  },
+  "plugins": [
+    {
+      "name": "chem-job-monitor",
+      "source": {
+        "source": "local",
+        "path": "./plugins/chem-job-monitor"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "chem-research",
+      "source": {
+        "source": "local",
+        "path": "./plugins/chem-research"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

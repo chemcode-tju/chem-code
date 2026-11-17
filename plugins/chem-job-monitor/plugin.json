@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "chem-job-monitor",
+  "version": "0.1.0",
+  "description": "登记计算作业、持久等待与完成事件；独立于聊天模型。",
+  "license": "MIT",
+  "extensions": {"com.openai": {"interface": {"displayName": "计算作业监控", "shortDescription": "已有作业与持久等待"}}}
+}

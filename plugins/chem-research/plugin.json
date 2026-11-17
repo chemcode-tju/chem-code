@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "chem-research",
+  "version": "0.1.0",
+  "description": "简洁研究流程与对应项目文件夹，共用科研后台。",
+  "license": "MIT",
+  "extensions": {"com.openai": {"interface": {"displayName": "研究方案", "shortDescription": "流程与项目文件"}}}
+}
