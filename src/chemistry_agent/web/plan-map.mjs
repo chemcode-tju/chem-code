@@ -25,11 +25,8 @@ export function planMap(layers, key, attribute, title = '', controls = '') {
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
     <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="已展开 / 总步骤"></span></div>${controls}<div class="map-actions">
-      ${tool('data-command="find" aria-expanded="false"','查找步骤',icon('find'))}
-      ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more'))}
-      ${tool('data-command="full" aria-pressed="false"','全屏画布',icon('expand'))}
+      ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more-vertical'))}
     </div></div>
-    <div class="map-pop map-search" data-pop="find" hidden><input type="search" placeholder="搜索步骤…" aria-label="搜索步骤…" autocomplete="off"><div data-results></div></div>
     <div class="map-pop" data-pop="options" hidden>
       <label data-board-option><input type="checkbox" data-board-rows> 上下两行</label>
       <button type="button" class="map-direction" data-command="direction" title="切换布局方向">从上到下 ↓</button>
@@ -42,9 +39,9 @@ export function planMap(layers, key, attribute, title = '', controls = '') {
     <button type="button" class="map-navigator" title="缩略图导航" aria-label="缩略图导航"><svg preserveAspectRatio="none" aria-hidden="true"><path/><rect/></svg></button>
     <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}${tool('data-command="arrange"','恢复自动布局',icon('reset'))}</div></div>
     <div class="map-pop map-help" data-pop="keys" hidden>
-      ${shortcut('← / →','收起 / 展开分支')}${shortcut('↑ / ↓','上一个 / 下一个节点')}${shortcut('Enter','查看步骤详情')}${shortcut('/','查找步骤')}${shortcut('R','恢复这张卡片原位')}${shortcut('F','切换全屏')}${shortcut('0','适应画布')}${shortcut('Esc','关闭浮层或全屏')}${shortcut('Space + 拖动','平移画布')}
+      ${shortcut('← / →','收起 / 展开分支')}${shortcut('↑ / ↓','上一个 / 下一个节点')}${shortcut('Enter','查看步骤详情')}${shortcut('R','恢复这张卡片原位')}${shortcut('0','适应画布')}${shortcut('Esc','关闭浮层')}${shortcut('Space + 拖动','平移画布')}
     </div><div class="map-grip" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="调整画布高度" title="拖动调整画布高度"><i></i></div>
-    </div><dialog class="map-dialog" aria-label="全屏方案画布"></dialog></div>`;
+    </div></div>`;
 }
 
 const mounted = new WeakMap();
@@ -66,7 +63,7 @@ function mount(map, previous) {
   $('[data-board-rows]').onchange=event=>{boardRows=event.target.checked;kanban.dataset.rows=boardRows?'two':'one';persist();save();};
   let canvasCamera={left:saved.left,top:saved.top};
   let boardScroll={left:saved.boardLeft || 0,top:saved.boardTop || 0};
-  const dialog=$('.map-dialog'), find=$('.map-search input'), results=$('[data-results]'), grip=$('.map-grip');
+  const grip=$('.map-grip');
   world.style.setProperty('--node-w',CARD.width+'px');world.style.setProperty('--node-h',CARD.height+'px');
   const nodes=[...world.querySelectorAll('[data-vertex]')].map(el=>({id:el.dataset.vertex,title:el.dataset.label,searchText:el.dataset.search,
     parents:JSON.parse(el.dataset.parents),groupPath:JSON.parse(el.dataset.groupPath),caption:el.querySelector('.map-card-caption'),reset:el.querySelector('[data-reset-card]'),auxiliary:el.hasAttribute('data-aux'),el,button:el.querySelector('.map-node'),toggle:el.querySelector('[data-branch]')}));
@@ -76,12 +73,11 @@ function mount(map, previous) {
   let showNav=saved.showNav!==false;
   let allArrows=saved.allArrows===true;
   let direction=saved.direction || '';
-  const orientation=()=>direction || (dialog.open?'LR':'TB');
+  const orientation=()=>direction || 'TB';
   let originX=0, originY=0;
   const camera=()=>({left:view.scrollLeft-originX,top:view.scrollTop-originY});
   const nav=createNavigator($('.map-navigator'),view,()=>({layout,scale,...camera(),...CARD}),panTo);
   let scale=bound(Number(saved.scale)||1,.005,3), height=saved.height || 0, pop='', raf=0, interacted=false;
-  const cnEn=cn=>t(cn);
   function initMode() {
     if (!graphs.has(all)) graphs.set(all,buildGraph(nodes,all));
     graph=graphs.get(all);
@@ -96,10 +92,10 @@ function mount(map, previous) {
     return {layoutVersion:6,modes,all,active:interacted?active:null,scale,height,showNav,allArrows,direction,boardRows,
       ...(viewMode==='canvas'?camera():canvasCamera),viewMode,
       boardLeft:viewMode==='kanban'?kanban.scrollLeft:boardScroll.left,
-      boardTop:viewMode==='kanban'?kanban.scrollTop:boardScroll.top,full:dialog.open,focused};
+      boardTop:viewMode==='kanban'?kanban.scrollTop:boardScroll.top,focused};
   }
   function persist() {
-    try {const {full,focused,...state}=snapshot();sessionStorage.setItem(storageKey,JSON.stringify(state));} catch { /* Optional. */ }
+    try {const {focused,...state}=snapshot();sessionStorage.setItem(storageKey,JSON.stringify(state));} catch { /* Optional. */ }
   }
   function save() {
     if (!board.getClientRects().length) return;
@@ -127,7 +123,7 @@ function mount(map, previous) {
     world.style.width=layout.width+'px';world.style.height=layout.height+'px';
     world.style.transform=`scale(${scale})`;map.dataset.scale=scale;
     $('[data-zoom="0"]').textContent=Math.round(scale*100)+'%';
-    $('.map-navigator').hidden=viewMode!=='canvas' || !showNav || !dialog.open;
+    $('.map-navigator').hidden=viewMode!=='canvas' || !showNav || view.clientWidth<600;
     panTo(left,top);
   }
   function mark(id) {
@@ -221,8 +217,6 @@ function mount(map, previous) {
     // The auxiliary-step filter is shared; geometry controls belong to the canvas.
     for(const control of board.querySelectorAll('[data-pop="options"] > :not([data-aux-option]):not([data-board-option])')) control.hidden=mode!=='canvas';
     $('[data-board-option]').hidden=mode!=='kanban';
-    const full=$('[data-command="full"]'),label=dialog.open?'退出全屏':mode==='kanban'?'全屏看板':'全屏画布';
-    full.title=label;full.setAttribute('aria-label',label);
     const options=$('[data-command="options"]'),optionsLabel=mode==='kanban'?'看板选项':'画布选项';
     options.title=optionsLabel;options.setAttribute('aria-label',optionsLabel);
     draw();
@@ -281,66 +275,21 @@ function mount(map, previous) {
   function showPop(name) {
     if(pop===name) {closePop(true);return;}
     closePop();pop=name;$(`[data-pop="${name}"]`).hidden=false;
-    if(name==='options') $('.map-nav-option').hidden=!dialog.open || viewMode!=='canvas';
+    if(name==='options') $('.map-nav-option').hidden=view.clientWidth<600 || viewMode!=='canvas';
     if(name!=='keys') $(`[data-pop="${name}"]`).style.top=$('.map-tools').offsetHeight+4+'px';
     $(`[data-command="${name}"]`).setAttribute('aria-expanded','true');
-    if(name==='find'){find.value='';search();find.focus();}
-  }
-  function setFull(on,focus=true) {
-    if(on===dialog.open) return;
-    closePop();
-    const {left,top}=camera(), previousDirection=orientation();
-    if(on) {dialog.append(board);dialog.showModal();}
-    else {dialog.close();map.insertBefore(board,dialog);}
-    const trigger=$('[data-command="full"]'),label=t(on?'退出全屏':viewMode==='kanban'?'全屏看板':'全屏画布');
-    trigger.setAttribute('aria-pressed',String(on));trigger.title=label;trigger.setAttribute('aria-label',label);
-    trigger.innerHTML=icon(on?'shrink':'expand');
-    if(focus) trigger.focus({preventScroll:true});
-    draw();
-    if(previousDirection!==orientation()) center(active);else panTo(left,top);
-    viewportWidth=view.clientWidth;viewportHeight=view.clientHeight;
-  }
-  dialog.addEventListener('cancel',e=>{e.preventDefault();if(pop) closePop(true);else setFull(false);});
-  function search() {
-    const query=find.value.trim().toLowerCase();
-    const hits=nodes.filter(n=>query?(n.id+' '+n.title+' '+n.searchText+' '+(n.groupPath || []).join(' ')).toLowerCase().includes(query):viewMode==='kanban'?graph.byId.has(n.id):layout.points.has(n.id));
-    const rows=hits.slice(0,30);
-    results.innerHTML=rows.map(n=>`<button type="button" data-hit="${esc(n.id)}"><strong>${esc(n.title)}</strong><small>${esc(n.id)}</small></button>`).join('') ||
-      '<p>'+t('没有匹配的步骤')+'</p>';
-    if(hits.length>rows.length) results.insertAdjacentHTML('beforeend','<p>'+cnEn('仅显示前 30 项','First 30 matches; keep typing to narrow the list')+'</p>');
-  }
-  function jump(id) {
-    if(!byId.has(id)) return;
-    if(!graph.byId.has(id)) {snapshot();all=true;initMode();}
-    const node=graph.byId.get(id);
-    for(let p=graph.byId.get(node.primary);p;p=graph.byId.get(p.primary)) folds.delete(p.id);
-    closePop();draw();
-    if(viewMode==='kanban') {
-      const row=[...kanban.querySelectorAll('[data-board-node]')].find(row=>row.dataset.boardNode===id);
-      row.querySelector('button').focus();row.scrollIntoView({block:'nearest',inline:'nearest'});save();return;
-    }
-    if(scale<.7) zoom(1);
-    choose(id,true);center(id);save();
   }
   $('[data-show-nav]').checked=showNav;
   $('[data-show-nav]').onchange=e=>{showNav=e.target.checked;setSize();save();};
   $('[data-all-arrows]').checked=allArrows;
   $('[data-all-arrows]').onchange=e=>{allArrows=e.target.checked;paths.forEach(updateArrow);save();};
-  find.oninput=search;
-  $('[data-pop="find"]').onkeydown=e=>{
-    const buttons=[...results.querySelectorAll('button')], i=buttons.indexOf(document.activeElement);
-    if((e.key==='ArrowDown' || e.key==='ArrowUp') && buttons.length) {
-      e.preventDefault();buttons[bound(i+(e.key==='ArrowDown'?1:-1),0,buttons.length-1)].focus();
-    } else if(e.key==='Enter' && document.activeElement===find && buttons.length) {e.preventDefault();jump(buttons[0].dataset.hit);}
-  };
   $('[data-all]').onchange=e=>{
     snapshot();all=e.target.checked;initMode();
     closePop();draw();center(active);save();
   };
   function command(name) {
-    if(['find','keys','options'].includes(name)) {showPop(name);return;}
+    if(['keys','options'].includes(name)) {showPop(name);return;}
     closePop();
-    if(name==='full') setFull(!dialog.open);
     if(name==='fit') fit();
     if(name==='direction') {direction=orientation()==='LR'?'TB':'LR';moves.clear();draw();center(active);}
     if(name==='arrange') {moves.clear();draw();center(active);}
@@ -358,7 +307,6 @@ function mount(map, previous) {
     if(btn.dataset.planView) showView(btn.dataset.planView);
     else if(btn.hasAttribute('data-reset-card')) resetCard(btn.closest('[data-vertex]').dataset.vertex);
     else if(btn.hasAttribute('data-branch')) toggle(btn.dataset.branch);
-    else if(btn.dataset.hit) jump(btn.dataset.hit);
     else if(btn.dataset.command) command(btn.dataset.command);
     else if(btn.hasAttribute('data-zoom')) Number(btn.dataset.zoom)?zoomBy(1.25**Number(btn.dataset.zoom)):zoom(1);
     else if(btn.matches('.map-node')) choose(btn.closest('[data-vertex]').dataset.vertex);
@@ -385,11 +333,11 @@ function mount(map, previous) {
     save();
   }
   board.addEventListener('keydown',event=>{
-    if(event.key==='Escape' && (pop || dialog.open)) {event.preventDefault();event.stopPropagation();if(pop) closePop(true);else setFull(false);return;}
+    if(event.key==='Escape' && pop) {event.preventDefault();event.stopPropagation();closePop(true);return;}
     if(pop || event.target.matches('input,select,textarea,[role="separator"]') || event.metaKey || event.altKey || event.ctrlKey) return;
     const key=event.key.toLowerCase();
     if(key==='r' && view.contains(event.target)) resetCard(event.target.closest('[data-vertex]')?.dataset.vertex || active);
-    else if(key==='/') command('find');else if(key==='f') command('full');else if(key==='0' && viewMode==='canvas') command('fit');
+    else if(key==='0' && viewMode==='canvas') command('fit');
     else if(view.contains(event.target) && key.startsWith('arrow')) navigate(event.key);
     else if(event.target===view && key==='enter' && active) byId.get(active).button.click();
     else return;
@@ -421,7 +369,6 @@ function mount(map, previous) {
   initMode();active=saved.active;interacted=Boolean(active);draw();resize(height);
   function restore(s) {
     if(!s || !map.getClientRects().length) return;
-    if(s.full) setFull(true,false);
     if(viewMode==='kanban') {kanban.scrollLeft=s.boardLeft || 0;kanban.scrollTop=s.boardTop || 0;return;}
     if(s.active && layout.points.has(s.active)) choose(s.active,s.focused);
     const first=layout.points.get(active) || layout.points.values().next().value;
@@ -432,7 +379,7 @@ function mount(map, previous) {
     if(!view.clientWidth) return;
     const previous=camera(), width=view.clientWidth, heightNow=view.clientHeight;
     const changed=viewportWidth && (width!==viewportWidth || heightNow!==viewportHeight);
-    if(height && !dialog.open) resize(height);
+    if(height) resize(height);
     setSize();
     if(changed) panTo(previous.left+(viewportWidth-width)/2,previous.top+(viewportHeight-heightNow)/2);
     viewportWidth=width;viewportHeight=heightNow;
@@ -441,7 +388,7 @@ function mount(map, previous) {
   // Apply after initial layout so hidden canvas geometry stays available on return.
   const initialMode=viewMode;viewMode='kanban';showView(initialMode);
   restore(saved);
-  return {snapshot,restore,dispose:()=>{board.dispatchEvent(new Event('mapdispose'));sizeObserver.disconnect();cancelAnimationFrame(raf);},suspend:()=>{if(dialog.open)setFull(false,false);}};
+  return {snapshot,restore,dispose:()=>{board.dispatchEvent(new Event('mapdispose'));sizeObserver.disconnect();cancelAnimationFrame(raf);},suspend:()=>closePop()};
 }
 
 export function mountMaps(panel, previous = new Map()) {

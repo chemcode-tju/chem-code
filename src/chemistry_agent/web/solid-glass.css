@@ -107,7 +107,7 @@ svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
 }
 .map-position:is(.is-current,:focus-within) .map-node {box-shadow:var(--glass-shadow),0 0 0 2px var(--accent);}
 .map-window,.plan-kanban {background-color:var(--surface);}
-.map-tools,.map-foot {background:var(--opaque-panel);}
+.map-tools,.map-foot {background:var(--surface);}
 .plan-kanban {border-radius:0 0 var(--radius-panel) var(--radius-panel);}
 .map-dialog>.map-board {border-radius:0;box-shadow:none;}
 .map-dialog .plan-kanban {border-radius:0;}

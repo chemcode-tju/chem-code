@@ -6,6 +6,7 @@ import {renderGeneralPlan} from './general-plan.mjs';
 import { escapeHtml as esc } from './core.mjs';
 import { structureButton, getFileBlob, isStructureName } from './structure-links.mjs';
 import {fileIcon,updateStructureCount} from './file-actions.mjs';
+import {t} from './i18n.mjs';
 
 const progressSignature = job => JSON.stringify([job.adsorption,job.steps?.map(s=>[s.pk,s.branch_valid,s.scheduler_state,s.scheduler_job_id,s.process_state,s.paused,s.finished_ok,s.results?.run_status])]);
 const number = Number.isFinite;
@@ -189,6 +190,12 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
       const item = records.structures.find((value) => value.id === target.dataset.attachStructure);
       selected = [...selected.filter((value) => value.id !== item.id), item];
       drawAttachments(); return;
+    }
+    if (target.dataset.controlPlan) {
+      const message = target.dataset.planAction==='pause'
+        ? '暂停后续步骤？已提交的作业将继续运行。'
+        : '继续执行方案？后续步骤将按依赖启动。';
+      if (!confirm(t(message))) return;
     }
     pending = true; target.disabled = true;
     const id = getSession();

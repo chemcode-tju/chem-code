@@ -56,9 +56,9 @@ export function renderGeneralPlan(plan) {
     state:plan.runtime[node.id].status, status:(plan.status==='draft' && plan.revision>1 && plan.changed_nodes.includes(node.id)?'已修改 · ':'')+nodeStatus(plan,node)
   })));
   const controls = plan.status==='draft'
-    ? `<button type="button" data-revise-plan="${esc(plan.id)}" title="提出修改" aria-label="提出修改"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-pencil"/></svg></button><button type="button" class="tool-submit" data-confirm-plan="${esc(plan.id)}">确认并执行</button>`
+    ? `<button type="button" data-revise-plan="${esc(plan.id)}" title="提出修改" aria-label="提出修改"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-pencil"/></svg></button><button type="button" class="tool-submit" data-confirm-plan="${esc(plan.id)}" title="确认并执行" aria-label="确认并执行"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg><span>确认并执行</span></button>`
     : ['running','paused'].includes(plan.status)
-      ? `<button type="button" data-control-plan="${esc(plan.id)}" data-plan-action="${plan.status==='running'?'pause':'resume'}" title="${plan.status==='running'?'暂停后续步骤':'继续执行'}"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${plan.status==='running'?'pause':'play'}"/></svg><span>${plan.status==='running'?'暂停推进':'继续执行'}</span></button>` : '';
+      ? `<button type="button" data-control-plan="${esc(plan.id)}" data-plan-action="${plan.status==='running'?'pause':'resume'}" title="${plan.status==='running'?'暂停后续步骤':'继续执行'}" aria-label="${plan.status==='running'?'暂停后续步骤':'继续执行'}"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${plan.status==='running'?'pause':'play'}"/></svg></button>` : '';
   const graph = planMap(layers,plan.id,'data-general-step',plan.title,`<div class="plan-run-controls" title="${esc(planStatus(plan.status))} · ${completed}/${compute.length} 项计算">${controls}</div>`);
   return `<article class="calculation-preview general-plan plan-surface" data-task="${esc(plan.id)}" data-general-plan="${esc(plan.id)}">${graph}</article>`;
 }

@@ -94,8 +94,7 @@
 .map-dialog .plan-kanban {flex:1;height:auto;}
 .map-board [hidden] {display:none!important;}
 @container mapboard (max-width:520px) {
-  .map-tools {flex-wrap:wrap;}
-  .map-tools .map-subtools {order:4;flex-basis:100%;}
+  .map-tools {flex-wrap:nowrap;}
   .plan-kanban {gap:12px;padding:12px;}
   .kanban-column {flex-basis:min(248px,calc(100cqw - 48px));}
 }
@@ -273,3 +272,19 @@
 }
 
 .map-pop .map-direction {display:flex;align-items:center;gap:8px;}
+
+/* Compact execution controls share one unbroken toolbar row. */
+.map-tools {flex-wrap:nowrap;}
+.map-tools .plan-run-controls {margin-left:auto;}
+.map-board .plan-run-controls button {margin:0;}
+.map-tools .map-actions {margin-left:0;}
+.map-board .plan-run-controls [data-control-plan],.map-board .plan-run-controls [data-revise-plan] {width:32px;height:32px;padding:0;flex:none;}
+.map-board .map-actions [data-command=options] {width:28px;}
+@media(pointer:coarse) {
+  .map-board .plan-run-controls [data-control-plan],.map-board .plan-run-controls [data-revise-plan] {width:44px;height:44px;}
+}
+
+@container mapboard (max-width:400px) {
+  .plan-run-controls .tool-submit span {display:none;}
+  .map-board .plan-run-controls .tool-submit {width:32px;padding:0;}
+}

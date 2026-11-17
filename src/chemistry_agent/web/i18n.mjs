@@ -59,6 +59,9 @@ const messages = {
 
 
   "返回方案":"Back to plan",
+  "暂停后续步骤？已提交的作业将继续运行。":"Pause next steps? Submitted jobs will continue running.",
+  "继续执行方案？后续步骤将按依赖启动。":"Resume this plan? Next steps will start as their dependencies are satisfied.",
+  "关闭浮层":"Close popover",
   "上下两行":"Two rows", "确认并执行":"Confirm and run", "暂停推进":"Pause next steps", "选择方案":"Choose plan", "其他计算记录":"Other calculation records", "从左到右":"Left to right", "从上到下":"Top to bottom",
   "刷新":"Refresh", "参数文件":"Parameter files", "提交脚本":"Submission script", "步骤":"Step",
   "查看方案":"View plan", "方案":"Plan", "已完成":"Completed", "等待依赖":"Waiting for dependencies",

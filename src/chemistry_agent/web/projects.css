@@ -10,7 +10,7 @@
 .project-group>.project-folder[open]>summary>.project-folder-open {display:block;}
 .project-group>.project-folder[open]>summary>.project-folder-closed {display:none;}
 .project-group>.project-folder>summary:focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
-.project-row-actions {position:absolute;top:3px;right:4px;display:flex;gap:2px;}
+.project-row-actions {position:absolute;top:3px;right:8px;display:flex;gap:2px;}
 .project-row-actions>button {
   display:grid;place-items:center;width:32px;height:32px;padding:7px;border:0;
   border-radius:var(--radius-control);color:var(--muted);background:transparent;
