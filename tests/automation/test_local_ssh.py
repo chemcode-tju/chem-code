@@ -113,5 +113,6 @@ async def test_enabled_shell_host_needs_no_turn_header_and_revokes_immediately(
     args = ShellInput(host="cluster-b", command="hostname")
     assert (await tool.handler(args, ToolContext("session", "run")))["ok"]
     save_aliases(tmp_path, [])
-    with pytest.raises(AgentError, match="SSH"):
+    with pytest.raises(AgentError) as denied:
         await tool.handler(args, ToolContext("session", "run"))
+    assert denied.value.code == "ssh_authorization_required"

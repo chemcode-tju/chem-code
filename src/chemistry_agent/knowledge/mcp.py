@@ -125,7 +125,9 @@ async def endpoint(request: Request, project_id: UUID | None = None):
 def main() -> None:
     """Optional stdio adapter for hosts without Streamable HTTP support."""
     url = os.environ.get("CHEM_KNOWLEDGE_URL", "http://127.0.0.1:8766/api/knowledge/mcp")
-    with httpx.Client(timeout=60) as client:
+    # This is an explicit platform connection (often an SSH loopback tunnel).
+    # Do not route project knowledge through inherited system HTTP proxies.
+    with httpx.Client(timeout=60, trust_env=False) as client:
         for line in sys.stdin:
             message = json.loads(line)
             response = client.post(url, json=message)

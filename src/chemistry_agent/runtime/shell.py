@@ -76,11 +76,23 @@ def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
         # The local settings selection is a durable grant, shared by new conversations.
         available = enabled_aliases(root, hosts) if root else hosts
         host = args.host or shell_grant.get()
+        requested_host = host
         if root and host:
             from chemistry_agent.environments.registry import Environments
 
             environments = Environments(root)
-            if environments.get(host):
+            available = tuple(environments.available_hosts(hosts))
+            environment = environments.get(host)
+            if environment and (not environment.enabled or environment.removed):
+                raise AgentError("environment_disabled", "节点未启用。", 409)
+            if host not in available:
+                raise AgentError(
+                    "ssh_authorization_required", "请在服务器与环境中启用此节点。", 403
+                )
+            if environment and environment.transport == "ssh":
+                host = environment.ssh_alias or host
+                available = (*available, host)
+            elif environment:
                 # A native tool replay keeps its identity even if the HTTP response was lost.
                 receipt = (
                     uuid5(
@@ -115,7 +127,8 @@ def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
         if host in profiles:
             try:
                 async with asyncio.timeout(30):
-                    return await profiled_command(root, profiles[host], host, args.command)
+                    result = await profiled_command(root, profiles[host], host, args.command)
+                    return result | {"host": requested_host}
             except TimeoutError as exc:
                 raise AgentError(
                     "ssh_timeout", "SSH 已超时，远端操作状态未知；请先检查结果。", 504
@@ -166,7 +179,7 @@ def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
                     feed(), capped_read(proc.stdout), capped_read(proc.stderr), proc.wait()
                 )
             return {
-                "host": host,
+                "host": requested_host,
                 "exit_code": code,
                 "stdout": stdout[0],
                 "stderr": stderr[0],

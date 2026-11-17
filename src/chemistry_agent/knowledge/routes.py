@@ -1,6 +1,8 @@
 """Shared knowledge settings and tools; local administration uses the existing boundary."""
 
 import asyncio
+import sys
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Request
@@ -13,6 +15,7 @@ from chemistry_agent.knowledge.tools import knowledge_tools
 from chemistry_agent.tools import ToolContext
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge and skills"])
+MCP_MODULE_ROOT = str(Path(__file__).resolve().parents[2])
 
 
 def service(request: Request):
@@ -23,6 +26,20 @@ def service(request: Request):
 @router.get("/settings")
 async def settings(request: Request) -> dict:
     return service(request).config.public()
+
+
+@router.get("/connection")
+async def connection(request: Request) -> dict:
+    service(request)
+    server = request.scope.get("server")
+    port = server[1] if server else (request.url.port or 80)
+    return {
+        "http_path": "/api/knowledge/mcp",
+        "stdio_command": sys.executable,
+        "stdio_args": ["-m", "chemistry_agent.knowledge.mcp"],
+        "stdio_env": {"PYTHONPATH": MCP_MODULE_ROOT},
+        "platform_origin": f"http://127.0.0.1:{port}",
+    }
 
 
 @router.put("/settings")

@@ -1,8 +1,12 @@
 import {t, translateUI} from './i18n.mjs';
+import {readConnectionCheck,saveConnectionCheck,clearConnectionCheck} from './connection-checks.mjs';
 
 export function createKnowledgeSettings(api) {
   const $ = id => document.getElementById(id);
   let loaded = false;
+  let storage;
+  try {storage=window.sessionStorage;} catch {}
+  const identity=config=>JSON.stringify([config.endpoint,config.root_uri,config.has_api_key]);
   const status = (message, error = false) => {
     $('knowledge-notice').textContent = message;
     $('knowledge-notice').classList.toggle('error', error);
@@ -14,15 +18,20 @@ export function createKnowledgeSettings(api) {
     catch (error) { status(error.message, true); }
     finally { button.disabled = false; }
   }
+  function connectionState(config) {
+    const check=config.enabled && readConnectionCheck(storage,'openviking',identity(config));
+    $('ov-state').textContent = t(!config.enabled?'未启用':check?(check.authenticated?'上次测试通过':'上次测试失败'):'已启用 · 尚未检测');
+    $('ov-state').title=check?new Date(check.checkedAt).toLocaleString():'';
+    $('ov-probe').disabled = !config.enabled;
+    $('ov-sync').disabled = !config.enabled;
+  }
   function show(config) {
     $('ov-enabled').checked = config.enabled;
     $('ov-endpoint').value = config.endpoint;
     $('ov-root').value = config.root_uri;
     $('ov-key').value = '';
     $('ov-key').placeholder = t(config.has_api_key ? '已保存（留空保留）' : 'API Key');
-    $('ov-state').textContent = t(config.enabled ? '已启用' : '未启用');
-    $('ov-probe').disabled = !config.enabled;
-    $('ov-sync').disabled = !config.enabled;
+    connectionState(config);
   }
   function render(packages) {
     $('skill-packages').replaceChildren();
@@ -71,7 +80,7 @@ export function createKnowledgeSettings(api) {
       const config = await api('/api/knowledge/settings', {method:'PUT', body:JSON.stringify({
         enabled:$('ov-enabled').checked, endpoint:$('ov-endpoint').value.trim(),
         api_key:$('ov-key').value || null, root_uri:$('ov-root').value.trim(),
-      })}); show(config); status(t('已保存'));
+      })}); clearConnectionCheck(storage,'openviking');show(config); status(t('已保存'));
     });
   });
   $('ov-clear-key').onclick = () => action($('ov-clear-key'), async () => {
@@ -81,7 +90,13 @@ export function createKnowledgeSettings(api) {
     status(t('已保存'));
   });
   $('ov-probe').onclick = () => action($('ov-probe'), async () => {
-    await api('/api/knowledge/probe', {method:'POST'}); status(t('连接成功'));
+    const config=await api('/api/knowledge/settings');
+    try {
+      await api('/api/knowledge/probe', {method:'POST'});
+      saveConnectionCheck(storage,'openviking',identity(config),{authenticated:true});status(t('连接成功'));
+    } catch(error) {
+      saveConnectionCheck(storage,'openviking',identity(config),{authenticated:false});throw error;
+    } finally {connectionState(config);}
   });
   $('ov-sync').onclick = () => action($('ov-sync'), async () => {
     const result = await api('/api/knowledge/sync', {method:'POST'});

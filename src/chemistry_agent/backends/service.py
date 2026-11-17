@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from chemistry_agent.backends.delivery import BackendDeliveries
 from chemistry_agent.backends.runtime import NativeSessions
@@ -42,6 +42,14 @@ class SessionSelection(BaseModel):
         "disabled",
     ] = ""
     permission: Literal["user", "auto_review", "full"]
+
+
+class BackendUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    executable: str | None = Field(default=None, min_length=1, max_length=1024)
+    model: str | None = Field(default=None, max_length=160)
+    effort: str | None = None
+    make_default: bool = False
 
 
 class AgentBackend(Protocol):
@@ -132,6 +140,29 @@ class BackendRouter:
         if config.default_backend not in self.adapters:
             raise AgentError("agent_backend_unavailable", "此 Agent 适配器尚未安装。", 422)
         async with self.store.transaction():
+            await self.store.db.execute(
+                "INSERT INTO agent_backend_settings VALUES(1,?) "
+                "ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                (config.model_dump_json(),),
+            )
+        return config.model_dump()
+
+    async def update_settings(self, backend: str, update: BackendUpdate) -> dict:
+        """Save one card against current state; another card's edits cannot be overwritten."""
+        if backend not in {"builtin", "codex", "antigravity"}:
+            raise AgentError("agent_backend_unavailable", "此 Agent 适配器尚未安装。", 422)
+        fields = update.model_dump(exclude_none=True, exclude={"make_default"})
+        if backend == "builtin" and fields:
+            raise AgentError("agent_config_invalid", "Chem Agent 模型配置使用独立的模型接口。", 422)
+        async with self.store.transaction():
+            row = await self.store._one("SELECT payload FROM agent_backend_settings WHERE id=1", ())
+            config = (
+                BackendSettings.model_validate_json(row["payload"]) if row else BackendSettings()
+            )
+            changed = {f"{backend}_{key}": value for key, value in fields.items()}
+            if update.make_default:
+                changed["default_backend"] = backend
+            config = BackendSettings.model_validate(config.model_dump() | changed)
             await self.store.db.execute(
                 "INSERT INTO agent_backend_settings VALUES(1,?) "
                 "ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",

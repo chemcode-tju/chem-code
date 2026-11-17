@@ -2,10 +2,14 @@ import { effortLabel } from "./agent-menu.mjs";
 import {t} from "./i18n.mjs";
 import {readConnectionCheck, saveConnectionCheck, clearConnectionCheck, checkLifetime} from './connection-checks.mjs';
 
-export function createAgentSettings(api) {
+export function backendCardPatch(values, makeDefault=false) {
+  return {executable:values.executable,model:values.model,effort:values.effort,make_default:makeDefault};
+}
+
+export function createAgentSettings(api, {saveBuiltin} = {}) {
   const $ = id => document.getElementById(id);
   const agents = {codex: {name:'Codex', executable:'codex'}, antigravity: {name:'Antigravity', executable:'agy'}};
-  let saved = {}, catalogs = {}, descriptors = {}, probes = {}, loaded = false, busy = false, builtin = null;
+  let saved = {}, catalogs = {}, descriptors = {}, probes = {}, loaded = false, busy = false, builtin = null, builtinDirty = false;
   let noticeTimer;
   let checkStorage;
   try { checkStorage = window.sessionStorage; } catch {}
@@ -19,27 +23,24 @@ export function createAgentSettings(api) {
     const probe=probes[id];
     return probe?.paths.includes(executable) && Date.now()-probe.checkedAt<checkLifetime ? probe : null;
   }
-  const config = () => {
-    const result = {...saved, default_backend:$('agent-backend').value};
-    for (const [id, agent] of Object.entries(agents)) {
-      result[`${id}_executable`] = $(`${id}-executable`).value.trim() || agent.executable;
-      result[`${id}_model`] = $(`${id}-model`).value;
-      result[`${id}_effort`] = $(`${id}-effort`).value;
-    }
-    return result;
-  };
+  const values = id => ({executable:$(`${id}-executable`).value.trim() || agents[id].executable,
+    model:$(`${id}-model`).value,effort:$(`${id}-effort`).value});
+  const dirty = id => Object.entries(values(id)).some(([key,value])=>value!==(saved[`${id}_${key}`] || (key==='executable'?agents[id].executable:'')));
+  const config = id => ({...saved,...Object.fromEntries(Object.entries(values(id)).map(([key,value])=>[`${id}_${key}`,value]))});
   function markers() {
     document.querySelectorAll('[data-default-for]').forEach(node => {
       node.hidden = node.dataset.defaultFor !== saved.default_backend;
       node.textContent = t('默认');
     });
-    document.querySelectorAll('[data-use-backend]').forEach(button => {
-      const selected = button.dataset.useBackend === saved.default_backend;
-      button.textContent = t(selected ? '已设为默认' : '设为新对话默认');
-      button.setAttribute('aria-pressed', String(selected));
-      button.disabled = busy || !loaded || selected;
+    document.querySelectorAll('[data-default-choice]').forEach(input => {
+      const selected = input.dataset.defaultChoice === saved.default_backend;
+      input.checked = selected;
+      input.disabled = busy || !loaded;
     });
+    document.querySelector('[data-dirty-for="builtin"]').hidden=!builtinDirty;
     for (const [id, agent] of Object.entries(agents)) {
+      document.querySelector(`[data-dirty-for="${id}"]`).hidden=!loaded || !dirty(id);
+      $(`${id}-save`).disabled=busy || !loaded || !dirty(id);
       const model = saved[`${id}_model`];
       const label = catalogs[id]?.find(item => item.id === model)?.name || model || t(`跟随 ${agent.name}`);
       const executable = saved[`${id}_executable`] || agent.executable;
@@ -75,6 +76,7 @@ export function createAgentSettings(api) {
     summary.setAttribute('data-no-i18n', '');
   }
   document.addEventListener('chem:model-settings', event => builtinSummary(event.detail));
+  document.addEventListener('chem:model-dirty', event => {builtinDirty=event.detail;markers();});
   function efforts(id, selected = '') {
     const model = catalogs[id]?.find(item => item.id === $(`${id}-model`).value);
     const values = [...(model?.efforts || [])];
@@ -93,9 +95,9 @@ export function createAgentSettings(api) {
   async function act(fn) {
     if (busy) return;
     busy = true;
-    const buttons = [$('agent-save'), ...Object.keys(agents).map(id => $(`${id}-probe`))];
+    const buttons = Object.keys(agents).flatMap(id => [$(`${id}-save`),$(`${id}-probe`)]);
     buttons.forEach(button => button.disabled = true);
-    document.querySelectorAll('[data-use-backend]').forEach(button => button.disabled = true);
+    document.querySelectorAll('[data-default-choice]').forEach(button => button.disabled = true);
     notify();
     try { await fn(); } catch (error) {
       notify(error.message,true);
@@ -106,13 +108,14 @@ export function createAgentSettings(api) {
     }
   }
   for (const id of Object.keys(agents)) {
-    $(`${id}-model`).addEventListener('change', () => efforts(id));
+    $(`${id}-model`).addEventListener('change', () => {efforts(id);markers();});
+    $(`${id}-effort`).addEventListener('change', markers);
     $(`${id}-executable`).addEventListener('input', () => {
       markers();
     });
     $(`${id}-probe`).addEventListener('click', () => act(async () => {
       notify(t('正在检测…'),false,false);
-      const selected = $(`${id}-model`).value, effort = $(`${id}-effort`).value, payload = config();
+      const selected = $(`${id}-model`).value, effort = $(`${id}-effort`).value, payload = config(id);
       let result;
       try {
         result = await api(`/api/agents/${id}/probe`, {method:'POST', body:JSON.stringify(payload)});
@@ -125,21 +128,28 @@ export function createAgentSettings(api) {
       if (result.executable) $(`${id}-executable`).value = result.executable;
       catalogs[id] = result.models || []; modelOptions(id, selected, effort);
     }));
+    $(`${id}-save`).addEventListener('click',()=>act(()=>saveCard(id)));
   }
-  document.querySelectorAll('[data-use-backend]').forEach(button => button.addEventListener('click', () => act(async () => {
-    // A default affects new chats only. Do not save unrelated edits or change active sessions.
-    saved = await api('/api/agents/settings', {method:'PUT', body:JSON.stringify({...saved, default_backend:button.dataset.useBackend})});
-    $('agent-backend').value = saved.default_backend;
-    notify(t('已设置新对话默认 Agent'));
-  })));
-  $('agent-save').addEventListener('click', () => act(async () => {
-    saved = await api('/api/agents/settings', {method:'PUT', body:JSON.stringify(config())});
-    for(const id of Object.keys(agents)) {
-      const path=saved[`${id}_executable`] || agents[id].executable, probe=currentCheck(id,path);
-      if(probe) probes[id]=saveConnectionCheck(checkStorage,id,path,probe,probe.checkedAt);
+  async function saveCard(id, makeDefault=false) {
+    // Built-in model credentials have their own API. A failed default save stays visibly failed.
+    const builtinSaved=id==='builtin' && builtinDirty;
+    if(builtinSaved) await saveBuiltin();
+    const body=id==='builtin'?{make_default:makeDefault}:backendCardPatch(values(id),makeDefault);
+    try {saved=await api(`/api/agents/settings/${id}`,{method:'PATCH',body:JSON.stringify(body)});}
+    catch(error) {
+      if(builtinSaved)throw new Error(t('Chem Agent 配置已保存，但默认 Agent 未更新。')+' '+error.message);
+      throw error;
+    }
+    if(agents[id]) {
+      const path=saved[`${id}_executable`],probe=currentCheck(id,path);
+      if(probe)probes[id]=saveConnectionCheck(checkStorage,id,path,probe,probe.checkedAt);
       else clearConnectionCheck(checkStorage,id);
     }
-    notify(t('已保存模型设置'));
+    notify(t(makeDefault?'配置已保存，并设为新对话默认':'已保存模型设置'));
+    document.dispatchEvent(new Event('chem:agent-settings-updated'));
+  }
+  document.querySelectorAll('[data-default-choice]').forEach(input=>input.addEventListener('change',()=>{
+    const id=input.dataset.defaultChoice;markers();void act(()=>saveCard(id,true));
   }));
   window.addEventListener('languagechange', () => {markers();if(builtin) builtinSummary(builtin);});
   return { async load() {
@@ -147,7 +157,8 @@ export function createAgentSettings(api) {
     await act(async () => {
       const result = await api('/api/agents/settings'); saved = result.settings;
       descriptors = Object.fromEntries((result.backends || []).map(item => [item.id, {...item,executable:saved[`${item.id}_executable`] || agents[item.id]?.executable}]));
-      $('agent-backend').value = saved.default_backend;
+      try { $('agent-runtime-host').textContent=(await api('/api/environments')).agent_host; }
+      catch { $('agent-runtime-host').textContent=t('无法读取运行位置'); }
       for (const id of Object.keys(agents)) {
         $(`${id}-executable`).value = saved[`${id}_executable`] || agents[id].executable;
         const cached=readConnectionCheck(checkStorage,id,$(`${id}-executable`).value);

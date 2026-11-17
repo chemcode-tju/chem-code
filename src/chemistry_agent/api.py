@@ -31,7 +31,6 @@ from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.automation.settings_tools import authorizes_configuration, configuration_grant
-from chemistry_agent.automation.ssh_profiles import shell_profiles
 from chemistry_agent.automation.ssh_routes import router as ssh_router
 from chemistry_agent.backends.routes import router as backend_router
 from chemistry_agent.backends.service import BackendRouter
@@ -110,16 +109,9 @@ def create_app(
         extras.append(remote_shell_tool(ssh_hosts, ssh_root))
 
     def available_hosts() -> tuple[str, ...]:
-        from chemistry_agent.automation.local_ssh import enabled_aliases
         from chemistry_agent.environments.registry import Environments
 
-        registered = shell_profiles(ssh_root) if ssh_root else {}
-        environments = Environments(ssh_root) if ssh_root else None
-        hosts = [*enabled_aliases(ssh_root, ssh_hosts), *registered]
-        if environments:
-            disabled = {e.id for e in environments.records() if not e.enabled}
-            hosts = [h for h in hosts if h not in disabled] + environments.hosts()
-        return tuple(dict.fromkeys(hosts))
+        return tuple(Environments(ssh_root).available_hosts(ssh_hosts)) if ssh_root else ssh_hosts
 
     registry = ToolRegistry(extras)
 

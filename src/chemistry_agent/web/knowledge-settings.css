@@ -9,14 +9,46 @@
 .knowledge-panel .agent-fields input { min-width: 0; width: 100%; }
 .knowledge-panel label.checkbox input { width: auto; }
 .knowledge-panel .plugin-source { overflow-wrap: anywhere; font-size: var(--font-size-secondary); color: var(--muted); }
+.knowledge-panel .config-editor > summary {display:flex;align-items:center;gap:8px;cursor:pointer;}
+.knowledge-panel .config-editor > summary::after {content:"";width:14px;height:14px;flex:none;margin-left:auto;background:currentColor;mask:var(--icon-chevron) center/contain no-repeat;color:var(--muted);}
+.knowledge-panel .config-editor[open] > summary::after {transform:rotate(90deg);}
 .skill-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; font-size: var(--font-size-secondary); }
-.runtime-location { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-block: 16px; }
-.environment-row { display: flex; gap: 12px; align-items: center; min-height: 72px; border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
-.environment-edit { display: grid; text-align: left; min-width: 0; flex: 1; gap: 6px; }
-.environment-edit strong, .environment-edit span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.environment-edit span { color: var(--muted); font-size: var(--font-size-secondary); }
-.runner-fields { display: grid; gap: 12px; padding: 16px; }
-.runner-fields label { margin: 0; }
-#runner-connection { display: grid; gap: 12px; }
-#runner-connection[hidden] { display: none; }
-@media(max-width: 480px) { .environment-row { flex-wrap: wrap; } .environment-edit { flex-basis: 65%; } }
+.runtime-location {display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;margin-bottom:16px;font-size:var(--font-size-ui);}
+.runtime-location strong {overflow-wrap:anywhere;}
+.runtime-summary {padding:16px;margin-bottom:16px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-panel);}
+.runtime-summary p {font-size:var(--font-size-ui);line-height:1.6;margin:8px 0;}
+.runtime-summary details {margin-top:12px;color:var(--muted);font-size:var(--font-size-secondary);}
+.runtime-summary summary {min-height:34px;}
+.runtime-lifecycle {color:var(--muted);}
+.node-name {display:block;max-width:100%;text-align:left;border:0;background:transparent;box-shadow:none;padding:0;min-height:24px;}
+.node-name:hover {text-decoration:underline;text-underline-offset:3px;background:transparent;}
+.node-editor {display:grid;gap:8px;margin-top:16px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-panel);}
+.node-editor[hidden] {display:none;}
+.node-editor h3 {margin:0 0 8px;}
+.node-editor label {margin:8px 0 0;font-size:var(--font-size-ui);}
+.node-editor :is(input:not([type=checkbox]),select) {width:100%;min-width:0;}
+.node-editor .checkbox {display:flex;align-items:center;gap:8px;}
+.node-editor .checkbox input {width:auto;}
+.node-editor .actions {margin-top:12px;}
+#node-runner-fields,#node-ssh-fields {display:grid;gap:8px;}
+#node-runner-fields[hidden],#node-ssh-fields[hidden] {display:none;}
+.node-removal {padding:12px;margin-top:12px;border-top:1px solid var(--border);font-size:var(--font-size-ui);}
+#node-notice {margin:0;flex:1 1 180px;color:var(--muted);font-size:var(--font-size-secondary);}
+#node-notice:empty {display:none;}
+.server-management > button {margin-left:auto;}
+#node-notice.error,#mcp-notice.error {color:var(--danger);}
+.mcp-fields {padding:16px;display:grid;gap:12px;}
+.mcp-fields > label {margin:0;}
+.copy-field,.copy-heading {display:flex;align-items:center;gap:8px;min-width:0;}
+.copy-field input {width:100%;min-width:0;font-size:var(--font-size-secondary);}
+.copy-heading {justify-content:space-between;}
+.copy-heading strong {font-size:var(--font-size-ui);font-weight:500;}
+.copy-heading button,.copy-field button {flex:none;}
+#mcp-config {margin:0;max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:var(--font-size-secondary)/1.6 var(--font-code);user-select:all;}
+#mcp-notice {margin:0;color:var(--muted);font-size:var(--font-size-secondary);}
+#mcp-notice:empty {display:none;}
+@media(max-width:420px) {
+  #node-list .server-card-actions {gap:4px;}
+  #node-list .server-card-actions .icon-button {padding:4px;min-width:30px;}
+  .node-editor {padding:12px;}
+}

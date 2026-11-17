@@ -4,6 +4,7 @@ import { fillModelOptions } from "./models.mjs";
 import { createComputeSettings } from "./compute-settings.mjs";
 import { createKnowledgeSettings } from "./knowledge-settings.mjs";
 import { createEnvironmentSettings } from "./environment-settings.mjs";
+import { createMcpSettings } from "./mcp-settings.mjs";
 const $ = (id) => document.getElementById(id);
 let polling;
 let busy = false;
@@ -85,6 +86,13 @@ function displaySettings(data) {
   $("api-key").value = "";
   $("api-key").placeholder = data.has_api_key ? "已保存（留空保留）" : "输入 API Key";
   togglePanels();
+  modelDirty();
+}
+function modelDirty() {
+  const changed=Boolean(savedSettings && ($('api-key').value || $('provider').value!==savedSettings.provider
+    || $('model').value.trim()!==savedSettings.model || $('thinking').checked!==savedSettings.thinking
+    || ($('provider').value!=='chatgpt' && $('base-url').value.trim()!==savedSettings.base_url)));
+  document.dispatchEvent(new CustomEvent('chem:model-dirty',{detail:changed}));
 }
 async function refreshModels(manual = false) {
   if ($("provider").value === "chatgpt" && !chatgptAuthenticated) {
@@ -176,6 +184,8 @@ $("model-choice").addEventListener("change", () => {
   $("model-advanced").hidden = Boolean($("model").value) || $("provider").value === "chatgpt";
 });
 $("model").addEventListener("input", showModels);
+$("model-form").addEventListener("input",modelDirty);
+$("model-form").addEventListener("change",modelDirty);
 $("refresh-models").addEventListener("click", () => action(() => refreshModels(true)));
 $("model-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -247,10 +257,11 @@ $("settings-logout").addEventListener("click", () => action(async () => {
   await api("/auth/logout", { method: "POST" }); (embedded ? parent : window).location.assign("/");
 }));
 
-const computeSettings = createComputeSettings(selectTab);
-const agentSettings = createAgentSettings(api);
+const computeSettings = createComputeSettings(selectTab,api);
+const agentSettings = createAgentSettings(api,{saveBuiltin:save});
 const knowledgeSettings = createKnowledgeSettings(api);
 const environmentSettings = createEnvironmentSettings(api);
+createMcpSettings(api);
 function showSettingsPanel() {
   const aliases = { account: "general", "model-form": "agent", model: "agent" };
   const hash = embedded ? new URLSearchParams(location.search).get("tab") : location.hash.slice(1);

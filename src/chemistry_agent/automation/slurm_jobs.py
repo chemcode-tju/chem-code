@@ -80,19 +80,9 @@ class SlurmJobs:
         self.locks: dict[str, asyncio.Lock] = {}
 
     def hosts(self) -> list[str]:
-        from chemistry_agent.automation.local_ssh import enabled_aliases
         from chemistry_agent.environments.registry import Environments
 
-        environments = Environments(self.root)
-        disabled = {e.id for e in environments.records() if not e.enabled}
-        return sorted(
-            (
-                set(enabled_aliases(self.root, self.settings.allowed_ssh_hosts))
-                | set(shell_profiles(self.root))
-                | set(environments.hosts())
-            )
-            - disabled
-        )
+        return Environments(self.root).available_hosts(self.settings.allowed_ssh_hosts)
 
     def load(self, session: str, identifier: str) -> dict:
         return self.chat.load(session, "slurm_jobs", identifier)
@@ -104,10 +94,13 @@ class SlurmJobs:
         from chemistry_agent.environments.registry import Environments
 
         environments = Environments(self.root)
-        if environments.get(host):
-            return await environments.slurm(host, payload)
         if host not in self.hosts():
             raise AgentError("job_host_unknown", "请先登记该 SSH 服务器别名。", 422)
+        environment = environments.get(host)
+        if environment:
+            if environment.transport != "ssh":
+                return await environments.slurm(host, payload)
+            host = environment.ssh_alias or host
         command = "python3 -c " + shlex.quote(REMOTE_HELPER)
         encoded = json.dumps(payload).encode()
         process = None

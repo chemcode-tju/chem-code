@@ -17,7 +17,7 @@
 .agent-row[open] > summary { border-bottom:1px solid var(--border); }
 .agent-fields { padding:1px 16px 16px; background:var(--surface); }
 .agent-fields > label { display:block; margin-top:16px; margin-bottom:6px; }
-.agent-fields input:not([type=checkbox]), .agent-fields select { min-height:36px; }
+.agent-fields input:not([type=checkbox]):not([type=radio]), .agent-fields select { min-height:36px; }
 .agent-fields > input, .agent-fields > select { width:100%; }
 .agent-fields > .actions.footer { margin-top:20px; }
 .agent-card-actions { display:flex; gap:12px; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
@@ -33,7 +33,11 @@
 .agent-save-actions { align-items:center; }
 #agent-notice { flex:1 1 180px; margin:0; font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
 #agent-notice:empty { display:none; }
-#agent-save { flex:none; margin-left:auto; }
+.backend-default {display:flex;align-items:center;gap:8px;font-size:var(--font-size-ui);cursor:pointer;}
+.backend-default input {margin:0;width:16px;height:16px;min-height:16px;accent-color:var(--accent);}
+.unsaved-state {font-size:var(--font-size-secondary);color:var(--muted);margin-left:auto;}
+.builtin-actions {justify-content:space-between;}
+#agent-notice:not(:empty) {margin-top:16px;}
 #agent-notice.error { color:var(--danger); }
 @media (max-width:420px) {
   .agent-row > summary { gap:10px; padding:14px 12px; }
