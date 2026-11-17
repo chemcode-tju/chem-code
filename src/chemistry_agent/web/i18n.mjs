@@ -1,5 +1,18 @@
 // Translate presentation only. User messages, names, file contents and model output are excluded.
 const messages = {
+  "知识与技能":"Knowledge & skills", "Skill 插件":"Skill plugins",
+  "服务地址":"Service URL", "连接详情":"Connection details", "已保存":"Saved",
+  "启用科研知识同步":"Enable research knowledge sync", "知识命名空间":"Knowledge namespace",
+  "保存连接":"Save connection", "同步科研记忆":"Sync research memory",
+  "尚未安装插件":"No plugins installed", "添加插件":"Add plugin",
+  "仓库地址或本地目录":"Repository URL or local directory", "插件名称（可选）":"Plugin name (optional)",
+  "版本或提交":"Version or commit", "安装插件":"Install plugin", "插件已安装":"Plugin installed",
+  "启用插件":"Enable plugin", "停用插件":"Disable plugin", "未启用":"Disabled",
+  "已同步 {0} 条记忆":"Synced {0} memories", "正在处理…":"Working…",
+  "平台、监控与 Agent 运行于":"Platform, monitor & Agent host", "添加运行环境":"Add environment",
+  "运行环境配置":"Environment settings", "环境标识":"Environment ID", "连接方式":"Connection",
+  "平台所在机器":"Platform host", "Runner 地址":"Runner endpoint", "连接令牌":"Connection token",
+  "资源标签":"Resource tags", "启用环境":"Enable environment", "保存运行环境":"Save environment",
   "清除密码":"Clear password", "确认清除":"Confirm removal",
   "暂无计算方案":"No calculation plans",
   "已展开 / 总步骤":"Expanded / total steps",

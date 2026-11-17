@@ -11,6 +11,7 @@ from chemistry_agent.schemas import TokenUsage
 class OperationContext:
     session_id: str
     run_id: str
+    tool_call_id: str | None = None
 
 
 class DeliveryAdapter(Protocol):

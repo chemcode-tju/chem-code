@@ -16,9 +16,13 @@ from chemistry_agent.errors import AgentError
 from chemistry_agent.store import utc_now
 
 CHUNK_BYTES = 1024 * 1024
-REMOTE_HELPER = Path(slurm_remote.__file__).read_text().replace(
-    "from chemistry_agent.automation.result_reader import result_snapshot",
-    Path(result_reader.__file__).read_text(),
+REMOTE_HELPER = (
+    Path(slurm_remote.__file__)
+    .read_text()
+    .replace(
+        "from chemistry_agent.automation.result_reader import result_snapshot",
+        Path(result_reader.__file__).read_text(),
+    )
 )
 
 
@@ -77,10 +81,17 @@ class SlurmJobs:
 
     def hosts(self) -> list[str]:
         from chemistry_agent.automation.local_ssh import enabled_aliases
+        from chemistry_agent.environments.registry import Environments
 
+        environments = Environments(self.root)
+        disabled = {e.id for e in environments.records() if not e.enabled}
         return sorted(
-            set(enabled_aliases(self.root, self.settings.allowed_ssh_hosts))
-            | set(shell_profiles(self.root))
+            (
+                set(enabled_aliases(self.root, self.settings.allowed_ssh_hosts))
+                | set(shell_profiles(self.root))
+                | set(environments.hosts())
+            )
+            - disabled
         )
 
     def load(self, session: str, identifier: str) -> dict:
@@ -90,6 +101,11 @@ class SlurmJobs:
         write_private(self.chat.directory(session, "slurm_jobs") / f"{record['id']}.json", record)
 
     async def request(self, host: str, payload: dict) -> dict:
+        from chemistry_agent.environments.registry import Environments
+
+        environments = Environments(self.root)
+        if environments.get(host):
+            return await environments.slurm(host, payload)
         if host not in self.hosts():
             raise AgentError("job_host_unknown", "请先登记该 SSH 服务器别名。", 422)
         command = "python3 -c " + shlex.quote(REMOTE_HELPER)

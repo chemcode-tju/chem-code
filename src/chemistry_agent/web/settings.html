@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/settings.css">
   <link rel="stylesheet" href="/assets/compute-settings.css">
+  <link rel="stylesheet" href="/assets/knowledge-settings.css">
   <script type="module" src="/assets/settings.mjs"></script>
 <link rel="stylesheet" href="/assets/choices.css">
   <script type="module" src="/assets/choices.mjs"></script>
@@ -24,6 +25,7 @@
     <span class="settings-group-title">计算工作区</span>
     <button id="tab-automation" role="tab" aria-controls="automation" aria-selected="false" tabindex="-1" data-tab="automation"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-automation"/></svg>配置概览</button>
     <button id="tab-servers" role="tab" aria-controls="servers" aria-selected="false" tabindex="-1" data-tab="servers"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-servers"/></svg>服务器连接</button>
+    <button id="tab-knowledge" role="tab" aria-controls="knowledge" aria-selected="false" tabindex="-1" data-tab="knowledge"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-memory"/></svg>知识与技能</button>
   </nav></aside>
   <main>
     <section class="settings-panel" id="general" data-panel="general" role="tabpanel" aria-labelledby="tab-general"><h2>常规</h2><div class="setting-row"><div><label for="language">语言</label></div><select id="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></div><div class="account-section"><h3>工作空间账户</h3><div class="account-row"><span class="account-avatar" id="settings-avatar">C</span><div><strong id="settings-username">正在读取…</strong><p id="settings-account-note" class="hint"></p></div><button class="secondary" id="settings-logout" type="button" hidden>退出登录</button></div></div></section>
@@ -110,6 +112,22 @@
     </section>
     <section class="settings-panel compute-panel" id="servers" data-panel="servers" role="tabpanel" aria-labelledby="tab-servers" hidden>
       <h2>服务器连接</h2>
+      <div class="runtime-location"><span>平台、监控与 Agent 运行于</span><strong id="runtime-host" data-no-i18n></strong></div>
+      <div id="runner-list"></div>
+      <button id="runner-new" class="secondary" type="button">添加运行环境</button>
+      <details id="runner-editor" class="config-editor"><summary>运行环境配置</summary>
+        <form id="runner-form" class="runner-fields">
+          <label for="runner-id">环境标识</label><input id="runner-id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" placeholder="cluster-a-cpu" autocomplete="off">
+          <label for="runner-name">名称</label><input id="runner-name" required autocomplete="off">
+          <label for="runner-transport">连接方式</label><select id="runner-transport"><option value="runner">Runner HTTP</option><option value="local">平台所在机器</option></select>
+          <div id="runner-connection"><label for="runner-endpoint">Runner 地址</label><input id="runner-endpoint" type="url" value="http://127.0.0.1:8767" autocomplete="off">
+          <label for="runner-token">连接令牌</label><input id="runner-token" type="password" autocomplete="new-password"></div>
+          <label for="runner-capabilities">资源标签</label><input id="runner-capabilities" placeholder="CPU, GPU, Slurm" autocomplete="off">
+          <label class="checkbox"><input id="runner-enabled" type="checkbox" checked>启用环境</label>
+          <div class="actions"><button id="runner-save" type="submit">保存运行环境</button></div>
+        </form>
+      </details>
+      <p id="runner-notice" role="status"></p>
       <div id="local-ssh-list" class="server-cards"></div>
       <div class="server-management"><p id="local-ssh-status" role="status" aria-live="polite"></p>
       <details id="local-ssh-picker" class="config-editor server-picker"><summary>添加服务器</summary>
@@ -121,6 +139,29 @@
   IdentityFile ~/.ssh/id_ed25519</pre></details></div>
       </details>
       </div>
+    </section>
+    <section class="settings-panel knowledge-panel" id="knowledge" data-panel="knowledge" role="tabpanel" aria-labelledby="tab-knowledge" hidden>
+      <h2>知识与技能</h2>
+      <details class="agent-row" open>
+        <summary><span class="agent-identity"><strong>OpenViking</strong><span id="ov-state" class="agent-model"></span></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+        <form id="ov-form" class="agent-fields">
+          <label class="checkbox"><input id="ov-enabled" type="checkbox">启用科研知识同步</label>
+          <label for="ov-endpoint">服务地址</label><input id="ov-endpoint" type="url" required value="http://127.0.0.1:1933" autocomplete="off">
+          <label for="ov-key">API Key</label><input id="ov-key" type="password" autocomplete="new-password">
+          <details class="config-editor"><summary>连接详情</summary><label for="ov-root">知识命名空间</label><input id="ov-root" required value="viking://~/resources/chem-code" autocomplete="off"><button id="ov-clear-key" class="secondary" type="button">删除已保存的 API Key</button></details>
+          <div class="actions"><button id="ov-save" type="submit">保存连接</button><button id="ov-probe" class="secondary" type="button">检测连接</button><button id="ov-sync" class="secondary" type="button">同步科研记忆</button></div>
+        </form>
+      </details>
+      <h3>Skill 插件</h3><div id="skill-packages"></div><p id="skills-empty">尚未安装插件</p>
+      <details class="config-editor"><summary>添加插件</summary>
+        <form id="plugin-form" class="agent-fields">
+          <label for="plugin-source">仓库地址或本地目录</label><input id="plugin-source" list="official-skill-sources" required value="https://github.com/anthropics/skills" autocomplete="off"><datalist id="official-skill-sources"><option value="https://github.com/anthropics/skills">Anthropic Skills</option><option value="https://github.com/openai/skills">OpenAI Skills</option></datalist>
+          <label for="plugin-name">插件名称（可选）</label><input id="plugin-name" placeholder="document-skills" autocomplete="off">
+          <label for="plugin-ref">版本或提交</label><input id="plugin-ref" value="HEAD" autocomplete="off">
+          <div class="actions"><button id="plugin-install" type="submit">安装插件</button></div>
+        </form>
+      </details>
+      <p id="knowledge-notice" role="status" aria-live="polite"></p>
     </section>
     <p id="notice" role="status" aria-live="polite"></p>
   </main>

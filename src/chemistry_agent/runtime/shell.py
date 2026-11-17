@@ -4,6 +4,7 @@ import asyncio
 import re
 from contextvars import ContextVar
 from pathlib import Path
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +22,11 @@ class ShellInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     command: str = Field(min_length=1, max_length=16_384)
     host: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    request_id: str | None = Field(
+        default=None,
+        description="Runner command receipt UUID; reuse only to reconcile the same operation",
+        pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    )
 
 
 def authorized_host(message: str, hosts: tuple[str, ...]) -> str | None:
@@ -70,6 +76,41 @@ def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
         # The local settings selection is a durable grant, shared by new conversations.
         available = enabled_aliases(root, hosts) if root else hosts
         host = args.host or shell_grant.get()
+        if root and host:
+            from chemistry_agent.environments.registry import Environments
+
+            environments = Environments(root)
+            if environments.get(host):
+                # A native tool replay keeps its identity even if the HTTP response was lost.
+                receipt = (
+                    uuid5(
+                        NAMESPACE_URL,
+                        f"chem-code:{context.session_id}:{context.run_id}:{context.tool_call_id}",
+                    )
+                    if context.tool_call_id
+                    else uuid4()
+                )
+                identifier = str(UUID(args.request_id)) if args.request_id else str(receipt)
+                try:
+                    return {
+                        "host": host,
+                        **await environments.request(
+                            host,
+                            "shell",
+                            {
+                                "id": identifier,
+                                "command": args.command,
+                            },
+                        ),
+                    }
+                except AgentError as exc:
+                    return {
+                        "host": host,
+                        "id": identifier,
+                        "state": "unknown",
+                        "error": exc.message,
+                        "next": "Inspect Runner receipt or scheduler; do not resubmit blindly",
+                    }
         profiles = shell_profiles(root) if root and host else {}
         if host in profiles:
             try:

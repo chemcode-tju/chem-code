@@ -1,0 +1,22 @@
+.knowledge-panel .agent-fields { display: grid; gap: 12px; }
+.knowledge-panel .agent-row { margin-block: 12px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel); }
+.knowledge-panel .agent-fields { padding-top: 16px; }
+.knowledge-panel .agent-fields label.checkbox { display: flex; align-items: center; gap: 8px; }
+.knowledge-panel .agent-fields label.checkbox input { flex: none; }
+.knowledge-panel .agent-row > summary { gap: 12px; }
+.knowledge-panel .agent-identity { min-width: 0; }
+.knowledge-panel .agent-fields > label { margin: 0; }
+.knowledge-panel .agent-fields input { min-width: 0; width: 100%; }
+.knowledge-panel label.checkbox input { width: auto; }
+.knowledge-panel .plugin-source { overflow-wrap: anywhere; font-size: var(--font-size-secondary); color: var(--muted); }
+.skill-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; font-size: var(--font-size-secondary); }
+.runtime-location { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-block: 16px; }
+.environment-row { display: flex; gap: 12px; align-items: center; min-height: 72px; border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+.environment-edit { display: grid; text-align: left; min-width: 0; flex: 1; gap: 6px; }
+.environment-edit strong, .environment-edit span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.environment-edit span { color: var(--muted); font-size: var(--font-size-secondary); }
+.runner-fields { display: grid; gap: 12px; padding: 16px; }
+.runner-fields label { margin: 0; }
+#runner-connection { display: grid; gap: 12px; }
+#runner-connection[hidden] { display: none; }
+@media(max-width: 480px) { .environment-row { flex-wrap: wrap; } .environment-edit { flex-basis: 65%; } }

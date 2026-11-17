@@ -2,6 +2,8 @@ import { createAgentSettings } from "./agent-settings.mjs";
 import { t, getLanguage, setLanguage, translateUI } from "./i18n.mjs";
 import { fillModelOptions } from "./models.mjs";
 import { createComputeSettings } from "./compute-settings.mjs";
+import { createKnowledgeSettings } from "./knowledge-settings.mjs";
+import { createEnvironmentSettings } from "./environment-settings.mjs";
 const $ = (id) => document.getElementById(id);
 let polling;
 let busy = false;
@@ -247,6 +249,8 @@ $("settings-logout").addEventListener("click", () => action(async () => {
 
 const computeSettings = createComputeSettings(selectTab);
 const agentSettings = createAgentSettings(api);
+const knowledgeSettings = createKnowledgeSettings(api);
+const environmentSettings = createEnvironmentSettings(api);
 function showSettingsPanel() {
   const aliases = { account: "general", "model-form": "agent", model: "agent" };
   const hash = embedded ? new URLSearchParams(location.search).get("tab") : location.hash.slice(1);
@@ -261,6 +265,8 @@ function showSettingsPanel() {
   if (compactLayout.matches) document.querySelector('[data-tab][aria-selected="true"]').scrollIntoView({block:"nearest", inline:"nearest"});
   if (embedded) parent.postMessage({type:"chem:settings-tab", tab:selected}, location.origin);
   computeSettings.activate(selected);
+  void knowledgeSettings.activate(selected);
+  void environmentSettings.activate(selected);
   if (selected === "agent") void agentSettings.load();
   if (selected === "agent" && !modelLoaded) {
     modelLoaded = true;

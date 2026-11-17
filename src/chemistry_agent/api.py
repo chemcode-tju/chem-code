@@ -38,7 +38,12 @@ from chemistry_agent.backends.service import BackendRouter
 from chemistry_agent.chat_queue import ChatQueue
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
+from chemistry_agent.environments.routes import router as environments_router
 from chemistry_agent.errors import AgentError
+from chemistry_agent.knowledge.mcp import router as knowledge_mcp_router
+from chemistry_agent.knowledge.routes import router as knowledge_router
+from chemistry_agent.knowledge.service import KNOWLEDGE_PROMPT, Knowledge
+from chemistry_agent.knowledge.tools import knowledge_tools
 from chemistry_agent.memory.routes import router as memory_router
 from chemistry_agent.memory.tools import memory_tools
 from chemistry_agent.model_routes import router as model_router
@@ -93,6 +98,8 @@ def create_app(
     extras = calculation_chat.tools() if calculation_enabled else []
     extras.append(QUESTION_TOOL)
     extras.extend(workspace_tools(lambda: app.state.workspace_files))
+    if settings.research_memory_enabled and not settings.auth_enabled:
+        extras.extend(knowledge_tools(lambda: app.state.knowledge))
     if settings.research_memory_enabled:
         extras.extend(memory_tools(lambda: app.state.store))
     if settings.web_search_enabled:
@@ -104,9 +111,15 @@ def create_app(
 
     def available_hosts() -> tuple[str, ...]:
         from chemistry_agent.automation.local_ssh import enabled_aliases
+        from chemistry_agent.environments.registry import Environments
 
         registered = shell_profiles(ssh_root) if ssh_root else {}
-        return tuple(dict.fromkeys([*enabled_aliases(ssh_root, ssh_hosts), *registered]))
+        environments = Environments(ssh_root) if ssh_root else None
+        hosts = [*enabled_aliases(ssh_root, ssh_hosts), *registered]
+        if environments:
+            disabled = {e.id for e in environments.records() if not e.enabled}
+            hosts = [h for h in hosts if h not in disabled] + environments.hosts()
+        return tuple(dict.fromkeys(hosts))
 
     registry = ToolRegistry(extras)
 
@@ -121,6 +134,12 @@ def create_app(
                     app.state.title_locks = WeakValueDictionary()
                     app.state.provider = provider
                     app.state.store = store
+                    app.state.knowledge = Knowledge(
+                        store,
+                        settings.platform_path,
+                        settings.database_path.parent / "agent-workspaces",
+                    )
+                    await app.state.knowledge.sync.initialize()
                     app.state.workspace_files = WorkspaceFiles(
                         store, settings.database_path.parent / "agent-workspaces"
                     )
@@ -135,6 +154,11 @@ def create_app(
                         counter,
                         SYSTEM_PROMPT
                         + (AUTOMATION_PROMPT if calculation_enabled else "")
+                        + (
+                            KNOWLEDGE_PROMPT
+                            if settings.research_memory_enabled and not settings.auth_enabled
+                            else ""
+                        )
                         + (MEMORY_PROMPT if settings.research_memory_enabled else ""),
                         registry.schemas(),
                     )
@@ -151,6 +175,11 @@ def create_app(
                         settings.database_path.parent / "agent-workspaces",
                         SYSTEM_PROMPT
                         + (AUTOMATION_PROMPT if calculation_enabled else "")
+                        + (
+                            KNOWLEDGE_PROMPT
+                            if settings.research_memory_enabled and not settings.auth_enabled
+                            else ""
+                        )
                         + (MEMORY_PROMPT if settings.research_memory_enabled else ""),
                     )
                     await app.state.agent_backends.initialize()
@@ -167,11 +196,14 @@ def create_app(
                             provider if settings.platform_agent_enabled else None,
                         )
                     await app.state.chat_queue.recover(app)
+                    if settings.research_memory_enabled:
+                        app.state.knowledge.sync.start()
                     try:
                         yield
                     finally:
                         await app.state.chat_queue.close()
                         await app.state.agent_backends.context.close()
+                        await app.state.knowledge.sync.close()
                         await calculation_chat.plans.close()
                 finally:
                     await provider.close()
@@ -202,6 +234,9 @@ def create_app(
     app.include_router(ssh_router)
     app.include_router(calculation_chat_router)
     app.include_router(platform_router)
+    app.include_router(knowledge_router)
+    app.include_router(knowledge_mcp_router)
+    app.include_router(environments_router)
     app.add_middleware(AuthenticationMiddleware, settings=settings)
 
     @app.exception_handler(RequestValidationError)

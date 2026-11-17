@@ -49,6 +49,8 @@ def test_starts_without_key_and_local_tools_work(settings_factory):
         assert {item["function"]["name"] for item in client.get("/tools").json()} == {
             "molecular_properties", "molecular_similarity", "web_search", "ask_user_question",
             "memory_search", "memory_read", "memory_save", "memory_compare", "workspace_publish",
+            "knowledge_search", "knowledge_read", "knowledge_write",
+            "skill_list", "skill_read", "skill_materialize",
         }
         result = client.post(
             "/tools/molecular_properties/invoke",
