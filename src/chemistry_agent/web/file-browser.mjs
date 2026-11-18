@@ -44,6 +44,8 @@ export function createFileBrowser({api, session, viewer}) {
   let searchRequest, searchTimer;
   let selected = null, directoryId = 0;
   let previewAttachment = false;
+  let project = null;
+  let followingProject = false;
 
   function url(operation, {path = '', offset = 0, query = ''} = {}) {
     const source = sourceMenu.value;
@@ -173,8 +175,11 @@ export function createFileBrowser({api, session, viewer}) {
         return option;
       }));
       sourceMenu.disabled = false;
+      const preferred = project?.source;
       sourceMenu.value = sources.some(item => item.id === previous) ? previous :
-        (!workspace && sources.some(item => item.id === 'local') ? 'local' : 'workspace');
+        (sources.some(item => item.id === preferred) ? preferred :
+          !workspace && sources.some(item => item.id === 'local') ? 'local' : 'workspace');
+      if (sourceMenu.value !== previous) followingProject = sourceMenu.value === preferred;
       if (sourceMenu.value !== previous) changeSource(!previous && previewAttachment);
     } catch (error) {
       if (signal.aborted) return;
@@ -271,7 +276,7 @@ export function createFileBrowser({api, session, viewer}) {
     }
   }
 
-  sourceMenu.onchange = () => changeSource();
+  sourceMenu.onchange = () => { followingProject = false; changeSource(); };
   byId('file-browser-refresh').onclick = () => {
     clearTimeout(searchTimer);
     searchRequest?.abort();
@@ -280,6 +285,7 @@ export function createFileBrowser({api, session, viewer}) {
   };
   rootForm.onsubmit = event => {
     event.preventDefault();
+    followingProject = false;
     root = pathInput.value.trim();
     selected = null;
     clearFilter();
@@ -354,6 +360,27 @@ export function createFileBrowser({api, session, viewer}) {
 
   return {
     activate() { void loadSources(); },
+    syncProject(location) {
+      const source = !location?.host_id || location.host_id === 'local' ? 'local' : `ssh:${location.host_id}`;
+      const path = location?.directory;
+      if (!path) {
+        if (followingProject && project && sources.length) {
+          roots.delete(project.source);
+          sourceMenu.value = workspace ? 'workspace' : 'local';
+          changeSource();
+        }
+        followingProject = false;
+        project = null;
+        return;
+      }
+      if (project?.source === source && project.path === path) return;
+      project = {source,path};
+      roots.set(source,path);
+      if (!sources.some(item=>item.id===source)) return;
+      followingProject = true;
+      sourceMenu.value = source;
+      changeSource();
+    },
     openAttachment(id, name) {
       return showPreview(name,name,attachmentUrl(id,name),'',true);
     },
@@ -375,6 +402,8 @@ export function createFileBrowser({api, session, viewer}) {
       filterInput.disabled = true;
       clearPreview();
       workspace = session();
+      project = null;
+      followingProject = false;
       roots.clear();
       sources = [];
       sourceMenu.replaceChildren();

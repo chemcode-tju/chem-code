@@ -55,10 +55,10 @@ body:not(.has-structure) .viewport { visibility:hidden; }
 main>header { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; min-height:34px; gap:8px; }
 .header-tools { display:flex; align-items:center; gap:3px; }
 .header-menu { position:static; }
-.header-menu>summary { display:grid; place-items:center; width:34px; height:34px; padding:0; border:0; border-radius:var(--radius-control,8px); cursor:pointer; list-style:none; color:var(--text); background:transparent; }
+.header-menu>summary { display:grid; place-items:center; width:var(--button-size); height:var(--button-size); padding:0; border:0; border-radius:var(--radius-control); cursor:pointer; list-style:none; color:var(--text); background:transparent; }
 .header-menu>summary::-webkit-details-marker { display:none; }
 .header-menu>summary:hover,.header-menu[open]>summary { background:var(--hover); }
-.header-menu>summary .icon { width:18px; height:18px; }
+.header-menu>summary .icon { width:var(--button-icon-size); height:var(--button-icon-size); }
 .tool-card { position:absolute; z-index:25; inset-inline-end:0; top:calc(100% + 6px); width:min(286px,100%); max-height:calc(100dvh - 72px); overflow:auto; display:grid; gap:10px; padding:14px; border:1px solid var(--border); border-radius:var(--radius-panel,12px); color:var(--text); background:var(--raised); box-shadow:var(--floating-shadow); }
 .tool-card h2 { margin:0 0 2px; font-size:1em; font-weight:600; }
 .card-field { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.3fr); align-items:center; gap:10px; }
@@ -173,7 +173,7 @@ footer { position:relative; padding:0; border-radius:var(--radius-panel,12px); b
 #snapshot-save { background:var(--primary); color:var(--on-primary); border-color:var(--primary); }
 #snapshot-save:disabled { opacity:1; background:var(--subtle); color:var(--muted); border-color:var(--border); }
 @media(pointer:coarse) {
-  .header-menu>summary,.bottom-toolbar :is(.playback,.navigation) button,.view-rail>button,.bottom-menu>summary,#trajectory-toggle { width:44px; height:44px; }
+  .bottom-toolbar :is(.playback,.navigation) button,.view-rail>button,.bottom-menu>summary,#trajectory-toggle { width:44px; height:44px; }
   .transport { width:228px; }
   .bottom-toolbar .navigation { display:none; }
   .bottom-toolbar { padding-inline:6px; column-gap:6px; }

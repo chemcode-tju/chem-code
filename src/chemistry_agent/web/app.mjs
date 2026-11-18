@@ -30,7 +30,9 @@ const state = {
   busy: false, loading: false, metadataLoading: false, hasMore: false, navigation: 0,
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
-const setDockMaximized = initWorkspaceControls({closeInspector:()=>setInspectorOpen(false)});
+const splitWorkspace = matchMedia("(min-width:688px)");
+const compactNavigation = matchMedia("(min-width:688px) and (max-width:1023px)");
+const setDockMaximized = initWorkspaceControls({closeInspector:()=>setInspectorOpen(false), onMaximized:syncDrawerAccessibility});
 const jobMonitor = initJobMonitor();
 let activeWorkspace = "chat";
 let restoreChatInspector = false;
@@ -87,7 +89,7 @@ const calculations = createCalculations({
   onPlans:(id,plans)=>progressFeed.setPlans(id,plans),
   reviseStep(id,title,planRevision) {
     const field = $("message-input");
-    if (innerWidth<=767) setInspectorOpen(false);
+    if (!splitWorkspace.matches) setInspectorOpen(false);
     state.revision = {id,title,planRevision};
     $("revision-chip").hidden=false;
     $("revision-chip").textContent="修改："+title;
@@ -149,9 +151,9 @@ function rememberSession(id) {
 
 function syncDrawerAccessibility() {
   const loginRequired = !$("login-screen").hidden;
-  const sidebarHidden = loginRequired || (activeWorkspace === "chat" && innerWidth <= 767 && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
+  const sidebarHidden = loginRequired || (activeWorkspace === "chat" && !splitWorkspace.matches && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
   const inspectorHidden = loginRequired || !document.body.classList.contains("inspector-open");
-  const mainHidden = loginRequired || (innerWidth <= 767 && !inspectorHidden);
+  const mainHidden = loginRequired || (!inspectorHidden && document.body.classList.contains('dock-max'));
   document.querySelector(".main-panel").inert = mainHidden;
   document.querySelector(".main-panel").setAttribute("aria-hidden", String(mainHidden));
   $("sidebar").inert = sidebarHidden;
@@ -228,7 +230,10 @@ function setInspectorOpen(open, { focus = true, persist = true } = {}) {
   }
   document.body.classList.toggle("inspector-open", open);
   if (!open) setDockMaximized(false);
-  $("tools-toggle").disabled = open;
+  const toolsToggle = $("tools-toggle");
+  const toolsLabel = t(open ? "收起研究面板" : "展开研究面板");
+  toolsToggle.title = toolsLabel;
+  toolsToggle.setAttribute("aria-label", toolsLabel);
   $("tools-toggle").setAttribute("aria-expanded", String(open));
   $("inspector-close").setAttribute("aria-expanded", String(open));
   if (persist) saveInspector(inspectorSession);
@@ -240,9 +245,13 @@ function setInspectorOpen(open, { focus = true, persist = true } = {}) {
 function setDrawer(name, open) {
   if (name === "inspector") { setInspectorOpen(open); return; }
   const panel = $(name === "sidebar" ? "sidebar" : "inspector");
-  const trigger = $(name === "sidebar" ? "menu-toggle" : "tools-toggle");
+  const trigger = $(compactNavigation.matches ? "sidebar-collapse" : "menu-toggle");
   const wasFocused = panel.contains(document.activeElement);
   document.body.classList.toggle(`${name}-open`, open);
+  if (name === "sidebar") {
+    if (compactNavigation.matches) setSidebarCollapsed(!open, false);
+    else if (!splitWorkspace.matches) setSidebarCollapsed(false, false);
+  }
   const anyOpen = document.body.classList.contains("sidebar-open");
   $("screen-overlay").hidden = !anyOpen;
   $("menu-toggle").setAttribute("aria-expanded", String(document.body.classList.contains("sidebar-open")));
@@ -254,7 +263,6 @@ function setDrawer(name, open) {
 
 function closeDrawers() {
   setDrawer("sidebar", false);
-  if (innerWidth <= 767) setInspectorOpen(false, { focus:false, persist:false });
 }
 
 function updateControls() {
@@ -266,15 +274,16 @@ function updateControls() {
     (external ? !view || view.disabled : !state.health?.model_configured);
   $("agent-picker").disabled = Boolean(locked || state.metadataLoading);
   $("permission-picker").disabled = Boolean(locked || state.metadataLoading);
-  for (const id of ['host-picker','folder-picker','monitor-picker']) $(id).disabled = Boolean(locked || state.metadataLoading);
+  for (const id of ['host-picker','folder-picker','folder-clear','monitor-picker']) $(id).disabled = Boolean(locked || state.metadataLoading);
   $("message-input").disabled = state.loading;
   $("send-button").disabled = locked || state.metadataLoading || uploads.uploading || !state.health?.model_configured;
   $("composer-add").disabled = locked || uploads.uploading;
-  $("send-button").setAttribute("aria-label", state.busy ? "正在生成回答" : "发送消息");
+  const sendLabel = t(state.busy ? "正在生成回答" : "发送消息");
+  $("send-button").title = sendLabel;
+  $("send-button").setAttribute("aria-label", sendLabel);
   $("new-chat").disabled = locked;
   $("new-chat-list").disabled = locked;
   $("new-project").disabled = locked;
-  $("draft-project").disabled = locked || Boolean(state.sessionId);
   document.querySelectorAll("[data-new-in]").forEach((button) => { button.disabled = locked; });
   document.querySelectorAll(".session-button,.suggestion-card").forEach((button) => { button.disabled = locked; });
   $("chat-form").setAttribute("aria-busy", String(state.busy));
@@ -337,7 +346,9 @@ function sessionButton(session) {
 }
 
 const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
-chatModels = createChatModelPicker({ api, state, toast, updateControls, refreshHealth });
+chatModels = createChatModelPicker({
+  api, state, toast, updateControls, refreshHealth, onLocation:fileBrowser.syncProject,
+});
 const uploads = createFileUploads({ state, toast, updateControls, onChange: () => calculations.drawStructures(), onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
 
 function renderSessions() {
@@ -839,22 +850,45 @@ $("conversation").addEventListener("click", async (event) => {
 });
 $("properties-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_properties", event.currentTarget); });
 $("similarity-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_similarity", event.currentTarget); });
-function setSidebarCollapsed(collapsed, reveal = false, persist = true) {
+let preferredSidebarCollapsed = false;
+try { preferredSidebarCollapsed = localStorage.getItem("chemistry.sidebarCollapsed") === "true"; } catch { /* Optional. */ }
+
+function setSidebarCollapsed(collapsed, persist = true) {
   document.body.classList.toggle("sidebar-collapsed", collapsed);
-  $("sidebar-collapse").setAttribute("aria-expanded", String(!collapsed));
-  $("sidebar-collapse").setAttribute("aria-label", collapsed ? "展开侧栏" : "折叠侧栏");
-  $("sidebar-collapse").title = collapsed ? "展开侧栏" : "折叠侧栏";
-  try { if (persist) localStorage.setItem("chemistry.sidebarCollapsed", String(collapsed)); } catch { /* Optional. */ }
-  if (reveal && innerWidth <= 767) setDrawer("sidebar", !collapsed);
+  const button = $("sidebar-collapse");
+  button.setAttribute("aria-expanded", String(!collapsed && (splitWorkspace.matches || document.body.classList.contains("sidebar-open"))));
+  const label = t(collapsed ? "展开侧栏" : "折叠侧栏");
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  if (persist) {
+    preferredSidebarCollapsed = collapsed;
+    try { localStorage.setItem("chemistry.sidebarCollapsed", String(collapsed)); } catch { /* Optional. */ }
+  }
   syncDrawerAccessibility();
 }
-try {
-  const saved = localStorage.getItem("chemistry.sidebarCollapsed");
-  setSidebarCollapsed(saved === null ? innerWidth >= 768 && innerWidth < 1024 : saved === "true", false, false);
-} catch { /* Use the desktop navigation by default. */ }
-$("sidebar-collapse").addEventListener("click", () => setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"), true));
-$("menu-toggle").addEventListener("click", () => { setInspectorOpen(false, {persist:false, focus:false}); setDrawer("sidebar", !document.body.classList.contains("sidebar-open")); });
-$("tools-toggle").addEventListener("click", () => { setDrawer("sidebar", false); setInspectorOpen(true); });
+
+function syncWorkspaceLayout() {
+  document.body.classList.toggle("responsive-sidebar", compactNavigation.matches);
+  setDrawer("sidebar", false);
+  setSidebarCollapsed(splitWorkspace.matches && (compactNavigation.matches || preferredSidebarCollapsed), false);
+  if (!splitWorkspace.matches) setDockMaximized(false);
+}
+syncWorkspaceLayout();
+compactNavigation.addEventListener("change", syncWorkspaceLayout);
+splitWorkspace.addEventListener("change", syncWorkspaceLayout);
+
+$("sidebar-collapse").addEventListener("click", () => {
+  if (!splitWorkspace.matches || compactNavigation.matches) {
+    setDrawer("sidebar", !document.body.classList.contains("sidebar-open"));
+    return;
+  }
+  setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"));
+});
+$("menu-toggle").addEventListener("click", () => setDrawer("sidebar", !document.body.classList.contains("sidebar-open")));
+$("tools-toggle").addEventListener("click", () => {
+  setDrawer("sidebar", false);
+  setInspectorOpen(!document.body.classList.contains("inspector-open"));
+});
 $("inspector-close").addEventListener("click", () => setDrawer("inspector", false));
 $("screen-overlay").addEventListener("click", closeDrawers);
 document.addEventListener("keydown", (event) => {
@@ -875,10 +909,6 @@ document.addEventListener("keydown", (event) => {
   } else if (!event.shiftKey && (document.activeElement === last || !openPanel.contains(document.activeElement))) {
     event.preventDefault(); first?.focus();
   }
-});
-window.addEventListener("resize", () => {
-  if (innerWidth > 767) closeDrawers();
-  syncDrawerAccessibility();
 });
 
 function showLogin(message = "") {
@@ -993,6 +1023,8 @@ setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);
 
 function setMeter(percent = null) {
   const ring = $("context-ring");
+  $("context-percent").hidden = percent === null;
+  $("context-percent").textContent = percent === null ? "" : `${percent}%`;
   ring.style.setProperty("--used", String(Math.min(100, Math.max(0, percent || 0))));
   ring.toggleAttribute("data-used", percent > 0);
   const label = t("上下文用量") + (percent === null ? "" : ` · ${percent}%`);
@@ -1005,6 +1037,8 @@ function resetContextMeter(message = "暂无对话记录。") {
   nativeContext = null;
   contextSignature = "";
   contextRequest = null;
+  $("context-extra").hidden = true;
+  $("context-extra").open = false;
   $("context-ring").hidden = Boolean(state.health?.agent_backend && state.health.agent_backend !== "builtin");
   $("native-context-details").replaceChildren();
   $("native-context-details").hidden = true;
@@ -1033,16 +1067,19 @@ async function refreshContext() {
       setMeter(view.percent);
       $("context-ring").hidden = !view.visible;
       $("context-status").textContent = view.title;
-      $("context-budget").hidden = true;
+      const usage = view.rows.find(([label])=>label === "上下文" || label === "上下文窗口");
+      $("context-budget").hidden = false;
+      $("context-budget").textContent = usage?.[1] || t("暂无用量数据");
       $("context-summary").hidden = true;
       const details = $("native-context-details");
       details.replaceChildren();
-      for (const [label, value] of view.rows) {
+      for (const [label, value] of view.rows.filter(row => row !== usage)) {
         const term = document.createElement('dt'), description = document.createElement('dd');
         term.textContent = t(label); description.textContent = t(value);
         details.append(term, description);
       }
-      details.hidden = !view.rows.length;
+      details.hidden = !details.childElementCount;
+      $("context-extra").hidden = details.hidden && !view.manual;
       updateControls();
       // One read-only native resume for old sessions; polling below only reads platform state.
       const syncKey = `${id}:${info.managed_by}`;
@@ -1058,16 +1095,21 @@ async function refreshContext() {
     $("context-budget").hidden = false;
     $("context-summary").hidden = false;
     updateControls();
-    const percent = Math.round(100 * info.estimated_input_tokens / Math.max(1, info.input_budget_tokens));
+    const used = info.estimated_input_tokens, capacity = info.input_budget_tokens;
+    const available = Number.isFinite(used) && Number.isFinite(capacity) && capacity > 0;
+    const percent = available ? Math.round(100 * used / capacity) : null;
     setMeter(percent);
-    $("context-status").textContent = `会话记忆 · 已摘要 ${info.covered_messages} / ${info.original_messages} 条消息`;
-    $("context-budget").textContent = `≈ ${info.estimated_input_tokens.toLocaleString()} / ${info.input_budget_tokens.toLocaleString()} tokens (${percent}%)`;
+    $("context-status").textContent = t("上下文用量");
+    $("context-extra").hidden = $("compact-context").hidden && !info.summary;
+    $("context-budget").textContent = available ? `≈ ${used.toLocaleString()} / ${capacity.toLocaleString()} tokens` : t("暂无用量数据");
     $("context-summary").textContent = info.summary || "";
     $("context-summary").hidden = !info.summary;
   } catch (error) {
     if (id !== state.sessionId || generation !== contextGeneration) return;
     setMeter();
     $("context-status").textContent = t("上下文用量");
+    $("context-extra").hidden = true;
+    $("context-budget").hidden = false;
     $("context-budget").textContent = error.message;
     $("context-summary").textContent = "";
   }

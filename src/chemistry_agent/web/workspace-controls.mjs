@@ -1,19 +1,23 @@
-export function initWorkspaceControls({closeInspector}) {
+export function initWorkspaceControls({closeInspector, onMaximized}) {
   const body=document.body, dock=document.getElementById('inspector'), grip=document.getElementById('dock-grip');
   const maximize=document.getElementById('dock-max');
-  const sidebarWidth = () => document.getElementById('sidebar').offsetWidth || parseFloat(getComputedStyle(body).getPropertyValue('--sidebar')) || 0;
-  const maximumWidth = () => Math.max(300,innerWidth-sidebarWidth()-40);
+  const metric = name => Number.parseFloat(getComputedStyle(body).getPropertyValue(name));
+  const sidebarWidth = () => metric('--sidebar') || 0;
+  const minimumInspectorWidth = metric('--inspector-pane-min') || 300;
+  const minimumChatWidth = metric('--chat-pane-min') || 320;
+  const maximumWidth = () => Math.max(minimumInspectorWidth,
+    body.clientWidth-sidebarWidth()-minimumChatWidth-metric('padding-inline-start')-metric('padding-inline-end'));
   function resize(width) {
-    width=Math.round(Math.max(300,Math.min(maximumWidth(),width)));
+    width=Math.round(Math.max(minimumInspectorWidth,Math.min(maximumWidth(),width)));
     body.style.setProperty('--dock-width',width+'px');
     grip.setAttribute('aria-valuenow',String(width));
   }
   function remember() {
     try {localStorage.setItem('chemistry.dockWidth',String(parseFloat(body.style.getPropertyValue('--dock-width')) || dock.offsetWidth));} catch {}
   }
-  try {const saved=Number(localStorage.getItem('chemistry.dockWidth'));if(saved>0) resize(saved);} catch {}
+  try {const saved=Number(localStorage.getItem('chemistry.dockWidth'));if(saved>0) body.style.setProperty('--dock-width',saved+'px');} catch {}
   new ResizeObserver(()=>{
-    grip.setAttribute('aria-valuemin','300');grip.setAttribute('aria-valuemax',String(innerWidth));
+    grip.setAttribute('aria-valuemin',String(minimumInspectorWidth));grip.setAttribute('aria-valuemax',String(body.classList.contains('dock-max')?innerWidth:maximumWidth()));
     grip.setAttribute('aria-valuenow',String(dock.offsetWidth));
   }).observe(dock);
   let drag=null;
@@ -47,11 +51,11 @@ export function initWorkspaceControls({closeInspector}) {
   grip.onkeydown=e=>{
     if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
     e.preventDefault();
-    if(e.key==='Home') {setMaximized(false);resize(300);remember();return;}
-    const requestedWidth=parseFloat(body.style.getPropertyValue('--dock-width')) || dock.offsetWidth;
-    if(e.key==='End' || (e.key==='ArrowLeft' && requestedWidth>=maximumWidth())) {setMaximized(true);return;}
-    if(e.key==='ArrowRight' && requestedWidth<=300) {closeInspector();return;}
-    const width=body.classList.contains('dock-max')?maximumWidth():requestedWidth;
+    if(e.key==='Home') {setMaximized(false);resize(minimumInspectorWidth);remember();return;}
+    const visibleWidth=dock.offsetWidth;
+    if(e.key==='End' || (e.key==='ArrowLeft' && visibleWidth>=Math.floor(maximumWidth()))) {setMaximized(true);return;}
+    if(e.key==='ArrowRight' && visibleWidth<=minimumInspectorWidth) {closeInspector();return;}
+    const width=body.classList.contains('dock-max')?maximumWidth():visibleWidth;
     setMaximized(false);resize(width+(e.key==='ArrowLeft'?32:-32));remember();
   };
   function setMaximized(active) {
@@ -61,6 +65,7 @@ export function initWorkspaceControls({closeInspector}) {
     maximize.title = label;
     maximize.setAttribute('aria-label', label);
     maximize.querySelector('use').setAttribute('href', '/assets/ui-icons.svg#i-' + (active ? 'shrink' : 'expand'));
+    onMaximized();
   }
   maximize.onclick = () => setMaximized(!body.classList.contains('dock-max'));
   for(const dialog of document.querySelectorAll('dialog[data-workspace-dialog]')) {
@@ -81,19 +86,20 @@ function bindContextPanel(panel, trigger) {
     if (!panel.open) return;
     const anchor = trigger.getBoundingClientRect();
     if (!anchor.width) { panel.close(); return; }
-    const composer = trigger.closest(".composer").getBoundingClientRect();
     const gap = 8, above = anchor.top - gap, below = innerHeight - anchor.bottom - gap;
     const height = panel.offsetHeight;
     const y = height <= above || above >= below ? anchor.top - gap - height : anchor.bottom + gap;
     panel.style.top = Math.max(gap, Math.min(y, innerHeight - gap - height)) + "px";
-    panel.style.left = Math.max(gap, Math.min(composer.right - panel.offsetWidth, innerWidth - gap - panel.offsetWidth)) + "px";
+    panel.style.left = Math.max(gap, Math.min(anchor.right - panel.offsetWidth, innerWidth - gap - panel.offsetWidth)) + "px";
   }
   function closeAndFocus() { panel.close(); trigger.focus({preventScroll:true}); }
   trigger.onclick = () => {
     if (panel.open) { closeAndFocus(); return; }
+    document.dispatchEvent(new CustomEvent("chem:menu-open", {detail:trigger}));
     panel.show(); place(); trigger.setAttribute("aria-expanded", "true");
   };
   panel.querySelector("[data-close]").onclick = closeAndFocus;
+  document.addEventListener("chem:menu-open", event => { if (event.detail !== trigger && panel.open) panel.close(); });
   panel.addEventListener("close", () => { if (!panel.open) trigger.setAttribute("aria-expanded", "false"); });
   document.addEventListener("pointerdown", event => {
     if (panel.open && !panel.contains(event.target) && !trigger.contains(event.target)) panel.close();

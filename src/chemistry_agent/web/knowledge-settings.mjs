@@ -43,8 +43,10 @@ export function createKnowledgeSettings(api) {
       const source = document.createElement('span'); source.className = 'agent-model';
       source.textContent = `${pkg.skills.length} ${t('Skills')} · ${pkg.revision.slice(0,12)}`;
       source.dataset.noI18n = ''; identity.append(title, source);
-      const state = document.createElement('span'); state.textContent = t(pkg.enabled ? '已启用' : '未启用');
-      summary.append(identity, state); card.append(summary);
+      const state = document.createElement('span'); state.className = 'plugin-state'; state.textContent = t(pkg.enabled ? '已启用' : '未启用');
+      summary.append(identity, state);
+      summary.insertAdjacentHTML('beforeend', '<svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>');
+      card.append(summary);
       const body = document.createElement('div'); body.className = 'agent-fields';
       const origin = document.createElement('p'); origin.textContent = pkg.source; origin.dataset.noI18n = '';
       origin.className = 'plugin-source'; body.append(origin);
@@ -70,6 +72,7 @@ export function createKnowledgeSettings(api) {
       }
       card.append(body); $('skill-packages').append(card);
     }
+    $('skill-packages').hidden = !packages.length;
     $('skills-empty').hidden = Boolean(packages.length);
     translateUI();
   }

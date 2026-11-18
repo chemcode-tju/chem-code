@@ -14,7 +14,7 @@ from pathlib import Path
 
 def location(value: str) -> Path:
     path = (Path.home() / value[2:] if value.startswith("~/") else Path(value)).resolve()
-    if "archive" in path.parts:
+    if any(part.casefold() == "archive" for part in path.parts):
         raise ValueError("archive is not a runtime directory")
     return path
 
@@ -35,32 +35,6 @@ def discover() -> dict:
         if path:
             agents.append({"backend": backend, "name": name, "executable": path})
     return {"agents": agents, "home": str(Path.home()), "hostname": os.uname().nodename}
-
-
-def directories(value: str = "") -> dict:
-    """Browse folder names only; choosing a folder never creates or changes it."""
-    path = location(value or "~/")
-    if path.exists() and not path.is_dir():
-        raise ValueError("请选择文件夹")
-    items = []
-    truncated = False
-    if path.is_dir():
-        with os.scandir(path) as entries:
-            for entry in entries:
-                if entry.name.startswith(".") or entry.name == "archive":
-                    continue
-                if entry.is_dir(follow_symlinks=False):
-                    items.append({"name": entry.name, "path": str(path / entry.name)})
-                    if len(items) == 200:
-                        truncated = True
-                        break
-    return {
-        "path": str(path),
-        "parent": str(path.parent),
-        "exists": path.is_dir(),
-        "directories": sorted(items, key=lambda item: item["name"].casefold()),
-        "truncated": truncated,
-    }
 
 
 def output_manifest(request: dict) -> dict:
@@ -240,8 +214,6 @@ def main() -> None:
                 result = discover()
             elif request["operation"] == "outputs":
                 result = output_manifest(request)
-            elif request["operation"] == "directories":
-                result = directories(request.get("path", ""))
             else:
                 result = prepare(request)
             print(json.dumps(result), flush=True)

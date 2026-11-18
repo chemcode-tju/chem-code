@@ -18,16 +18,6 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
       if (selected) expanded.add(selected);
       revealedSession = state.sessionId;
     }
-    const picker = $("draft-project");
-    picker.replaceChildren(new Option(t("个人工作空间"), ""), ...projects.map(project => {
-      const option = new Option(project.name, project.id);
-      option.dataset.noI18n = "";
-      return option;
-    }));
-    picker.value = selected;
-    const label = $("draft-project-name");
-    label.toggleAttribute("data-no-i18n", Boolean(selected));
-    label.textContent = picker.selectedOptions[0]?.textContent || t("个人工作空间");
     $("project-list").innerHTML = projects.map((project) => {
       const id=escapeHtml(project.id), name=escapeHtml(project.name);
       // Actions sit beside details, not inside summary: they stay reachable when
@@ -69,13 +59,6 @@ export function createProjectNavigation({ api, state, selectSession, newConversa
       if (version === state.accountVersion) $("project-error").textContent = error.message;
     } finally { buttons.forEach((b) => { b.disabled = false; }); }
   }
-  $("draft-project").addEventListener("change", (event) => {
-    selected = event.target.value;
-    if (selected) expanded.add(selected);
-    const project = projects.find(item => item.id === selected);
-    $("conversation-title").textContent = project ? `${project.name} / ${t("新对话")}` : t("新对话");
-    render();
-  });
   $("new-project").addEventListener("click", () => openEditor());
   $("cancel-project").addEventListener("click", () => $("project-dialog").close());
   $("project-form").addEventListener("submit", (event) => {

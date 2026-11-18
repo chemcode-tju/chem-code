@@ -6,6 +6,7 @@ from fastapi import APIRouter, Path, Query, Request, Response
 
 from chemistry_agent.automation.queue_remote import JOB_ID
 from chemistry_agent.environments.registry import Environments
+from chemistry_agent.file_browser import job_file_operation
 from chemistry_agent.file_browser import job_scheduler as slurm
 
 router = APIRouter(prefix="/api/job-monitor", tags=["queue monitor"])
@@ -37,7 +38,8 @@ async def metadata(
     path: str = Query(max_length=4096),
     history: bool = False,
 ) -> dict:
-    return await slurm(request).request(
+    return await job_file_operation(
+        request,
         host,
         {
             "action": "queue_metadata",
@@ -58,7 +60,8 @@ async def latest_frame(
     path: str = Query(max_length=4096),
     history: bool = False,
 ) -> Response:
-    result = await slurm(request).request(
+    result = await job_file_operation(
+        request,
         host,
         {
             "action": "queue_dump_frame",

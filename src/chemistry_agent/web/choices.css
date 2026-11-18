@@ -10,7 +10,6 @@ html select:not([multiple],[size]),html .map-board .map-subtools select {
 html select:not([multiple],[size]):hover:not(:disabled) { border-color:var(--strong-border); }
 html select[aria-expanded=true] { border-color:var(--strong-border); }
 html select:disabled { cursor:default; }
-html .workspace-picker select { background:none; padding:0; border:0; }
 html .chat-model-picker select,html .map-board .map-subtools select { background-color:transparent; border-color:transparent; font-size:13px; }
 html .chat-model-picker select { field-sizing:content; padding-inline-start:4px; }
 .choice-menu {

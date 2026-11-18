@@ -9,10 +9,11 @@ import os
 import re
 import shlex
 import stat
-from collections import deque
+import time
+from collections import OrderedDict, deque
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 from urllib.parse import quote
@@ -185,7 +186,7 @@ class LocalFilesystem:
         self.workspace = workspace
         self.follow_links = follow_links and workspace is None
 
-    async def root(self, path: str) -> Path:
+    async def root(self, path: str, *, allow_missing: bool = False) -> Path:
         if self.workspace is not None:
             if path or await asyncio.to_thread(self.workspace.is_symlink):
                 raise AgentError("browser_path_invalid", "无法访问此路径。", 403)
@@ -197,7 +198,7 @@ class LocalFilesystem:
             else (str(home / path[2:]) if path.startswith("~/") else path)
         )
         checked_path(requested, absolute=True)
-        resolved = await asyncio.to_thread(Path(requested).resolve, strict=True)
+        resolved = await asyncio.to_thread(Path(requested).resolve, strict=not allow_missing)
         checked_path(str(resolved), absolute=True)
         return resolved
 
@@ -212,7 +213,9 @@ class LocalFilesystem:
             raise AgentError("browser_path_invalid", "无法访问此路径。", 403)
         return target
 
-    def list_entries(self, root: Path, path: PurePosixPath, follow_links: bool) -> list[dict]:
+    def list_entries(
+        self, root: Path, path: PurePosixPath, follow_links: bool, directories_only: bool
+    ) -> list[dict]:
         target = self.target(root, path)
         if self.workspace == target and not target.exists():
             return []
@@ -231,7 +234,7 @@ class LocalFilesystem:
                         self.target(root, path / child.name)
                     if child.is_dir():
                         kind = "directory"
-                    elif child.is_file():
+                    elif not directories_only and child.is_file():
                         kind = "file"
                     else:
                         continue
@@ -242,9 +245,32 @@ class LocalFilesystem:
         return entries
 
     async def entries(
-        self, root: PurePosixPath, path: PurePosixPath, *, follow_links: bool = True
+        self,
+        root: PurePosixPath,
+        path: PurePosixPath,
+        *,
+        follow_links: bool = True,
+        directories_only: bool = False,
     ) -> list[dict]:
-        return await asyncio.to_thread(self.list_entries, Path(root), path, follow_links)
+        return await asyncio.to_thread(
+            self.list_entries, Path(root), path, follow_links, directories_only
+        )
+
+    async def mkdir(self, root: PurePosixPath, name: str) -> None:
+        def create() -> None:
+            with open_directory(Path(root), PurePosixPath()) as parent:
+                os.mkdir(name, dir_fd=parent)
+
+        await asyncio.to_thread(create)
+
+    async def folder_exists(self, root: PurePosixPath) -> bool:
+        try:
+            info = await asyncio.to_thread(Path(root).stat)
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISDIR(info.st_mode):
+            raise AgentError("directory_invalid", "请选择文件夹", 422)
+        return True
 
     @contextmanager
     def open_file(self, root: Path, path: PurePosixPath) -> Iterator:
@@ -336,18 +362,32 @@ class AttachmentFilesystem(LocalFilesystem):
 
 
 class RemoteFilesystem:
-    def __init__(self, connection, sftp, ssh) -> None:
+    def __init__(self, connection, sftp, ssh, state: "BrowserConnection") -> None:
         self.connection, self.sftp, self.ssh = connection, sftp, ssh
+        self.state = state
         self.follow_links = True
 
-    async def root(self, path: str) -> PurePosixPath:
+    async def root(self, path: str, *, allow_missing: bool = False) -> PurePosixPath:
         if path in {"", "~"} or path.startswith("~/"):
-            path = str(PurePosixPath(await self.sftp.realpath(".")) / path[2:])
-        checked_path(path, absolute=True)
-        return checked_path(await self.sftp.realpath(path), absolute=True)
+            if self.state.home is None:
+                self.state.home = PurePosixPath(await self.sftp.realpath("."))
+            if not path[2:]:
+                return checked_path(str(self.state.home), absolute=True)
+            path = str(self.state.home / path[2:])
+        requested = checked_path(path, absolute=True)
+        missing = []
+        while True:
+            try:
+                root = checked_path(await self.sftp.realpath(requested), absolute=True)
+                return root.joinpath(*reversed(missing))
+            except (self.ssh.SFTPNoSuchFile, self.ssh.SFTPNoSuchPath):
+                if not allow_missing or requested == requested.parent:
+                    raise
+                missing.append(requested.name)
+                requested = requested.parent
 
     async def target(self, root: PurePosixPath, path: PurePosixPath) -> PurePosixPath:
-        if not path.parts:
+        if not path.parts and self.follow_links:
             return root
         target = checked_path(await self.sftp.realpath(root / path), absolute=True)
         inside(root, target)
@@ -356,7 +396,12 @@ class RemoteFilesystem:
         return target
 
     async def entries(
-        self, root: PurePosixPath, path: PurePosixPath, *, follow_links: bool = True
+        self,
+        root: PurePosixPath,
+        path: PurePosixPath,
+        *,
+        follow_links: bool = True,
+        directories_only: bool = False,
     ) -> list[dict]:
         entries = []
         links = []
@@ -364,7 +409,7 @@ class RemoteFilesystem:
         def add(name: str, attrs) -> None:
             if attrs.type == self.ssh.FILEXFER_TYPE_DIRECTORY:
                 entries.append({"name": name, "kind": "directory"})
-            elif attrs.type == self.ssh.FILEXFER_TYPE_REGULAR:
+            elif not directories_only and attrs.type == self.ssh.FILEXFER_TYPE_REGULAR:
                 entries.append({"name": name, "kind": "file", "size": attrs.size})
 
         async def add_link(name: str) -> None:
@@ -395,9 +440,44 @@ class RemoteFilesystem:
                 await asyncio.gather(*(add_link(name) for name in links[start : start + 12]))
         except (self.ssh.SFTPNoSuchFile, self.ssh.SFTPNoSuchPath) as exc:
             raise AgentError("browser_missing", "文件或目录不存在。", 404) from exc
+        except self.ssh.SFTPNotADirectory as exc:
+            raise AgentError("directory_invalid", "请选择文件夹", 422) from exc
         except self.ssh.SFTPPermissionDenied as exc:
             raise AgentError("browser_access_denied", "没有文件读取权限。", 403) from exc
         return entries
+
+    async def mkdir(self, root: PurePosixPath, name: str) -> None:
+        target = root / name
+        try:
+            await self.sftp.mkdir(target)
+        except (self.ssh.SFTPFailure, self.ssh.SFTPFileAlreadyExists) as exc:
+            if await self.sftp.lexists(target):
+                raise FileExistsError(name) from exc
+            raise
+
+    async def folder_exists(self, root: PurePosixPath) -> bool:
+        try:
+            info = await self.sftp.stat(root)
+        except (self.ssh.SFTPNoSuchFile, self.ssh.SFTPNoSuchPath):
+            return False
+        if info.type != self.ssh.FILEXFER_TYPE_DIRECTORY:
+            raise AgentError("directory_invalid", "请选择文件夹", 422)
+        return True
+
+    async def job_root(self, job: "JobLocation") -> PurePosixPath:
+        now = time.monotonic()
+        cache = self.state.job_roots
+        cached = cache.get(job)
+        if cached and cached[0] > now:
+            cache.move_to_end(job)
+            return cached[1]
+        result = await self.queue_request(job.payload() | {"action": "queue_root"})
+        directory = checked_path(result["directory"], absolute=True)
+        cache[job] = (time.monotonic() + 15, directory)
+        cache.move_to_end(job)
+        if len(cache) > 256:
+            cache.popitem(last=False)
+        return directory
 
     async def read(
         self, root: PurePosixPath, path: PurePosixPath, limit: int, *, full: bool, offset: int = 0
@@ -427,7 +507,10 @@ class RemoteFilesystem:
         )
         if result.exit_status != 0:
             raise AgentError("job_ssh_failed", "无法核验作业目录。", 503)
-        data = json.loads(result.stdout)
+        try:
+            data = json.loads(result.stdout)
+        except ValueError as exc:
+            raise AgentError("job_remote_error", "远端作业目录响应格式无效。", 502) from exc
         if data.get("error"):
             raise AgentError("job_remote_error", data["error"], 422)
         return data
@@ -502,11 +585,25 @@ class RemoteFilesystem:
         return size, token, data
 
 
-def configured_hosts(request: Request) -> dict[str, str | None]:
+def configured_hosts(request: Request) -> dict[str, tuple[str, str | None]]:
     settings = request.app.state.settings
-    root = settings.platform_path if settings.automation_enabled else None
-    profiles = shell_profiles(root) if root else {}
-    return dict.fromkeys(enabled_aliases(root, settings.allowed_ssh_hosts)) | profiles
+    root = settings.platform_path
+    profiles = shell_profiles(root)
+    records = Environments(root).records()
+    claimed = {row.id for row in records} | {row.ssh_alias for row in records if row.ssh_alias}
+    hosts = {
+        alias: alias
+        for alias in set(enabled_aliases(root, settings.allowed_ssh_hosts)) | set(profiles)
+        if alias not in claimed
+    }
+    hosts.update(
+        {
+            row.id: row.ssh_alias or row.id
+            for row in records
+            if row.enabled and not row.removed and row.transport == "ssh"
+        }
+    )
+    return {host: (alias, profiles.get(alias)) for host, alias in hosts.items()}
 
 
 @dataclass
@@ -514,6 +611,10 @@ class BrowserConnection:
     task: asyncio.Task
     users: int = 0
     expiry: asyncio.TimerHandle | None = None
+    home: PurePosixPath | None = None
+    job_roots: OrderedDict["JobLocation", tuple[float, PurePosixPath]] = field(
+        default_factory=OrderedDict
+    )
 
 
 class BrowserConnections:
@@ -601,7 +702,7 @@ class BrowserConnections:
         entry.users += 1
         try:
             connection, sftp = await asyncio.shield(entry.task)
-            yield RemoteFilesystem(connection, sftp, ssh)
+            yield RemoteFilesystem(connection, sftp, ssh, entry)
         except (ssh.ConnectionLost, ssh.SFTPConnectionLost, ssh.SFTPNoConnection):
             self.retire(key, entry)
             raise
@@ -749,18 +850,28 @@ async def job_filesystem(request: Request, job: JobLocation):
         raise AgentError("job_host_unknown", "请先登记该 SSH 服务器别名。", 422)
     environment = await asyncio.to_thread(Environments(scheduler.root).get, job.host)
     if environment and environment.transport == "runner":
-        yield RunnerFilesystem(scheduler, job), ""
+        yield RunnerFilesystem(scheduler, job), PurePosixPath()
         return
     if environment and environment.transport == "local":
         result = await scheduler.request(job.host, job.payload() | {"action": "queue_root"})
-        yield LocalFilesystem(follow_links=False), result["directory"]
+        backend = LocalFilesystem(follow_links=False)
+        yield backend, await backend.root(result["directory"])
         return
-    host = (environment.ssh_alias or job.host) if environment else job.host
-    profiles = await asyncio.to_thread(configured_hosts, request)
-    async with remote_filesystem(request, host, profiles.get(host)) as backend:
-        result = await backend.queue_request(job.payload() | {"action": "queue_root"})
+    async with configured_ssh_filesystem(request, job.host) as backend:
+        directory = await backend.job_root(job)
         backend.follow_links = False
-        yield backend, result["directory"]
+        yield backend, directory
+
+
+async def job_file_operation(request: Request, host: str, payload: dict) -> dict:
+    scheduler = job_scheduler(request)
+    if host not in scheduler.hosts():
+        raise AgentError("job_host_unknown", "请先登记该 SSH 服务器别名。", 422)
+    environment = await asyncio.to_thread(Environments(scheduler.root).get, host)
+    if environment and environment.transport != "ssh":
+        return await scheduler.request(host, payload)
+    async with configured_ssh_filesystem(request, host) as backend:
+        return await backend.queue_request(payload)
 
 
 @contextmanager
@@ -780,8 +891,8 @@ async def resolved_filesystem(request: Request, source: str, session: UUID | Non
     with browser_errors():
         if source.startswith("job:"):
             job = JobLocation.from_request(request, source.removeprefix("job:"))
-            async with job_filesystem(request, job) as (backend, directory):
-                yield backend, await backend.root(directory)
+            async with job_filesystem(request, job) as location:
+                yield location
             return
         async with filesystem(request, source, session) as backend:
             yield backend, await backend.root(root)
@@ -808,6 +919,82 @@ async def resolved_file(
 
 
 @asynccontextmanager
+async def configured_ssh_filesystem(request: Request, host: str):
+    hosts = await asyncio.to_thread(configured_hosts, request)
+    if host not in hosts:
+        raise AgentError("browser_host_denied", "请先在服务器设置中启用该连接。", 403)
+    async with remote_filesystem(request, *hosts[host]) as remote:
+        yield remote
+
+
+def sort_entries(entries: list[dict]) -> None:
+    entries.sort(
+        key=lambda item: (item["kind"] != "directory", item["name"].casefold(), item["name"])
+    )
+
+
+@asynccontextmanager
+async def picker_filesystem(request: Request, host: str):
+    local_service(request)
+    if host == "local":
+        yield LocalFilesystem()
+    else:
+        async with configured_ssh_filesystem(request, host) as backend:
+            yield backend
+
+
+async def list_folders(request: Request, host: str, path: str, *, children: bool = True) -> dict:
+    with browser_errors():
+        async with picker_filesystem(request, host) as backend:
+            root = await backend.root(path, allow_missing=True)
+            if not children:
+                return {"path": str(root), "exists": await backend.folder_exists(root)}
+            exists = True
+            try:
+                entries = await backend.entries(
+                    root, PurePosixPath(), follow_links=False, directories_only=True
+                )
+            except FileNotFoundError:
+                entries, exists = [], False
+            except NotADirectoryError as exc:
+                raise AgentError("directory_invalid", "请选择文件夹", 422) from exc
+            except AgentError as exc:
+                if exc.code != "browser_missing":
+                    raise
+                entries, exists = [], False
+    sort_entries(entries)
+    return {
+        "path": str(root),
+        "parent": str(root.parent),
+        "exists": exists,
+        "directories": [
+            {"name": item["name"], "path": str(root / item["name"])} for item in entries[:200]
+        ],
+        "truncated": len(entries) > 200,
+    }
+
+
+async def create_folder(request: Request, host: str, parent: str, name: str) -> dict:
+    if not name or not visible_name(name) or "/" in name or "\\" in name:
+        raise AgentError("directory_invalid", "请输入单个文件夹名称", 422)
+    try:
+        with browser_errors():
+            async with picker_filesystem(request, host) as backend:
+                root = await backend.root(parent)
+                try:
+                    await backend.mkdir(root, name)
+                except FileExistsError as exc:
+                    raise AgentError(
+                        "directory_exists", "此处已存在同名文件或文件夹。", 409
+                    ) from exc
+    except AgentError as exc:
+        if exc.code != "browser_missing":
+            raise
+        raise AgentError("directory_invalid", "请先打开父文件夹。", 422) from exc
+    return {"path": str(root / name)}
+
+
+@asynccontextmanager
 async def filesystem(
     request: Request, source: str, session: UUID | None
 ) -> AsyncIterator[Filesystem]:
@@ -819,11 +1006,7 @@ async def filesystem(
     else:
         local_service(request)
         if source.startswith("ssh:"):
-            host = source.removeprefix("ssh:")
-            hosts = await asyncio.to_thread(configured_hosts, request)
-            if host not in hosts:
-                raise AgentError("browser_host_denied", "请先在服务器设置中启用该连接。", 403)
-            async with remote_filesystem(request, host, hosts[host]) as remote:
+            async with configured_ssh_filesystem(request, source.removeprefix("ssh:")) as remote:
                 yield remote
             return
         if source != "local":
@@ -859,9 +1042,7 @@ async def directory(
     relative = checked_path(path)
     async with resolved_filesystem(request, source, session, root) as (backend, base):
         entries = await backend.entries(base, relative)
-    entries.sort(
-        key=lambda item: (item["kind"] != "directory", item["name"].casefold(), item["name"])
-    )
+    sort_entries(entries)
     end = offset + PAGE_SIZE
     if not source.startswith("job:"):
         entries = [{key: value for key, value in item.items() if key != "size"} for item in entries]

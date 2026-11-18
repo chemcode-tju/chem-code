@@ -73,14 +73,3 @@ async def discover(hosting, host: str) -> dict:
         return await asyncio.to_thread(remote_helper.discover)
     async with connection(hosting, host) as ssh:
         return await helper(ssh, {"operation": "discover"})
-
-
-async def directories(hosting, host: str, path: str) -> dict:
-    hosting.host(host)
-    if host == "local":
-        try:
-            return await asyncio.to_thread(remote_helper.directories, path)
-        except (OSError, ValueError) as exc:
-            raise AgentError("directory_unavailable", str(exc), 422) from exc
-    async with connection(hosting, host) as ssh:
-        return await helper(ssh, {"operation": "directories", "path": path})

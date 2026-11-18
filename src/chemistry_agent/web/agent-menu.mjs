@@ -1,13 +1,10 @@
 export const effortLabel = value => ({'':'默认', none:'无', minimal:'极低', low:'低', medium:'中', high:'高', xhigh:'极高', extra:'极高', max:'最高', ultra:'Ultra', enabled:'思考', disabled:'关闭思考'}[value] || value);
-export const permissionLabel = value => ({user:'批准', auto_review:'帮我批准', full:'完全访问'}[value] || value);
+export const permissionLabel = value => ({user:'请求批准', auto_review:'帮我批准', full:'完全访问权限'}[value] || value);
 
-export function createCascadeMenu(anchor) {
-  const menu = document.createElement('div');
-  menu.className = 'agent-menu'; menu.hidden = true;
+export function createAnchoredPanel(anchor, menu) {
+  menu.hidden = true;
   if (menu.showPopover) menu.setAttribute('popover', 'manual');
   document.body.append(menu);
-  let columns = [], compact = false;
-  const compactLayout = () => innerWidth <= 640 || innerWidth < columns.length * 210 + 24;
   function place() {
     if (menu.hidden) return;
     const rect = anchor.getBoundingClientRect();
@@ -24,6 +21,32 @@ export function createCascadeMenu(anchor) {
     menu.hidden = true; anchor.setAttribute('aria-expanded', 'false');
     if (focus) anchor.focus();
   }
+  function open() {
+    document.dispatchEvent(new CustomEvent('chem:menu-open', {detail:anchor}));
+    menu.hidden = false;
+    if (menu.showPopover) menu.showPopover();
+    anchor.setAttribute('aria-expanded', 'true');
+    place();
+  }
+
+  menu.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); close(true); }
+  });
+  document.addEventListener('pointerdown', event => { if (!menu.contains(event.target) && !anchor.contains(event.target)) close(); });
+  document.addEventListener('chem:menu-open', event => { if (event.detail !== anchor) close(); });
+  document.addEventListener('focusin', event => { if (!menu.hidden && !menu.contains(event.target) && !anchor.contains(event.target)) close(); });
+  window.addEventListener('resize', place);
+  window.addEventListener('scroll', place, true);
+  new ResizeObserver(place).observe(menu);
+  return {open, close, reposition:place, get visible() { return !menu.hidden; }};
+}
+
+export function createCascadeMenu(anchor, className = '') {
+  const menu = document.createElement('div');
+  menu.className = ['agent-menu', className].filter(Boolean).join(' ');
+  const popup = createAnchoredPanel(anchor, menu);
+  let columns = [], compact = false;
+  const compactLayout = () => innerWidth <= 640 || innerWidth < columns.length * 210 + 24;
   function draw(focus = false, restoreRow = null) {
     compact = compactLayout();
     menu.dataset.compact = String(compact);
@@ -53,14 +76,14 @@ export function createCascadeMenu(anchor) {
       }
       column.rows.forEach((row, index) => {
         if (row.message) { const note = document.createElement('div'); note.className = 'menu-message'; note.textContent = row.message; pane.append(note); return; }
-        const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role', row.branch ? 'menuitem' : 'menuitemradio');
+        const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role', row.branch || row.command ? 'menuitem' : 'menuitemradio');
         button.dataset.row = String(index);
         if (row.branch) {
           button.setAttribute('aria-haspopup', 'menu');
           button.setAttribute('aria-expanded', String(Boolean(columns[depth + 1] && column.activeRow === index)));
           if (row.selected) button.setAttribute('aria-current', 'true');
         }
-        else button.setAttribute('aria-checked', String(Boolean(row.selected)));
+        else if (!row.command) button.setAttribute('aria-checked', String(Boolean(row.selected)));
         button.disabled = Boolean(row.disabled); button.title = row.title || '';
         // Selection is a check mark; only the currently open branch gets a fill.
         button.dataset.active = String(Boolean(columns[depth + 1] && column.activeRow === index));
@@ -68,6 +91,8 @@ export function createCascadeMenu(anchor) {
         label.className = 'menu-label';
         if (row.noTranslate) label.dataset.noI18n = '';
         const trailing = document.createElement('span'); trailing.className = 'menu-trailing'; trailing.innerHTML = (row.selected ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg>' : '') + (row.branch ? '<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>' : '');
+        if (row.icon) button.insertAdjacentHTML('beforeend', `<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${row.icon}"/></svg>`);
+        if (row.warning) button.classList.add('menu-option-warning');
         button.append(label);
         if (row.value !== undefined) {
           button.classList.add('menu-setting-row');
@@ -85,7 +110,7 @@ export function createCascadeMenu(anchor) {
       if (column.extra) pane.append(column.extra());
       menu.append(pane);
     });
-    place();
+    popup.reposition();
     if (focus) {
       const pane = menu.lastElementChild;
       const preferred = restoreRow !== null ? pane?.querySelector(`[data-row="${restoreRow}"]:not(:disabled)`) :
@@ -99,27 +124,24 @@ export function createCascadeMenu(anchor) {
   }
   function column(depth, title, rows, extra, search) { columns.splice(depth, columns.length, {title, rows, extra, search}); draw(true); }
   function open(title, rows) {
-    document.dispatchEvent(new CustomEvent('chem:menu-open', {detail:anchor}));
-    menu.hidden = false; if (menu.showPopover) menu.showPopover();
-    anchor.setAttribute('aria-expanded', 'true'); columns = [{title, rows}]; draw(true);
+    columns = [{title, rows}];
+    popup.open();
+    draw(true);
   }
   menu.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); close(true); return; }
     const pane = event.target.closest('.agent-menu-column'); if (!pane || event.target.matches('input')) return;
     const buttons = [...pane.querySelectorAll('button:not(:disabled):not([hidden])')], index = buttons.indexOf(document.activeElement);
     if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
       event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length-1 : (index + (event.key==='ArrowDown'?1:-1) + buttons.length) % buttons.length; buttons[next]?.focus();
     } else if (event.key === 'ArrowRight') { event.preventDefault(); if (event.target.hasAttribute('aria-haspopup')) event.target.click(); }
     else if (event.key === 'ArrowLeft' && columns.length > 1) { event.preventDefault(); goBack(); }
-    else if (event.key === 'Tab') close(true);
+    else if (event.key === 'Tab') popup.close(true);
   });
-  document.addEventListener('pointerdown', event => { if (!menu.contains(event.target) && !anchor.contains(event.target)) close(); });
-  document.addEventListener('chem:menu-open', event => { if (event.detail !== anchor) close(); });
-  document.addEventListener('focusin', event => { if (!menu.hidden && !menu.contains(event.target) && !anchor.contains(event.target)) close(); });
   window.addEventListener('resize', () => {
-    if (menu.hidden) return;
-    if (compact !== compactLayout()) draw(menu.contains(document.activeElement)); else place();
+    if (!popup.visible) return;
+    if (compact !== compactLayout()) draw(menu.contains(document.activeElement));
   });
-  window.addEventListener('scroll', place, true);
-  return {open, close, column, reposition:place, isColumnOpen:(depth, title) => !menu.hidden && columns[depth]?.title === title, get visible() { return !menu.hidden; }};
+  return {open, close:popup.close, column, reposition:popup.reposition,
+    isColumnOpen:(depth, title) => popup.visible && columns[depth]?.title === title,
+    get visible() { return popup.visible; }};
 }

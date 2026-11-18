@@ -32,7 +32,7 @@ export function createComputeSettings(selectTab,api) {
       ['知识与技能',`OpenViking · ${knowledgeLabel}`,'knowledge','memory'],
     ].map(([name,detail,target,icon])=>`<li class="overview-item"><svg class="icon overview-icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${icon}"/></svg>
       <div class="overview-description"><strong>${esc(t(name))}</strong><small data-no-i18n>${esc(detail)}</small></div>
-      ${target?`<button type="button" class="secondary overview-action" data-generic-setting="${target}">${esc(t('设置'))}<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`:''}</li>`).join('');
+      ${target?`<button type="button" class="quiet-button overview-action" aria-label="${esc(t('打开设置')+' · '+t(name))}" data-generic-setting="${target}">${esc(t('设置'))}<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`:''}</li>`).join('');
   };
   $('compute-steps').onclick=event=>{
     const button=event.target.closest('[data-generic-setting]');if(button)selectTab(button.dataset.genericSetting);

@@ -250,17 +250,15 @@ api("/auth/status").then((data) => {
   if (data.user) $("settings-username").setAttribute("data-no-i18n", "");
   $("settings-username").textContent = name;
   $("settings-avatar").textContent = data.user ? name.slice(0, 1).toUpperCase() : "C";
-  $("settings-account-note").textContent = data.enabled ? "个人工作空间" : "";
-  $("settings-account-note").hidden = !data.enabled;
   $("settings-logout").hidden = !data.enabled;
 }).catch((error) => notice(error.message, true));
 $("settings-logout").addEventListener("click", () => action(async () => {
   await api("/auth/logout", { method: "POST" }); (embedded ? parent : window).location.assign("/");
 }));
 
-const computeSettings = createComputeSettings(selectTab,api);
+const computeSettings = createComputeSettings(focusSettingsTab,api);
 const agentSettings = createAgentSettings(api,{saveBuiltin:save});
-const hostingSettings = createHostingSettings(api,selectTab);
+const hostingSettings = createHostingSettings(api);
 const knowledgeSettings = createKnowledgeSettings(api);
 const environmentSettings = createEnvironmentSettings(api);
 createMcpSettings(api);
@@ -304,10 +302,14 @@ function selectTab(key) {
   }
   showSettingsPanel();
 }
+function focusSettingsTab(key) {
+  selectTab(key);
+  tabs.find(tab => tab.dataset.tab === key)?.focus();
+}
 if (embedded) document.addEventListener("click", (event) => {
   const link = event.target.closest?.('a[href^="#"]');
   if (link && tabs.some(tab => tab.dataset.tab === link.hash.slice(1))) {
-    event.preventDefault(); selectTab(link.hash.slice(1));
+    event.preventDefault(); focusSettingsTab(link.hash.slice(1));
   }
 });
 tabs.forEach((tab) => {

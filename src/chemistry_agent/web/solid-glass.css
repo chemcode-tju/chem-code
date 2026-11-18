@@ -48,6 +48,7 @@ body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;transit
 }
 #dock-grip:focus-visible::after {width:2px;}
 .workspace-shell .sidebar {padding-top:0;}
+.workspace-shell.sidebar-open .sidebar {background:var(--opaque-panel);}
 .workspace-shell .sidebar-header {
   height:var(--workspace-header-height,44px);min-height:var(--workspace-header-height,44px);
   flex:none;padding-block:0;margin-bottom:8px;
@@ -80,12 +81,10 @@ body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;transit
   .inspector-tabs[data-count="5"] .dock-tab .tab-close {width:14px;margin-inline-end:1px;}
 }
 svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
-@media(max-width:767px) {
+@media(max-width:687px) {
   body.workspace-shell {padding:0 6px 6px;}
   .workspace-shell .sidebar {background:var(--opaque-panel);}
-  .workspace-shell.sidebar-collapsed {padding-left:0;}
-  .workspace-shell.inspector-open .inspector {height:100%;}
-  .workspace-shell.inspector-open:not(.dock-max) .inspector-body {border:0;border-radius:var(--radius-panel);}
+  .workspace-shell.inspector-open:not(.dock-max) :is(.chat-workspace,.inspector-body) {border:0;border-radius:var(--radius-panel);}
 }
 @media(forced-colors:active) {
   #dock-grip:is(:hover,:focus-visible)::after,.dock-drag #dock-grip::after {background:CanvasText;outline:1px solid CanvasText;}
@@ -99,7 +98,7 @@ svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
 
 /* Card thickness: no second border between the inset rim and outer hairline.
    Repeated graph/list cards use the same material without per-card blur. */
-.map-board,.agent-service-list,.server-cards,.setup-list,.config-editor,.compatibility,
+.map-board,.settings-card,.agent-service-list,.server-cards,.setup-list,.config-editor,.compatibility,
 .agent-approval,.task-notifications {
   background:var(--card);border:0;border-radius:var(--radius-panel);box-shadow:var(--glass-shadow);
 }
@@ -119,12 +118,11 @@ svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
 .kanban-empty {border-color:var(--border);}
 .map-grip {background:var(--panel);}
 
-/* The composer and user bubble are small, tangible panes. Long assistant
-   answers remain on the quiet page, without another enclosing card. */
-.composer {background:var(--card);border:0;border-radius:var(--radius-dialog);box-shadow:var(--glass-shadow);}
-.composer:focus-within {box-shadow:var(--glass-shadow),0 0 0 1px var(--sg-focus-line);}
+/* Opaque surfaces meet without a double edge at the composer overlap. */
+.composer-header { background:var(--composer-context-fill); }
+.composer-content { background:var(--composer-input-fill); border-radius:var(--radius-dialog); }
+.composer-content:has(textarea:focus) { background:color-mix(in srgb,var(--composer-input-fill) 98%,var(--text)); }
 .user-bubble {background:var(--sg-glass-control);box-shadow:var(--control-shadow);border-radius:var(--radius-dialog);}
-.composer>textarea {background:transparent;border:0;box-shadow:none;}
 .new-chat {background:var(--sg-glass-control);border:0;box-shadow:var(--control-shadow);border-radius:var(--radius-control);}
 
 /* The thickest panes: popup content remains almost opaque over dense text. */
@@ -140,7 +138,7 @@ dialog.map-dialog {background:var(--surface);}
    Actual status colours and keyboard focus remain independent. */
 .session-button:is(:hover,.active),.settings-sidebar nav button:is(:hover,[aria-selected=true]),
 .memory-sidebar nav a:is(:hover,[aria-current=page]),.result-card:is(:hover,[aria-pressed=true]),
-.agent-picker:is(:hover,[aria-expanded=true]),.permission-picker:is(:hover,[aria-expanded=true]),
+.toolbar-button:not(.primary):not(:disabled):is(:hover,[aria-expanded=true]),
 .choice-menu [role=option]:is(:hover,[data-active],[aria-selected=true]),
 .upload-menu button:hover,
 .map-board .plan-view-switch button:is(:hover,[aria-pressed=true]),
@@ -160,7 +158,7 @@ input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color])
 #model-form input:not([type=checkbox]),#model-form select,.search-field {
   background-color:var(--sg-field);border-color:transparent;box-shadow:var(--field-shadow);border-radius:var(--radius-control);
 }
-.composer>textarea,.search-field input,.map-subtools select {background:transparent;border:0;box-shadow:none;}
+.composer-content>textarea,.search-field input,.map-subtools select {background:transparent;border:0;box-shadow:none;}
 .map-subtools select {border-radius:var(--radius-control);}
 .step-sections>details>summary,#step-dependencies>summary,.config-editor>summary,.compatibility>summary {
   background:var(--panel);border:0;border-radius:var(--radius-control);box-shadow:var(--control-shadow);
@@ -170,17 +168,20 @@ input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color])
 .agent-row[open]>summary {background:var(--sg-glass-state);}
 .theme-options button[aria-pressed=true] {border-color:transparent;box-shadow:var(--state-shadow),0 0 0 1px var(--accent);}
 
-.primary,.composer .send-button:not(:disabled),.tool-submit,#model-form button:not(.secondary),
+.primary,.tool-submit,
 #snapshot-save:not(:disabled) {
   color:var(--on-primary);background:color-mix(in oklab,var(--primary) var(--sg-primary-solid),transparent);
   border-color:color-mix(in oklab,var(--primary) 55%,var(--sg-primary-edge));
   box-shadow:inset 0 1px 0 var(--sg-primary-rim),inset 0 -1px 0 var(--sg-primary-under),inset 0 0 0 1px var(--sg-primary-inner),0 1px 2px var(--sg-glass-contact),0 8px 18px -9px var(--sg-glass-shade);
 }
-.primary:hover,.composer .send-button:not(:disabled):hover,.tool-submit:hover,#model-form button:not(.secondary):hover,#snapshot-save:not(:disabled):hover {
+.primary:not(:disabled):hover,.tool-submit:hover,#snapshot-save:not(:disabled):hover {
   background:color-mix(in oklab,var(--primary) calc(var(--sg-primary-solid) - 10%),transparent);
 }
-.primary:active,.composer .send-button:not(:disabled):active,.tool-submit:active {
+.primary:not(:disabled):active,.tool-submit:active {
   box-shadow:inset 0 1px 0 var(--sg-primary-rim),inset 0 -1px 0 var(--sg-primary-under),0 1px 1px var(--sg-glass-contact);
+}
+.composer .send-button:disabled {
+  opacity:1; background:var(--subtle); color:var(--muted); box-shadow:none;
 }
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible {
   outline-color:var(--sg-focus-line);
@@ -204,7 +205,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   :root,:root[data-theme="dark"] {--panel:var(--opaque-panel);--card:var(--opaque-card);--raised:var(--opaque-popover);--sidebar-fill:var(--opaque-panel);--bubble:var(--opaque-card);--sg-glass-blur:none;--sg-glass-blur-control:none;--sg-field:var(--opaque-card);}
 }
 @media(forced-colors:active) {
-  .map-board,.map-board .map-node,.map-board .kanban-card,.composer,.user-bubble,
+  .map-board,.map-board .map-node,.map-board .kanban-card,.composer-content,.user-bubble,
   .choice-menu,.agent-menu,.map-pop,.tool-card,.settings-sheet,.agent-service-list,.server-card {
     background:Canvas;color:CanvasText;border:1px solid CanvasText;box-shadow:none;backdrop-filter:none;
   }

@@ -5,11 +5,14 @@ import json
 from uuid import uuid4
 
 from fastapi import APIRouter, Query, Request
+from pydantic import BaseModel, Field
 
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.backends.service import BackendSettings, SessionSelection
 from chemistry_agent.errors import AgentError
-from chemistry_agent.hosting.connection import directories, discover
+from chemistry_agent.file_browser import create_folder, list_folders
+from chemistry_agent.hosting.connection import discover
+from chemistry_agent.hosting.folder_picker import choose_folder, desktop_picker_available
 from chemistry_agent.hosting.native import native_scope
 from chemistry_agent.hosting.registry import AgentInstance, validate_directory
 
@@ -28,6 +31,7 @@ async def inventory(request: Request) -> dict:
     return {
         "hosts": await asyncio.to_thread(backends.hosting.hosts),
         "agents": backends.hosting.agents(config),
+        "desktop_folder_picker": desktop_picker_available(),
     }
 
 
@@ -75,16 +79,46 @@ async def save_agent(identifier: str, body: AgentInstance, request: Request) -> 
     return await asyncio.to_thread(service(request).hosting.save, body)
 
 
-@router.get("/hosts/{host}/directories")
-async def browse_directories(
-    host: str, request: Request, path: str = Query(default="", max_length=2048)
-) -> dict:
-    backends = service(request)
+def valid_path(path: str) -> str:
     try:
-        path = validate_directory(path)
+        return validate_directory(path)
     except ValueError as exc:
         raise AgentError("directory_invalid", str(exc), 422) from exc
-    return await directories(backends.hosting, host, path)
+
+
+class FolderPath(BaseModel):
+    path: str = Field(default="", max_length=2048)
+
+
+class NewDirectory(BaseModel):
+    parent: str = Field(min_length=1, max_length=2048)
+    name: str = Field(min_length=1, max_length=255)
+
+
+@router.get("/hosts/{host}/directories")
+async def browse_directories(
+    host: str,
+    request: Request,
+    path: str = Query(default="", max_length=2048),
+    children: bool = True,
+) -> dict:
+    service(request)
+    return await list_folders(request, host, valid_path(path), children=children)
+
+
+@router.post("/hosts/{host}/directories", status_code=201)
+async def make_directory(host: str, body: NewDirectory, request: Request) -> dict:
+    service(request)
+    parent = valid_path(body.parent)
+    if not parent:
+        raise AgentError("directory_invalid", "请先打开父文件夹。", 422)
+    return await create_folder(request, host, parent, body.name.strip())
+
+
+@router.post("/hosts/local/folder-picker")
+async def pick_local_folder(body: FolderPath, request: Request) -> dict:
+    service(request)
+    return {"path": await choose_folder(valid_path(body.path))}
 
 
 @router.get("/agents/{identifier}/models")

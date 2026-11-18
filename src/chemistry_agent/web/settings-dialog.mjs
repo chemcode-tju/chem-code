@@ -4,12 +4,15 @@ export function initSettingsDialog({onOpen, onClose}) {
   const dialog = document.getElementById("workspace-settings");
   let frame;
 
-  function show(hash) {
+  function show() {
     if (dialog.open) return;
     onOpen();
     frame = document.createElement("iframe");
     frame.title = document.documentElement.lang === "en" ? "Settings" : "设置";
-    frame.src = "/settings?" + new URLSearchParams({embed:"1", tab:hash.slice(1) || "general"});
+    const options = new URLSearchParams({embed:"1", tab:location.hash.slice(1) || "general"});
+    const host = new URLSearchParams(location.search).get("host");
+    if (host) options.set("host", host);
+    frame.src = "/settings?" + options;
     dialog.replaceChildren(frame);
     dialog.showModal();
   }
@@ -23,21 +26,23 @@ export function initSettingsDialog({onOpen, onClose}) {
         event.shiftKey || event.altKey || (link.target && link.target !== "_self")) return;
     if (link.origin !== location.origin || link.pathname !== "/settings") return;
     event.preventDefault();
-    history.pushState({workspaceSettings:true}, "", link.pathname + link.hash);
-    show(link.hash);
+    history.pushState({workspaceSettings:true}, "", link.pathname + link.search + link.hash);
+    show();
   });
   function restoreLinkedSettings() {
     if (location.pathname !== "/settings") return;
     // A copied link gets its own workspace history entry, just like a sidebar click.
     if (!history.state?.workspaceSettings) {
       const url = location.href;
-      history.replaceState(null, "", "/" + location.search);
+      const search = new URLSearchParams(location.search);
+      search.delete("host");
+      history.replaceState(null, "", "/" + (search.size ? "?" + search : ""));
       history.pushState({workspaceSettings:true}, "", url);
     }
-    show(location.hash);
+    show();
   }
   addEventListener("popstate", () => {
-    if (history.state?.workspaceSettings && document.getElementById("login-screen").hidden) show(location.hash);
+    if (history.state?.workspaceSettings && document.getElementById("login-screen").hidden) show();
     else if (dialog.open) dialog.close();
   });
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); dismiss(); });
@@ -54,7 +59,7 @@ export function initSettingsDialog({onOpen, onClose}) {
     if (!frame || event.origin !== location.origin || event.source !== frame.contentWindow) return;
     if (event.data?.type === "chem:close-settings") dismiss();
     if (event.data?.type === "chem:settings-tab" && /^[a-z-]+$/.test(event.data.tab)) {
-      history.replaceState({workspaceSettings:true}, "", "/settings#" + event.data.tab);
+      history.replaceState({workspaceSettings:true}, "", "/settings" + location.search + "#" + event.data.tab);
     }
   });
   return restoreLinkedSettings;

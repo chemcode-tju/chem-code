@@ -30,6 +30,7 @@ export function createEnvironmentSettings(api) {
   }
   function render() {
     $('node-editor-home').append($('node-form'));
+    const expanded=new Set([...$('node-list').querySelectorAll('.server-source[open]')].map(detail=>detail.closest('.server-card').dataset.nodeId));
     $('node-list').innerHTML=inventory.environments.map(row=>{
       const check=row.enabled ? readConnectionCheck(storage,'node:'+row.id,environmentIdentity(row)) : null;
       const state=!row.enabled ? '未启用' : check ? (check.authenticated?'上次测试通过':'上次测试失败') : '尚未测试连接';
@@ -38,10 +39,10 @@ export function createEnvironmentSettings(api) {
         : [row.ssh?.user,row.ssh?.hostname || row.ssh_alias || row.id].filter(Boolean).join('@');
       return `<article class="server-card" data-node-id="${esc(row.id)}"><header>
         <label class="server-activation"><input type="checkbox" role="switch" class="settings-switch" data-enable-node="${esc(row.id)}" aria-label="${esc(t('允许 Agent 使用')+' '+row.name)}" ${row.enabled?'checked':''}></label>
-        <div class="server-identity"><button class="node-name" type="button" data-edit-node="${esc(row.id)}" title="${esc(t('编辑节点'))}"><strong data-no-i18n>${esc(row.name)}</strong></button><div class="server-subtitle"><span>${esc(t(connectionNames[row.transport]))}</span>${row.capabilities?.length?`<span data-no-i18n>· ${esc(row.capabilities.join(' / '))}</span>`:''}</div><span class="server-check-state" data-state="${check?(check.authenticated?'passed':'failed'):'unknown'}" title="${esc(date)}">${esc(t(state))}</span></div>
-        <div class="server-card-actions"><button type="button" class="secondary" data-probe-node="${esc(row.id)}">${esc(t('测试连接'))}</button><button type="button" class="icon-button" data-remove-node="${esc(row.id)}" aria-label="${esc(t('移除节点')+' '+row.name)}" title="${esc(t('移除节点'))}"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-minus"/></svg></button></div></header>
-        <details class="server-source"><summary>${esc(t('连接信息'))}</summary>${facts([['节点标识',row.id],['地址',address],['SSH 主机',row.transport==='ssh' ? row.ssh_alias || row.id : ''],['配置文件',row.ssh?.source],['测试时间',date]])}<button type="button" class="secondary" data-edit-node="${esc(row.id)}">${esc(t('编辑连接'))}</button></details>
-        ${removing===row.id?`<div class="node-removal"><p>${esc(t('移除连接配置？任务与文件保留。'))}</p><div class="actions"><button type="button" data-confirm-remove="${esc(row.id)}">${esc(t('移除'))}</button><button type="button" class="secondary" data-cancel-remove>${esc(t('取消'))}</button></div></div>`:''}</article>`;
+        <div class="server-identity"><strong data-no-i18n>${esc(row.name)}</strong><div class="server-subtitle"><span>${esc(t(connectionNames[row.transport]))}</span>${row.capabilities?.length?`<span data-no-i18n>· ${esc(row.capabilities.join(' / '))}</span>`:''}</div><span class="server-check-state" data-state="${check?(check.authenticated?'passed':'failed'):'unknown'}" title="${esc(date)}">${esc(t(state))}</span></div>
+        <div class="server-card-actions"><button type="button" class="secondary" data-probe-node="${esc(row.id)}">${esc(t('测试连接'))}</button><button type="button" class="icon-button toolbar-button" data-edit-node="${esc(row.id)}" aria-label="${esc(t('编辑节点')+' · '+row.name)}" title="${esc(t('编辑节点'))}"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-edit"/></svg></button></div></header>
+        <details class="server-source" ${expanded.has(row.id)?'open':''}><summary>${esc(t('连接信息'))}</summary>${facts([['节点标识',row.id],['地址',address],['SSH 主机',row.transport==='ssh' ? row.ssh_alias || row.id : ''],['配置文件',row.ssh?.source],['测试时间',date]])}<button type="button" class="quiet-button remove-node" data-remove-node="${esc(row.id)}">${esc(t('移除节点'))}</button></details>
+        ${removing===row.id?`<div class="node-removal"><p>${esc(t('移除连接配置？任务与文件保留。'))}</p><div class="actions"><button type="button" class="quiet-button" data-cancel-remove>${esc(t('取消'))}</button><button type="button" class="secondary remove-node" data-confirm-remove="${esc(row.id)}">${esc(t('移除'))}</button></div></div>`:''}</article>`;
     }).join('') || `<p class="server-empty">${esc(t('尚未添加节点'))}</p>`;
     attachEditor(); controls(); translateUI();
   }
