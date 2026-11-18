@@ -1,3 +1,6 @@
+import {fileIcon} from "./file-actions.mjs";
+import {t} from "./i18n.mjs";
+
 export function restoreDockSelection(saved, available) {
   const stored = Array.isArray(saved?.tabs) ? saved.tabs : [saved?.tab];
   let tabs = [...new Set(stored.filter(name => available.has(name)))];
@@ -9,6 +12,8 @@ export function restoreDockSelection(saved, available) {
 /** Collapsing the dock preserves its tabs. Closing a tab removes that surface. */
 export function initInspectorTabs(setVisible) {
   const tabs = new Map([...document.querySelectorAll("[data-inspector-tab]")].map(tab => [tab.dataset.inspectorTab, tab]));
+  const permanent = new Map(tabs);
+  const documents = new Map();
   const add = document.getElementById("inspector-add");
   const frame = document.getElementById("structure-viewer-frame");
   const tablist = document.querySelector(".inspector-tabs");
@@ -28,6 +33,7 @@ export function initInspectorTabs(setVisible) {
     launcher.hidden = opened.length > 0;
     tablist.hidden = opened.length === 0;
     tablist.dataset.count = String(opened.length);
+    tablist.toggleAttribute("data-documents", documents.size > 0);
     for (const name of opened) tablist.append(tabs.get(name).closest(".dock-tab"));
     for (const [name, tab] of tabs) {
       const selected = active === name, chip = tab.closest(".dock-tab");
@@ -38,7 +44,7 @@ export function initInspectorTabs(setVisible) {
     }
     for (const option of add.options) option.hidden = !option.value || opened.includes(option.value);
     add.value = "";
-    add.disabled = opened.length === tabs.size;
+    add.disabled = [...permanent.keys()].every(name => opened.includes(name));
     document.getElementById("dock-count").textContent = String(opened.length);
     const toggle = document.getElementById("tools-toggle");
     toggle.title = document.documentElement.lang === "en"
@@ -67,14 +73,57 @@ export function initInspectorTabs(setVisible) {
     const index = opened.indexOf(name);
     if (index < 0) return;
     opened.splice(index, 1);
+    discardDocument(name);
     if (active === name) active = opened[Math.min(index, opened.length - 1)] || null;
     render();
     setVisible(Boolean(active));
-    if (active) tabs.get(active).focus({preventScroll:true});
+    if (active) {
+      tabs.get(active).focus({preventScroll:true});
+      tabs.get(active).scrollIntoView({block:"nearest", inline:"nearest"});
+    }
     else document.getElementById("tools-toggle").focus({preventScroll:true});
   }
+  function discardDocument(name) {
+    const documentTab = documents.get(name);
+    if (!documentTab) return;
+    documentTab.dispose();
+    documentTab.panel.remove();
+    tabs.get(name).closest(".dock-tab").remove();
+    documents.delete(name);
+    tabs.delete(name);
+  }
+  function registerDocument(name, {label, title, panel, dispose}) {
+    const chip = document.createElement("div");
+    chip.className = "dock-tab dock-document-tab";
+    chip.setAttribute("role", "presentation");
+    chip.innerHTML = `<button type="button" role="tab">${fileIcon("structures")}<span data-no-i18n></span></button><button type="button" class="tab-close">${fileIcon("close")}</button>`;
+    const [tab, close] = chip.children;
+    tab.id = `inspector-tab-${name}`;
+    tab.dataset.inspectorTab = name;
+    tab.title = title;
+    tab.setAttribute("aria-label", label);
+    tab.querySelector("span").textContent = label;
+    close.dataset.closeTab = name;
+    close.title = t("关闭结构标签");
+    close.setAttribute("aria-label", `${close.title} · ${label}`);
+    panel.id = `inspector-panel-${name}`;
+    panel.hidden = true;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", tab.id);
+    tab.setAttribute("aria-controls", panel.id);
+    document.querySelector(".inspector-body").append(panel);
+    tabs.set(name, tab);
+    documents.set(name, {panel, dispose});
+  }
+  function clearDocuments() {
+    for (const name of documents.keys()) discardDocument(name);
+    opened = opened.filter(name => permanent.has(name));
+    if (!tabs.has(active)) active = opened.at(-1) || null;
+    render();
+  }
   function restore(saved) {
-    const selection = restoreDockSelection(saved, tabs);
+    for (const name of documents.keys()) discardDocument(name);
+    const selection = restoreDockSelection(saved, permanent);
     opened = selection.tabs;
     active = selection.tab;
     render();
@@ -105,5 +154,9 @@ export function initInspectorTabs(setVisible) {
   });
   window.addEventListener("languagechange", render);
   restore();
-  return {select, restore, loadActive, focusActive, snapshot:() => ({version:2, tabs:[...opened], tab:active})};
+  return {select, restore, loadActive, focusActive, registerDocument, clearDocuments, active:() => active,
+    snapshot() {
+      const names = opened.filter(name => permanent.has(name));
+      return {version:2, tabs:names, tab:permanent.has(active) ? active : names.at(-1) || null};
+    }};
 }

@@ -24,6 +24,7 @@
   }
   function compatible(a,b) {return a.atoms.length===b.atoms.length&&a.atoms.every((atom,i)=>atom.elem===b.atoms[i].elem);}
   function remap(a,b,indices) {
+    if(!indices.length)return [];
     if(validIds(a)&&validIds(b)) {
       const lookup=new Map(b.atoms.map((atom,i)=>[atom.id,i]));
       return indices.map(i=>lookup.get(a.atoms[i]?.id)).filter(i=>i!==undefined);

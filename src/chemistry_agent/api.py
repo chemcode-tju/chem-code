@@ -39,6 +39,8 @@ from chemistry_agent.chat_queue import ChatQueue
 from chemistry_agent.config import Settings
 from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
+from chemistry_agent.file_browser import BrowserConnections
+from chemistry_agent.file_browser import router as file_browser_router
 from chemistry_agent.memory.routes import router as memory_router
 from chemistry_agent.memory.tools import memory_tools
 from chemistry_agent.model_routes import router as model_router
@@ -167,9 +169,11 @@ def create_app(
                             provider if settings.platform_agent_enabled else None,
                         )
                     await app.state.chat_queue.recover(app)
+                    app.state.browser_connections = BrowserConnections(settings.platform_path)
                     try:
                         yield
                     finally:
+                        await app.state.browser_connections.close()
                         await app.state.chat_queue.close()
                         await app.state.agent_backends.context.close()
                         await calculation_chat.plans.close()
@@ -192,6 +196,7 @@ def create_app(
     app.include_router(titles_router)
     app.include_router(attachments_router)
     app.include_router(workspace_router)
+    app.include_router(file_browser_router)
     app.include_router(structures_router)
 
     app.state.settings = settings

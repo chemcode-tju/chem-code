@@ -112,9 +112,10 @@
   }
   class MDSource {
     constructor(file,format,metadata={}) {this.file=file;this.format=format;this.metadata=metadata;this.lines=new StructureTrajectory.ByteLines(file);this.offsets=[];this.ends=[];this.count=0;this.complete=false;if(format==='lammps-dump-text'){this.simulationSteps=[];this.segmentStart=0;}}
-    async required(){const row=await this.lines.next();if(!row)throw Error('轨迹末尾存在不完整帧');return row;}
+    async required(){const row=await this.lines.next();if(!row)throw new StructureTrajectory.IncompleteStructureFrame('轨迹末尾存在不完整帧');return row;}
     async advance(limit=4096) {
       const initial=this.lines.offset;
+      try {
       for(let i=0;i<limit&&!this.complete;i++) {
         let row=await this.lines.next();
         // Trailing blank lines are tolerated; every nonempty frame must be complete.
@@ -147,6 +148,10 @@
         this.offsets.push(start);this.ends.push(this.lines.offset);this.count++;
         this.complete=this.lines.offset>=this.file.size;
         if(this.lines.offset-initial>=1048576)break;
+      }
+      } catch (error) {
+        if (!(error instanceof StructureTrajectory.IncompleteStructureFrame) || !this.file.frozen || !this.count) throw error;
+        this.complete = true;
       }
     }
     async raw(index){return this.file.slice(this.offsets[index],this.ends[index]).text();}

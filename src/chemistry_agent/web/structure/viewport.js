@@ -43,8 +43,7 @@ class StructureViews {
     element.innerHTML = '<button class="view-title" type="button"></button><div class="view-canvas"></div><div class="pointer-layer"><div class="selection-rectangle" hidden></div></div><div class="selection-rectangle shortcut-rectangle" hidden></div><svg class="axis-gizmo" viewBox="0 0 78 78" aria-label="坐标轴"></svg>';
     this.container.append(element);
     const canvas = element.querySelector(".view-canvas");
-    const viewer = $3Dmol.createViewer(canvas, {canvas: document.createElement("canvas"), row:0, col:0, rows:1, cols:1, backgroundColor: "#ffffff", antialias: true, orthographic: true, disableFog: true, manualResize: true});
-    const pane = {element, canvas, viewer, preset, ready: false};
+    const pane = {element, canvas, viewer:null, preset, ready:false};
     this.panes.push(pane);
     element.querySelector(".view-title").textContent = this.title(preset);
     element.querySelector(".view-title").onclick = () => this.activate(index);
@@ -54,6 +53,11 @@ class StructureViews {
       this.commitResize(pane); this.activate(index);
     }, true);
     element.addEventListener("mousedown", () => this.activate(index), true);
+  }
+  initializePane(pane) {
+    const {element,canvas}=pane;
+    const viewer = $3Dmol.createViewer(canvas, {canvas: document.createElement("canvas"), row:0, col:0, rows:1, cols:1, backgroundColor: "#ffffff", antialias: true, orthographic: true, disableFog: true, manualResize: true});
+    pane.viewer=viewer;
     viewer.setViewChangeCallback(() => { this.drawAxes(pane); this.drawSelection(pane); });
     // Own resize scheduling; the pinned renderer's automatic listeners are
     // disabled with manualResize. resize() already paints the existing scene.
@@ -155,7 +159,7 @@ class StructureViews {
     }
   }
   resizePane(pane,width,height,size) {
-    if(pane.lastSize===size)return;
+    if(!pane.viewer || pane.lastSize===size)return;
     if(pane.projectionSize){
       // 3Dmol fixes horizontal span in orthographic mode and vertical FOV in
       // perspective. Keep the focal length in CSS pixels for either projection.
@@ -277,10 +281,13 @@ class StructureViews {
     const distance = pane.preset === "perspective" ? Math.max(halfY, halfX/aspect)/Math.tan(Math.PI/18) + halfZ : Math.max(halfX, halfY*aspect)/Math.tan(Math.PI/9);
     view.splice(0, 4, ...center.map(n => -n), 150 - Math.max(5, distance)*1.15);
     pane.viewer.setSlab(-Math.hypot(...max.map((n,i) => n-min[i]))*2, Math.hypot(...max.map((n,i) => n-min[i]))*2);
-    pane.viewer.setView(view); pane.viewer.render();
+    pane.viewer.setView(view);
   }
   drawAxes(pane) {
     const q = pane.viewer.getView().slice(4, 8), [x, y, z, w] = q;
+    const key=q.join(",");
+    if(pane.axesView===key)return;
+    pane.axesView=key;
     const axes = [[1-2*(y*y+z*z), 2*(x*y+z*w)], [2*(x*y-z*w), 1-2*(x*x+z*z)], [2*(x*z+y*w), 2*(y*z-x*w)]];
     pane.element.querySelector(".axis-gizmo").innerHTML = axes.map(([dx, dy], index) => {
       const endX = 31 + 26*dx, endY = 46 - 26*dy, color = ["#db3434", "#259942", "#4964e9"][index];
@@ -396,14 +403,40 @@ class StructureViews {
     exporter.drawSelection(pane);
     return pane;
   }
+  // The pinned renderer can update sphere centers in its existing vertex buffers.
+  // Bond topology and text/measurement geometry still use the full render path.
+  updateSphereCoordinates(pane, frame, topology, vertices) {
+    const previous=pane.sphereFrame;
+    if(!previous || previous.topology!==topology || pane.markers.length)return false;
+    if(pane.viewer.renderer.isLost())return false;
+    const {model, atoms, cellBuffer, cellEdges}=previous;
+    for(let index=0;index<atoms.length;index++) {
+      const source=frame.atoms[this.visibleIndices[index]];
+      const {x,y,z}=source, atom=atoms[index];
+      atom.x=x;atom.y=y;atom.z=z;
+      atom.intersectionShape?.sphere[0]?.center.set(x,y,z);
+    }
+    if(!model.syncSpherePositions())return false;
+    if(cellBuffer) {
+      const positions=cellBuffer.geometryGroups[0].vertexArray;
+      for(let edge=0;edge<cellEdges.length;edge++) {
+        const {x,y,z}=vertices[cellEdges[edge]];
+        const offset=edge*3;
+        positions[offset]=x;positions[offset+1]=y;positions[offset+2]=z;
+      }
+      cellBuffer.verticesNeedUpdate=true;
+    }
+    pane.viewer.show();
+    return true;
+  }
   render(frame, options, selected, reset) {
     this.latest = [frame, options, selected];
     this.follow = options.follow || null;
     const rules=frame.atoms.map((atom,index)=>options.display?.resolve(atom,index,options)||{...options,visible:true});
     this.rules=rules;
     this.visibleIndices=rules.flatMap((rule,index)=>rule.visible?[index]:[]);
-    const visibleSet=new Set(this.visibleIndices);
-    const hydrogenBonds = options.hbonds ? StructureGeometry.hydrogenBonds(frame).filter(b=>visibleSet.has(b.donor)&&visibleSet.has(b.hydrogen)&&visibleSet.has(b.acceptor)) : [];
+    const hydrogenBonds = options.hbonds ? StructureGeometry.hydrogenBonds(frame)
+      .filter(b=>rules[b.donor]?.visible && rules[b.hydrogen]?.visible && rules[b.acceptor]?.visible) : [];
 
     const vertices = options.cell && frame.cell ? Array.from({length:8}, (_,mask) => Object.fromEntries(["x","y","z"].map((axis,j) => [axis, frame.cell.reduce((sum,v,k) => sum + ((mask>>k)&1)*v[j], 0)]))) : [];
     this.bounds = {min:[Infinity,Infinity,Infinity], max:[-Infinity,-Infinity,-Infinity]};
@@ -412,40 +445,60 @@ class StructureViews {
       ["x","y","z"].forEach((axis,i) => { this.bounds.min[i] = Math.min(this.bounds.min[i], atom[axis]-radius); this.bounds.max[i] = Math.max(this.bounds.max[i], atom[axis]+radius); });
     }
     if(!Number.isFinite(this.bounds.min[0]))this.bounds={min:[-1,-1,-1],max:[1,1,1]};
+    const palettes=new Map();
+    const styles=new Map();
+    const styleFor=index=>{
+      const atom=frame.atoms[index],rule=rules[index];
+      const key=`${atom.elem}:${rule.style}:${rule.palette}`;
+      if(!styles.has(key)) {
+        if(!palettes.has(rule.palette))palettes.set(rule.palette,StructureAppearance.palette(rule.palette,$3Dmol.elementColors));
+        const color=palettes.get(rule.palette)[atom.elem]??0xff1493;
+        const radius=StructureAppearance.radius(atom.elem)*options.scale;
+        styles.set(key,rule.style==='sphere'?{sphere:{radius,color}}:
+          rule.style==='stick'?{stick:{radius:.16,color}}:{sphere:{radius:radius*.45,color},stick:{radius:.10,color}});
+      }
+      return styles.get(key);
+    };
+    const assignBonds=this.visibleIndices.some(index=>rules[index].style!=="sphere");
+    const onAtom=atom=>this.onAtom(this.visibleIndices[atom.index]);
+    const sphereOnly=!assignBonds && this.visibleIndices.length>0 && !options.labels &&
+      !options.hbonds && !selected.length && !this.follow;
+    // Styles are resolved by element and per-atom overrides, with source order
+    // matched by index. Any change in the visible composition rebuilds the model.
+    const topology=sphereOnly ? JSON.stringify([options.scale,Boolean(vertices.length),
+      this.visibleIndices.map(index=>[frame.atoms[index].elem,rules[index].palette])]) : null;
     for (const pane of this.panes) {
-      if (pane.element.hidden) { pane.stale = true; continue; }
-      const viewer = pane.viewer, previous = viewer.getView();
+      if (pane.element.hidden) continue;
+      if (!pane.viewer) this.initializePane(pane);
+      const viewer = pane.viewer;
       const initialize = !pane.ready;
+      if(!reset && !initialize && topology && this.updateSphereCoordinates(pane,frame,topology,vertices))continue;
+      pane.sphereFrame=null;
       this.setLighting(viewer, options.lighting);
       pane.drawingSelection=true;
       pane.markers=[];pane.markerShapes=[];pane.markerView=null;
       viewer.removeAllModels(); viewer.removeAllShapes(); viewer.removeAllLabels();
-      // Build only visible atoms, so hidden atoms cannot leave bonds or click targets.
-      const visibleAtoms=this.visibleIndices.map(i=>frame.atoms[i]);
-      const xyz = `${visibleAtoms.length}\n\n${visibleAtoms.map(a => `${a.elem} ${a.x} ${a.y} ${a.z}`).join("\n")}\n`;
-      if(visibleAtoms.length) {
-        const model = viewer.addModel(xyz, "xyz", {assignBonds: rules.some(r=>r.visible&&r.style!=="sphere")});
-        model.selectedAtoms({}).forEach((atom,index)=>{atom.index=index;});
-        viewer.setStyle({},{});
-        const groups=new Map(), palettes=new Map();
-        this.visibleIndices.forEach((originalIndex,index)=>{
-          const atom=frame.atoms[originalIndex],rule=rules[originalIndex];
-          if(!palettes.has(rule.palette))palettes.set(rule.palette,StructureAppearance.palette(rule.palette,$3Dmol.elementColors));
-          const color=palettes.get(rule.palette)[atom.elem]??0xff1493;
-          const radius=StructureAppearance.radius(atom.elem)*options.scale;
-          const style=rule.style==='sphere'?{sphere:{radius,color}}:rule.style==='stick'?{stick:{radius:.16,color}}:{sphere:{radius:radius*.45,color},stick:{radius:.10,color}};
-          const key=JSON.stringify(style);if(!groups.has(key))groups.set(key,{style,indices:[]});groups.get(key).indices.push(index);
-        });
-        // 3Dmol checks an index array linearly for every atom (quadratic for
-        // large water boxes). Set membership keeps each style pass linear.
-        for(const {style,indices} of groups.values()){
-          const members=new Set(indices);
-          viewer.setStyle({predicate:atom=>members.has(atom.index)},style);
-        }
-        model.setClickable({},true,atom=>this.onAtom(this.visibleIndices[atom.index]));
+      const cellEdges=[];
+      let model, cellBuffer;
+      if(this.visibleIndices.length) {
+        // Use the already parsed coordinates, avoiding an XYZ round trip and
+        // repeated selection passes for element groups in every viewport.
+        model=viewer.addModel();
+        model.addAtoms(this.visibleIndices.map((originalIndex,index)=>{
+          const {elem,x,y,z}=frame.atoms[originalIndex];
+          return {elem,atom:elem,x,y,z,index,hetflag:true,properties:{},style:styleFor(originalIndex)};
+        }));
+        if(assignBonds)model.assignBonds();
+        model.setClickable({},true,onAtom);
       }
       if (options.cell && frame.cell) {
-        for (let mask=0; mask<8; mask++) for (let k=0; k<3; k++) if (!(mask & (1<<k))) viewer.addLine({start:vertices[mask], end:vertices[mask | (1<<k)], color:"#333333", linewidth:1});
+        const cell=viewer.addShape({color:"#333333",linewidth:1});
+        for (let mask=0; mask<8; mask++) for (let k=0; k<3; k++) if (!(mask & (1<<k))) {
+          const end=mask | (1<<k);
+          cellEdges.push(mask,end);
+          cell.addLine({start:vertices[mask],end:vertices[end]});
+        }
+        cellBuffer=cell.finalize();
       }
       for (const bond of hydrogenBonds) {
         const length = Math.hypot(...bond.end.map((x,i)=>x-bond.start[i]));
@@ -470,12 +523,18 @@ class StructureViews {
       this.prepareSelection(pane,frame,options,selected);
       pane.ready = true;
       if (reset || initialize) this.orient(pane, pane.preset);
-      else {
-        if (this.follow) previous.splice(0,3,-this.follow.x,-this.follow.y,-this.follow.z);
-        viewer.setView(previous);
+      else if (this.follow) {
+        const camera = viewer.getView();
+        camera.splice(0,3,-this.follow.x,-this.follow.y,-this.follow.z);
+        viewer.setView(camera);
       }
       pane.drawingSelection=false;pane.markerView=null;
-      if (!pane.element.hidden) { viewer.render(); this.drawSelection(pane); }
+      viewer.render();
+      this.drawSelection(pane);
+      if(topology && viewer.renderer.supportedExtensions().supportsImposters &&
+         typeof model.syncSpherePositions==='function') {
+        pane.sphereFrame={topology,model,atoms:model.selectedAtoms({}),cellBuffer,cellEdges};
+      }
     }
   }
 }

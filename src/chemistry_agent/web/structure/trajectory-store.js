@@ -1,22 +1,26 @@
 /* A growing byte index plus a bounded LRU of decoded frames. No all-frame text. */
 (function(root) {
   'use strict';
-  const pause=()=>new Promise(resolve=>setTimeout(resolve,40));
+  class IncompleteStructureFrame extends Error {}
+  const pause=delay=>new Promise(resolve=>setTimeout(resolve,delay));
   class FrameStore {
-    constructor(name,source,{maxFrames=16,maxBytes=64*1024*1024}={}) {
-      this.name=name;this.source=source;this.maxFrames=maxFrames;this.maxBytes=maxBytes;
+    constructor(name,source,{maxFrames=16,maxBytes=64*1024*1024,readAhead=8}={}) {
+      this.name=name;this.source=source;this.maxFrames=maxFrames;this.maxBytes=maxBytes;this.readAhead=readAhead;
       this.cache=new Map();this.pending=new Map();this.bytes=0;this.disposed=false;
+      this.active=true;this.prefetchTask=null;
       this.vaspPreview=/^(POSCAR|CONTCAR|XDATCAR)$/i.test(name)||/\.vasp$/i.test(name);
       this.xyz=!this.vaspPreview;
     }
     get count(){return this.source.count;}
     get complete(){return this.source.complete;}
-    put(index,text) {
-      const parsed=new StructureParser.StructureDocument(this.vaspPreview?'POSCAR':'preview.extxyz',text);
-      const frame=parsed.frame(0);
+    decode(text) {
+      return new StructureParser.StructureDocument(this.vaspPreview?'POSCAR':'preview.extxyz',text).frame(0);
+    }
+    put(index,text,decode=true) {
+      const frame=decode ? this.decode(text) : null;
       // Conservative accounting, not a JavaScript heap measurement. One oversized
       // frame is allowed so the cache budget never becomes a file-size limit.
-      const bytes=text.length*2+frame.atoms.length*320+1024,record={frame,text,bytes};
+      const bytes=text.length*2+(frame?.atoms.length ?? (Number(text.slice(0,text.indexOf("\n")).trim()) || 0))*320+1024,record={frame,text,bytes};
       if(this.cache.has(index))this.bytes-=this.cache.get(index).bytes;
       this.cache.delete(index);this.cache.set(index,record);this.bytes+=bytes;
       while(this.cache.size>1&&(this.cache.size>this.maxFrames||this.bytes>this.maxBytes)) {
@@ -27,7 +31,19 @@
     async get(index) {
       if(this.disposed)throw Error('结构文件已关闭');
       if(!Number.isInteger(index)||index<0||index>=this.count)throw Error('帧尚未索引或超出范围');
-      if(this.cache.has(index)) {const record=this.cache.get(index);this.cache.delete(index);this.cache.set(index,record);return record;}
+      if(this.cache.has(index)) {
+        const record=this.cache.get(index);
+        this.cache.delete(index);
+        this.cache.set(index,record);
+        record.frame ??= this.decode(record.text);
+        return record;
+      }
+      const prefetched=this.prefetchTargets?.get(index);
+      if(prefetched) {
+        await prefetched;
+        if(this.disposed)throw Error('结构文件已关闭');
+        if(this.cache.has(index))return this.get(index);
+      }
       if(!this.pending.has(index)) {
         const task=this.source.read(index).then(text=>{if(this.disposed)throw Error('结构文件已关闭');return this.put(index,text);}).finally(()=>this.pending.delete(index));
         this.pending.set(index,task);
@@ -36,7 +52,8 @@
     }
     async advance() {
       if(this.disposed || this.complete)return;
-      if(!this.indexTask)this.indexTask=Promise.resolve().then(()=>this.source.advance()).finally(()=>{this.indexTask=null;});
+      if(!this.indexTask)this.indexTask=Promise.resolve().then(()=>this.source.advance())
+        .finally(()=>{this.indexTask=null;});
       return this.indexTask;
     }
     async findIonicStep(step) {
@@ -64,11 +81,40 @@
       for(let i=start+1;i<steps.length;i++)if(Math.abs(steps[i]-step)<Math.abs(steps[index]-step))index=i;
       return index;
     }
+    setActive(active){this.active=active;}
+    // Atom Lens keeps a small window of raw neighbors and decodes only the
+    // frame being displayed. An explicit jump outside that window can read immediately.
+    prefetch(index,step) {
+      if(!this.source.readMany || this.prefetchTask || this.pending.size || !this.active || this.disposed)return;
+      const largest=Math.max(1024,...[...this.cache.values()].map(record=>record.bytes));
+      const capacity=Math.min(this.readAhead,this.maxFrames-1,Math.floor(this.maxBytes/largest)-1);
+      if(capacity<1)return;
+      const targets=[];
+      for(let i=index+step;i>=0&&i<this.count&&targets.length<capacity;i+=step)targets.push(i);
+      const lowWatermark = Math.min(capacity, Math.ceil(capacity / 3));
+      const missing=targets.findIndex(i=>!this.cache.has(i));
+      if(missing<0 || missing>=lowWatermark)return;
+
+      const wanted=targets.slice(missing);
+      const ready=new Map();
+      this.prefetchTargets=new Map(wanted.map(target=>[target,new Promise(resolve=>ready.set(target,resolve))]));
+      this.prefetchTask=Promise.resolve().then(()=>this.source.readMany(wanted,(target,text)=>{
+        if(!this.disposed && !this.cache.has(target))this.put(target,text,false);
+        ready.get(target)?.();
+      })).catch(()=>{/* Foreground reads report failures and may retry. */})
+        .finally(()=>{
+          for(const resolve of ready.values())resolve();
+          this.prefetchTask=null;
+          this.prefetchTargets=null;
+        });
+      return this.prefetchTask;
+    }
     async scan(onProgress) {
       while(!this.disposed&&!this.complete) {
-        await pause();if(this.disposed)return;
-        // Let explicit frame requests go first on the sequential MCP connection.
-        if(this.pending.size){await Promise.allSettled([...this.pending.values()]);continue;}
+        await pause(this.source.scanDelay ?? 40);if(this.disposed)return;
+        if(!this.active) {await pause(120);continue;}
+        // Indexing extends the seekable timeline independent of the frame
+        // buffer. HTTP index and frame reads can progress concurrently.
         await this.advance();if(!this.disposed)onProgress();
       }
     }
@@ -116,7 +162,7 @@
       this.vasp=/^(POSCAR|CONTCAR|XDATCAR)$/i.test(name)||/\.vasp$/i.test(name);this.header='';this.frameHeaders=[];
       if(this.vasp){this.ionicSteps=[];this.segmentStart=0;}
     }
-    async required(){const row=await this.lines.next();if(!row)throw Error('轨迹末尾存在不完整帧');return row;}
+    async required(){const row=await this.lines.next();if(!row)throw new IncompleteStructureFrame('轨迹末尾存在不完整帧');return row;}
     async initialize() {
       if(/\.traj$/i.test(this.name)) {this.binary=await ASETrajectory.open(this.file);this.count=this.binary.count;this.complete=true;return;}
       if(this.vasp) await this.readHeader(await this.required());
@@ -132,6 +178,7 @@
     }
     async advance(limit=4096) {
       const initial=this.lines.offset;
+      try {
       for(let i=0;i<limit&&!this.complete;i++) {
         let row=this.mode||await this.lines.next();this.mode=null;
         while(row&&!row.text.trim())row=await this.lines.next();
@@ -161,14 +208,40 @@
         this.complete=this.lines.offset>=this.file.size||(this.vasp&&!this.trajectory);
         if(this.lines.offset-initial>=1048576)break;
       }
+      } catch (error) {
+        if (!(error instanceof IncompleteStructureFrame) || !this.file.frozen || !this.count) throw error;
+        this.complete = true;
+      }
     }
     async read(index) {
       if(this.binary)return this.binary.frameText(index);
       return (this.frameHeaders[index] || '')+await this.file.slice(this.offsets[index],this.ends[index]).text();
     }
+    async readMany(indices,onFrame) {
+      const start=this.offsets[indices[0]];
+      const targets=indices.filter((index,order)=>!order || this.ends[index]-start<=8*1024*1024);
+      // Begin nearest frames immediately while warming later aligned blocks.
+      if(this.file.warm && targets.length>1 && targets[1]===targets[0]+1) {
+        const warming=this.file.warm(start,this.ends[targets.at(-1)]).catch(()=>{});
+        await Promise.all(targets.map(async index=>onFrame(index,await this.read(index))));
+        await warming;
+        return;
+      }
+      // For sparse seeks, read only the requested frame spans.
+      for(let i=0;i<targets.length;i+=4) {
+        await Promise.all(targets.slice(i,i+4).map(async index=>onFrame(index,await this.read(index))));
+      }
+    }
   }
-  async function local(file,name=file.name,options) {const source=new LocalSource(file,name);await source.initialize();const store=new FrameStore(name,source,options);await store.get(0);return store;}
+  async function local(file,name=file.name,options) {
+    const source=new LocalSource(file,name);
+    await source.initialize();
+    if(source.binary)source.readMany=undefined;
+    const store=new FrameStore(name,source,{...file.playbackCache,...options});
+    await store.get(0);
+    return store;
+  }
   function host(name,call,batch,options) {const store=new FrameStore(name,new HostSource(call,batch),options);store.put(0,batch.text);return store;}
-  const api={FrameStore,HostSource,LocalSource,ByteLines,local,host};
+  const api={IncompleteStructureFrame,FrameStore,HostSource,LocalSource,ByteLines,local,host};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.StructureTrajectory=api;
 })(typeof window!=='undefined'?window:globalThis);

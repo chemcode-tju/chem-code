@@ -66,6 +66,8 @@ console.log('Selection updates preserve the atom model and camera, including cle
  const interaction=Object.create(StructureViews.prototype);
  Object.assign(interaction,{container:{append:()=>{}},panes:[],activate:()=>{},fit:()=>{throw Error('Unexpected refit');}});
  interaction.createPane('xz',0);
+ assert.equal(interaction.panes[0].viewer,null);
+ interaction.initializePane(interaction.panes[0]);
  const emit=(name,properties)=>{const event={target:{closest:()=>null},preventDefault(){},stopImmediatePropagation(){this.stopped=true;},...properties};for(const handler of handlers[name]){handler(event);if(event.stopped)break;}};
  emit('pointerdown',{button:0,pointerId:1,clientX:10,clientY:20});
  emit('pointermove',{pointerId:1,clientX:30,clientY:40});assert.deepEqual(translations,[]);

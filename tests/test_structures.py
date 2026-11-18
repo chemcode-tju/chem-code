@@ -134,6 +134,11 @@ def test_structure_routes_and_limits(
         assert 'data-src="/structures?embed=1"' in client.get("/").text
         for name in ("app.js", "import.js", "trajectory-store.js", "vendor/3Dmol-min.js"):
             assert client.get(f"/assets/structure/{name}").status_code == 200
+        renderer = client.get("/assets/structure/vendor/3Dmol-min.js")
+        assert renderer.is_success
+        assert "vec3(0.34) + 0.62*vLight" in renderer.text
+        assert "vec3(0.34) + 0.62*light" in renderer.text
+        assert "if(this.isWebGL1()||this._fb)return;" in renderer.text
         response = client.post(
             "/structures/convert",
             params={"filename": "sample.dump", "type_map": "Cu O"},

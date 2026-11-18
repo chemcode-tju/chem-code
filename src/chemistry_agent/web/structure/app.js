@@ -10,7 +10,7 @@ let navigationTarget = null, navigationTask = null;
 let playbackGeneration = 0;
 let timelineSeek=null,viewVisible=true,resumeWhenVisible=false,tickLayout='';
 let inspector;
-let playback = {fps:60, speed:1, step:1, loop:true};
+let playback = {fps:Number($("animation-fps").value), speed:1, step:1, loop:true};
 function afterPaint(callback) { requestAnimationFrame(() => setTimeout(callback, 0)); }
 function scheduleRender(reset = false) { const ticket=++paintTicket; afterPaint(() => { if(ticket===paintTicket)render(reset); }); }
 function clearFollow() { drift=null;$("drift-enabled").checked=false;$("drift-state").textContent="";$("drift-state").hidden=true; }
@@ -27,7 +27,7 @@ function displayPlayback(playing) {
   button.setAttribute("aria-label", label);
   button.title = label;
 }
-function stop() { ++playbackGeneration; cancelAnimationFrame(timer); timer = null; timelineSeek=null;resumeWhenVisible=false;doc?.setPlayback?.(frameIndex,false);displayPlayback(false); }
+function stop() { ++playbackGeneration; cancelAnimationFrame(timer); timer = null; timelineSeek=null;resumeWhenVisible=false;displayPlayback(false); }
 function setTrajectoryExpanded(expanded) {
   const button = $("trajectory-toggle"), label = expanded ? "收起轨迹工具" : "展开轨迹工具";
   $("trajectory-toolbar").classList.toggle("trajectory-collapsed", !expanded);
@@ -53,7 +53,7 @@ function updateTimeline() {
   $("frame-number").readOnly = single;
   $("first").disabled = $("previous").disabled = frameIndex === 0;
   $("next").disabled = $("last").disabled = frameIndex === doc.count - 1;
-  $("play").disabled = doc.count < 2;
+  $("play").disabled = streamComplete && doc.count < 2;
   $("frame-number").closest(".frame-label").style.setProperty("--frame-digits", Math.max(2, total.length) + "ch");
   if (single) return;
   const width=$("ticks").clientWidth;
@@ -88,7 +88,7 @@ function updateSelection() {
   $("atom-panel").hidden = count === 0;
   $("atom-title").textContent=selection.length?`已选 ${selection.length}`:'';
   if(!frameData)return;
-  const atoms=displayedFrame().atoms;
+  const atoms=count ? displayedFrame().atoms : [];
   $("measurement").textContent=selection.length>4?StructureSelection.formula(atoms,selection):StructureSelection.measure(atoms,selection);
   $("atom-list").textContent=selection.length===1?(()=>{const i=selection[0],a=atoms[i];return `${a.elem} #${i+1}  (${a.x.toFixed(4)}, ${a.y.toFixed(4)}, ${a.z.toFixed(4)}) Å`;})():selection.length<=4?selection.map(i=>`${atoms[i].elem} #${i+1}`).join(' → '):'';
   $("clear-selection").disabled=!selection.length;
@@ -133,18 +133,19 @@ $("apply-display").onclick=()=>{
 };
 $("reset-selected-style").onclick=()=>{displayState.reset(frameData,selection);scheduleRender();};
 $("reset-display").onclick=()=>{resetDisplayState();populateElements();scheduleRender();};
-async function go(index) {
+async function go(index, playbackRun = null) {
   if(!doc)return;
-  navigationTarget=Math.max(0,Math.min(doc.count-1,Number(index)||0));
+  navigationTarget={index:Math.max(0,Math.min(doc.count-1,Number(index)||0)), playbackRun};
   if(navigationTask)return navigationTask;
   const currentDoc=doc,generation=readGeneration;
   navigationTask=(async()=>{
     try {
       while(navigationTarget!==null&&doc===currentDoc&&generation===readGeneration) {
-        const target=navigationTarget;navigationTarget=null;
+        const {index:target,playbackRun:run}=navigationTarget;navigationTarget=null;
         const record=await currentDoc.get(target);
         if(doc!==currentDoc||generation!==readGeneration)return;
-        if(navigationTarget!==null&&navigationTarget!==target)continue;
+        if((run !== null && run !== playbackGeneration) || navigationTarget !== null)continue;
+        if(target === frameIndex)continue;
         selection=StructureSelection.remap(frameData,record.frame,selection);
         displayState.transition(frameData,record.frame);
         activeRecord=record;frameData=record.frame;frameIndex=target;status("");
@@ -176,6 +177,7 @@ function discardDocument() {
 async function showDocument(store,generation,selection=null) {
   if(generation!==readGeneration){store.dispose();return;}
   doc=store;
+  store.setActive?.(viewVisible);
   const target=selection?await resolveStructureSelection(store,selection):0;
   const record=await store.get(target);
   if(generation!==readGeneration)return;
@@ -191,14 +193,14 @@ async function showDocument(store,generation,selection=null) {
 function beginTimelineSeek() {
   if(timelineSeek)return;
   const playing=timer!==null;stop();
-  timelineSeek={playing,document:doc,generation:readGeneration};doc?.setPlayback?.(frameIndex,true);displayPlayback(playing);
+  timelineSeek={playing,document:doc,generation:readGeneration};displayPlayback(playing);
 }
 async function finishTimelineSeek() {
   const seek=timelineSeek;if(!seek)return;
   await go($("timeline").value);
   if(timelineSeek!==seek||seek.document!==doc||seek.generation!==readGeneration)return;
   timelineSeek=null;updateTimeline();
-  if(seek.playing&&viewVisible)startPlayback(false);else {doc?.setPlayback?.(frameIndex,false);displayPlayback(false);}
+  if(seek.playing&&viewVisible)startPlayback(false);else displayPlayback(false);
 }
 $("timeline").addEventListener("pointerdown",beginTimelineSeek);
 $("timeline").addEventListener("input",e=>{beginTimelineSeek();go(e.target.value);});
@@ -210,28 +212,54 @@ $("frame-number").addEventListener("change", e => { stop(); go(Number(e.target.v
 $("frame-number").addEventListener("keydown", e => {if(e.key==='Enter'){e.preventDefault();stop();go(Number(e.target.value)-1);e.target.blur();}});
 $("previous").onclick = () => { stop(); go(frameIndex - 1); };
 $("next").onclick = () => { stop(); go(frameIndex + 1); };
+function setEmbedVisible(visible) {
+  if (visible === viewVisible) return;
+  viewVisible = visible;
+  doc?.setActive?.(visible);
+  if (!visible && timer !== null) {
+    stop();
+    resumeWhenVisible = true;
+  } else if (visible && resumeWhenVisible) {
+    resumeWhenVisible = false;
+    startPlayback(false);
+  }
+}
 function startPlayback(restart=true) {
-  if (timer!==null||!viewVisible||!doc || doc.count < 2) return;
-  if(restart&&frameIndex===doc.count-1 && streamComplete)go(0);
-  displayPlayback(true);
-  doc.setPlayback?.(frameIndex,true);doc.prefetch?.(frameIndex,playback.step);
+  if (timer!==null||!viewVisible||!doc || (streamComplete && doc.count < 2)) return;
   const run=++playbackGeneration;
-  let previous=performance.now(), accumulator=0;
+  let restartPending=restart && frameIndex===doc.count-1 && streamComplete;
+  let nextAt=performance.now();
+  function timing() {
+    const framesPerSecond=playback.fps*playback.speed;
+    // Higher speeds sample farther along the trajectory at each paint rather
+    // than asking the display to present several frames in one refresh.
+    const sample=playback.speed>1 ? Math.ceil(framesPerSecond / Math.max(60,playback.fps)) : 1;
+    return {stride:playback.step*sample, interval:1000*sample/framesPerSecond};
+  }
+  displayPlayback(true);
+  const initialStride=timing().stride;
+  doc.prefetch?.(restartPending ? -initialStride : frameIndex, initialStride);
   const tick=async now=>{
     if(timer===null||run!==playbackGeneration)return;
-    accumulator+=Math.min(now-previous,250)*playback.fps*playback.speed/1000;previous=now;
-    const steps=Math.floor(accumulator);
-    if(steps>0){
-      accumulator-=steps;
-      let target=frameIndex+steps*playback.step;
+    const {stride,interval}=timing();
+    if(now >= nextAt - 0.5) {
+      let target=restartPending ? 0 : frameIndex + stride;
+      restartPending=false;
       if(target>=doc.count){
-        if(!streamComplete){target=doc.count-1;accumulator=0;}
-        else if(playback.loop)target%=doc.count;
-        else {go(doc.count-1);stop();return;}
+        if(!streamComplete) target=frameIndex;
+        else if(!playback.loop) target=doc.count - 1;
+        else target%=doc.count;
       }
-      if(target!==frameIndex){await go(target);previous=performance.now();}
+      if(target!==frameIndex) await go(target,run);
+      if(timer===null||run!==playbackGeneration)return;
+      if(streamComplete && (doc.count<2 || (!playback.loop && frameIndex===doc.count-1))){stop();return;}
+      // Retain the requested cadence without catching up after a read stall.
+      nextAt=Math.max(nextAt + interval,performance.now());
     }
-    if(timer!==null&&run===playbackGeneration){doc.setPlayback?.(frameIndex,true);doc.prefetch?.(frameIndex,playback.step);timer=requestAnimationFrame(tick);}
+    const following=streamComplete && playback.loop && frameIndex + stride >= doc.count
+      ? (frameIndex + stride) % doc.count : frameIndex + stride;
+    doc.prefetch?.(following - stride,stride);
+    timer=requestAnimationFrame(tick);
   };
   timer=requestAnimationFrame(tick);
 }
@@ -306,7 +334,9 @@ async function openStructure(files, format = $("import-format").value, selection
   frameIndex = 0; frameData = null; loading = true; streamComplete = false;
   if (views) {
     for (const pane of views.panes) {
+      if (!pane.viewer) continue;
       pane.ready = false;
+      pane.sphereFrame = null;
       pane.viewer.removeAllModels(); pane.viewer.removeAllShapes(); pane.viewer.removeAllLabels();
       pane.viewer.render();
     }

@@ -69,10 +69,15 @@ body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;transit
 .workspace-shell .inspector-launcher button:hover {background:var(--selected);}
 .dock-add .icon {width:18px;height:18px;}
 @container dockchrome (max-width:520px) {
-  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab [role=tab] {justify-content:center;padding-inline:4px;gap:0;}
-  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab [role=tab] span {display:none;}
-  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab .tab-close {display:grid;width:18px;margin-right:2px;visibility:hidden;}
-  .inspector-tabs:is([data-count="3"],[data-count="4"]) .dock-tab:has([aria-selected=true]) .tab-close {visibility:visible;}
+  .inspector-tabs:not([data-documents]):not([data-count="1"],[data-count="2"]) .dock-tab [role=tab] {justify-content:center;padding-inline:4px;gap:0;}
+  .inspector-tabs:not([data-documents]):not([data-count="1"],[data-count="2"]) .dock-tab [role=tab] span {display:none;}
+  .inspector-tabs:not([data-documents]):not([data-count="1"],[data-count="2"]) .dock-tab .tab-close {display:grid;width:18px;margin-right:2px;visibility:hidden;}
+  .inspector-tabs:not([data-documents]):not([data-count="1"],[data-count="2"]) .dock-tab:has([aria-selected=true]) .tab-close {visibility:visible;}
+}
+@container dockchrome (max-width:340px) {
+  .inspector-tabs[data-count="5"] .dock-tab {gap:0;}
+  .inspector-tabs[data-count="5"] .dock-tab [role=tab] {padding-inline:0;}
+  .inspector-tabs[data-count="5"] .dock-tab .tab-close {width:14px;margin-inline-end:1px;}
 }
 svg:has(>use[href$="#i-cite"]) {width:14px;height:14px;flex:none;}
 @media(max-width:767px) {

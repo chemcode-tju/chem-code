@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('src/chemistry_agent/web/structure/app.js','utf8');
 const elements=new Map(),windowEvents=new Map(),scheduled=new Map();
-let sequence=0,playing=false,releaseSeek;
+let sequence=0,playing=false,releaseSeek,clock=0;
 const element=id=>{
   if(!elements.has(id)) {
     const classes=new Set(),attributes=new Map();
@@ -15,7 +15,7 @@ const element=id=>{
 const doc={count:100,setPlayback(){},prefetch(){}};
 const context=vm.createContext({StructureControls:require('../../src/chemistry_agent/web/structure/controls.js'),$:element,doc,frameIndex:2,timer:null,readGeneration:1,
   playbackGeneration:0,timelineSeek:null,resumeWhenVisible:false,viewVisible:true,streamComplete:true,views:null,
-  playback:{fps:60,speed:1,step:1,loop:true},performance:{now:()=>0},
+  playback:{fps:60,speed:1,step:1,loop:true},performance:{now:()=>clock},
   window:{addEventListener:(name,callback)=>windowEvents.set(name,callback)},
   requestAnimationFrame(callback){const id=++sequence;scheduled.set(id,callback);return id;},
   cancelAnimationFrame(id){scheduled.delete(id);},displayPlayback:value=>{playing=value;},updateTimeline(){},
@@ -110,13 +110,13 @@ const event=name=>element('timeline').events.get(name);
   const advance=async()=>{
     const before=context.frameIndex,callback=scheduled.get(context.timer);
     assert(callback,'Playback still has a scheduled tick');scheduled.delete(context.timer);
-    await callback(1000);assert.notEqual(context.frameIndex,before,'Frames continue advancing');
+    await callback(clock+=1000);assert.notEqual(context.frameIndex,before,'Frames continue advancing');
   };
   context.startPlayback();const playbackRun=context.playbackGeneration;
   element('animation-fps').value=10;element('playback-speed').value=2;element('playback-step').value=3;element('playback-loop').checked=true;
   element('playback-step').events.get('input')();
   const beforeSettings=context.frameIndex,settingsTick=scheduled.get(context.timer);scheduled.delete(context.timer);
-  await settingsTick(100);assert.equal(context.frameIndex,beforeSettings+6,'New rate, speed and stride apply on the next tick');
+  await settingsTick(clock+=100);assert.equal(context.frameIndex,beforeSettings+3,'New settings apply on the next tick without skipping a stride');
   assert.equal(context.playbackGeneration,playbackRun,'Live settings must not restart the loop');
   element('animation-fps').value='';element('animation-fps').events.get('input')();assert.equal(context.playback.fps,10,'Partial numeric edits keep the last valid setting');
   element('animation-fps').value=10;

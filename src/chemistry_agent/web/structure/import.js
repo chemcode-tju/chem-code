@@ -44,6 +44,10 @@
     const files=input && typeof input.slice==='function' && typeof input.name==='string' ? [input] : Array.from(input||[]);
     if(sequence)return openSequence(files,sequenceName);
     if(!files.length || files.length>32)throw Error('请选择 1–32 个结构及配套文件');
+    if (files.length === 1 && files[0].openIndexed) {
+      return {name:files[0].name, store:await files[0].openIndexed(), note:''};
+    }
+    if (files.length === 1 && files[0].initialize) files[0] = await files[0].initialize();
     const entries=await Promise.all(files.map(async file=>({file,format:await classify(file)})));
     if(files.length===1 && format!=='auto')entries[0].format=format;
     const dumps=entries.filter(entry=>entry.format==='lammps-dump-text');
@@ -69,7 +73,7 @@
     }
     const atomStyle=['bond','angle'].includes(metadata?.atomStyle)?'molecular':metadata?.atomStyle||'auto';
     const query=new URLSearchParams({filename:file.name,format:selectedFormat,type_map:typeMap,units:metadata?.units||'metal',atom_style:atomStyle});
-    const response=await fetch(`/structures/convert?${query}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
+    const response=await fetch(`/structures/convert?${query}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file instanceof Blob ? file : await file.slice(0,file.size).blob()});
     if(!response.ok) {
       const result=await response.json().catch(()=>({}));
       throw Error(response.status===401?'登录已过期，请返回 Chem Code 重新登录。':result.error?.message||`读取失败（HTTP ${response.status}）`);

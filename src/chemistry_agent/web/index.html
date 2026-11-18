@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/projects.css">
+  <link rel="stylesheet" href="/assets/file-browser.css">
   <link rel="stylesheet" href="/assets/plan-workspace.css">
   <link rel="stylesheet" href="/assets/convergence-card.css">
   <link rel="stylesheet" href="/assets/registered-results.css">
@@ -111,6 +112,10 @@
             <button type="button" role="tab" id="inspector-tab-tools" data-inspector-tab="tools" aria-controls="inspector-panel-tools" aria-selected="false" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-flask"/></svg><span>工具</span></button>
             <button type="button" class="tab-close" data-close-tab="tools" aria-label="关闭工具标签" title="关闭工具标签"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
           </div>
+          <div class="dock-tab" data-dock-tab="file" role="presentation" hidden>
+            <button type="button" role="tab" id="inspector-tab-file" data-inspector-tab="file" aria-controls="inspector-panel-file" aria-selected="false" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg><span>打开文件</span></button>
+            <button type="button" class="tab-close" data-close-tab="file" aria-label="关闭文件标签" title="关闭文件标签"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
+          </div>
         </div>
 
       </div>
@@ -120,6 +125,7 @@
           <option value="structure">结构</option>
           <option value="events">进度</option>
           <option value="tools">工具</option>
+          <option value="file">打开文件</option>
         </select></label>
         <span class="dock-action-divider" aria-hidden="true"></span>
         <button class="icon-button" id="dock-max" aria-label="最大化面板" title="最大化面板" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-expand"/></svg></button>
@@ -173,6 +179,31 @@
       <div class="structure-viewer-shell"><iframe id="structure-viewer-frame" data-src="/structures?embed=1" title="结构查看器"></iframe></div>
     </section>
     <section class="inspector-scroll" id="inspector-panel-events" role="tabpanel" aria-labelledby="inspector-tab-events" hidden><div id="progress-events" aria-live="polite">暂无计算进度</div></section>
+    <section class="file-browser" id="inspector-panel-file" role="tabpanel" aria-labelledby="inspector-tab-file" hidden>
+      <div class="file-browser-toolbar">
+        <select id="file-browser-source" aria-label="文件位置" disabled></select>
+        <form class="file-browser-root" id="file-browser-root" hidden>
+          <input id="file-browser-path" type="text" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="目录路径" aria-label="目录路径">
+          <button class="icon-button" type="submit" title="转到目录" aria-label="转到目录"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-arrow-right"/></svg></button>
+        </form>
+        <button class="icon-button" id="file-browser-refresh" type="button" title="刷新" aria-label="刷新"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-refresh"/></svg></button>
+      </div>
+      <div class="file-browser-layout" data-view="tree">
+        <section class="file-preview" aria-label="文件预览" tabindex="-1">
+          <header class="file-preview-header" id="file-preview-header" hidden>
+            <button class="icon-button file-preview-back" id="file-preview-back" type="button" title="返回文件树" aria-label="返回文件树"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron-left"/></svg></button>
+            <div class="file-preview-identity"><strong id="file-preview-name" data-no-i18n></strong><small id="file-preview-path" data-no-i18n></small></div>
+            <div class="workspace-file-actions" id="file-preview-actions"></div>
+          </header>
+          <div id="file-preview-body"></div>
+        </section>
+        <section class="file-tree-pane" aria-label="文件树">
+          <label class="search-field file-browser-filter"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-find"/></svg><input id="file-browser-filter" type="search" maxlength="200" autocomplete="off" spellcheck="false" placeholder="筛选文件…" aria-label="筛选文件" aria-controls="file-browser-results" disabled></label>
+          <div class="file-browser-tree" id="file-browser-tree"></div>
+          <div class="file-browser-tree" id="file-browser-results" hidden></div>
+        </section>
+      </div>
+    </section>
     <section class="inspector-scroll" id="inspector-panel-tools" role="tabpanel" aria-labelledby="inspector-tab-tools" tabindex="0" hidden>
       <div class="section-heading"><h2>分子工具</h2></div>
       <details class="tool-form-card"><summary><span class="tool-icon"><svg class="icon"><use href="/assets/ui-icons.svg#i-flask"/></svg></span><span><strong>分子属性</strong><small>分子量 · LogP · 氢键 · TPSA</small></span><svg class="icon disclosure"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>

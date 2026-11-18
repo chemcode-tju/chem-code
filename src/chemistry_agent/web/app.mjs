@@ -1,5 +1,6 @@
 import { externalContextView } from "./external-context.mjs";
 import {createWorkspaceFiles} from "./workspace-files.mjs";
+import {createFileBrowser} from "./file-browser.mjs";
 import {userQuestions} from './user-questions.mjs';
 import {visibleReference, activity, activityOpen, activitySteps, answerBox, answerFooter, liveAnswerFooter, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
@@ -8,7 +9,7 @@ import { initSettingsDialog } from "./settings-dialog.mjs";
 import {initWorkspaceControls} from './workspace-controls.mjs';
 import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
-import { createStructureBridge, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
+import { createStructureBridge, createStructureDocuments, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
 import { createCalculations } from "./calculations.mjs?v=20261102-general-plans";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
@@ -50,6 +51,8 @@ const inspectorTabs = initInspectorTabs(open => {
 });
 const selectInspectorTab = inspectorTabs.select;
 const viewer = createStructureBridge({selectTab:selectInspectorTab, toast});
+const structureDocuments = createStructureDocuments({inspector:inspectorTabs, toast});
+const fileBrowser = createFileBrowser({api, session:()=>state.sessionId, viewer:structureDocuments});
 async function syncReport(id,event) {
     if (state.busy || state.loading || state.turns.some(t=>t.event===event)) return;
     const generation = state.navigation;
@@ -169,7 +172,10 @@ function restoreInspector(id, fresh = false) {
 }
 function setInspectorOpen(open, { focus = true, persist = true } = {}) {
   const wasFocused = $("inspector").contains(document.activeElement);
-  if (open) inspectorTabs.loadActive();
+  if (open) {
+    inspectorTabs.loadActive();
+    if (inspectorTabs.active() === "file") fileBrowser.activate();
+  }
   document.body.classList.toggle("inspector-open", open);
   if (!open) setDockMaximized(false);
   $("tools-toggle").disabled = open;
@@ -283,6 +289,7 @@ chatModels = createChatModelPicker({ api, state, toast, updateControls, refreshH
 const uploads = createFileUploads({ state, toast, updateControls, onChange: () => calculations.drawStructures(), onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
 
 function renderSessions() {
+  fileBrowser.syncSession();
   const chats = state.sessions.filter((session) => !projectNavigation.includes(session.id));
   $("session-list").innerHTML = chats.length ? chats.map(sessionButton).join("") : '<p class="sidebar-empty">暂无对话</p>';
   $("load-more").hidden = !state.hasMore;
@@ -418,12 +425,13 @@ async function selectSession(id, quiet = false) {
   if(state.sessionId && !state.loading) chatPositions.set(state.sessionId,$("chat-scroll").scrollTop);
   restorePosition=true;
   saveDraft();
-  if (id !== state.sessionId) { resetContextMeter("正在读取上下文…"); progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; state.runs = []; state.outbox = []; state.chatSignature = ""; viewer.reset(); calculations.reset(); }
+  if (id !== state.sessionId) { resetContextMeter("正在读取上下文…"); progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; state.runs = []; state.outbox = []; state.chatSignature = ""; viewer.reset(); structureDocuments.reset(); calculations.reset(); }
   workspaceFiles.reset();
   uploads.select(id);
   calculations.clearSelection();
   const navigation = ++state.navigation;
   state.sessionId = id;
+  fileBrowser.syncSession();
   state.health = null;
   state.metadataLoading = true;
   state.loading = true;
@@ -459,7 +467,7 @@ async function selectSession(id, quiet = false) {
   } catch (error) {
     if (navigation !== state.navigation) return;
     if (!quiet) toast(error.message);
-    viewer.reset(); calculations.reset();
+    viewer.reset(); structureDocuments.reset(); calculations.reset();
     state.sessionId = null;
     state.metadataLoading = false;
     chatModels.newConversation();
@@ -506,7 +514,7 @@ function newConversation() {
   state.turns = [];
   state.runs = [];
   state.pending = null; state.outbox = []; state.chatSignature = "";
-  viewer.reset(); calculations.reset();
+  viewer.reset(); structureDocuments.reset(); calculations.reset();
   resetContextMeter();
   rememberSession(null);
   restoreInspector(null, true);
@@ -628,6 +636,7 @@ async function sendChat(message, context = "", files = uploads.files, retryReque
       const session = await api("/sessions", { method:"POST", body:JSON.stringify({}) });
       if (accountVersion !== state.accountVersion) return;
       state.sessionId = session.id;
+      fileBrowser.syncSession();
       $("conversation-title").textContent = session.title;
       rememberSession(session.id);
       adoptInspector(session.id);
@@ -823,7 +832,7 @@ window.addEventListener("resize", () => {
 function showLogin(message = "") {
   $("workspace-settings").close();
   chatPositions.clear();progressFeed.reset();
-  clearRevision(); viewer.reset(); calculations.reset(); notifications.enabled(false);
+  clearRevision(); viewer.reset(); structureDocuments.reset(); calculations.reset(); notifications.enabled(false);
   resetContextMeter();
   state.accountVersion += 1;
   state.navigation += 1;
@@ -833,6 +842,7 @@ function showLogin(message = "") {
   setInspectorOpen(false, {focus:false, persist:false});
   state.sessionId = null;
   state.sessions = [];
+  fileBrowser.reset();
   state.turns = [];
   state.runs = [];
   state.pending = null; state.outbox = []; state.chatSignature = "";
