@@ -492,7 +492,9 @@ class StructureViews {
         model.setClickable({},true,onAtom);
       }
       if (options.cell && frame.cell) {
-        const cell=viewer.addShape({color:"#333333",linewidth:1});
+        // GLShape.addLine fills the edge index buffer. The renderer draws
+        // that buffer only in wireframe mode, as in viewer.addLine().
+        const cell=viewer.addShape({color:"#333333",linewidth:1,wireframe:true});
         for (let mask=0; mask<8; mask++) for (let k=0; k<3; k++) if (!(mask & (1<<k))) {
           const end=mask | (1<<k);
           cellEdges.push(mask,end);

@@ -17,7 +17,74 @@
   function tokenize(line) {
     return (line.match(/"[^"\n]*"|'[^'\n]*'|[^\s]+/g) || []).map(word => word.replace(/^["']|["']$/g,''));
   }
-  function resolve(files, requiredTypes = []) {
+  const basename = name => name.replaceAll('\\','/').split('/').at(-1);
+  const stem = name => basename(name).replace(/^(?:in|input|log)\./i,'').replace(/\.[^.]+$/,'');
+  const literal = value => value && !/[$*?\[\]`]/.test(value);
+  const commandLines = text => text.replace(/&\s*\r?\n/g,' ').split(/\r?\n/).map(raw=>{
+    const [line] = raw.match(/^(?:"[^"]*"|'[^']*'|[^#"'])*/);
+    const comment = raw[line.length]==='#' ? raw.slice(line.length+1) : '';
+    return {line:line.trim(),comment:comment.trim()};
+  });
+  const commands = file => commandLines(file.text).filter(row=>row.line).map(row=>tokenize(row.line));
+
+  function selectCompanions(files, name) {
+    const data = [], inputs = [];
+    for (const file of files) {
+      if (/^\s*\d+\s+atom types\s*(?:#.*)?$/m.test(file.text)) data.push(file);
+      else {
+        const rows = commands(file);
+        if (rows.some(row=>/^(?:units|boundary|atom_style|labelmap|mass|pair_coeff|dump|dump_modify|read_data|include)$/.test(row[0]))) {
+          inputs.push({file,rows,log:/^log(?:\.|$)|\.log$/i.test(basename(file.name))});
+        }
+      }
+    }
+    function referenced(value, candidates, strict = true) {
+      if (!literal(value)) return null;
+      const path = value.replace(/^\.\//,'');
+      const exact = candidates.filter(file=>file.name===path);
+      const qualified = path.includes('/') ? candidates.filter(file=>file.name.endsWith('/'+path)) : [];
+      const matches = exact.length ? exact : qualified.length ? qualified :
+        candidates.filter(file=>basename(file.name)===basename(path));
+      if (strict && matches.length>1) throw Error(`配套文件名 ${value} 重复，请只保留本次计算的文件`);
+      return matches.length===1 ? matches[0] : null;
+    }
+    const isTarget = row => row[0]==='dump' && literal(row[5]) && basename(row[5])===basename(name);
+    const matched = inputs.filter(input=>input.rows.some(isTarget));
+    const inputFiles = inputs.map(item=>item.file);
+    const included = new Set(inputs.flatMap(input=>input.rows.filter(row=>row[0]==='include')
+      .map(row=>referenced(row[1],inputFiles,false)).filter(Boolean)));
+    const roots = inputs.filter(input=>!included.has(input.file) && !input.log);
+    const logs = inputs.filter(input=>input.log);
+    const named = (roots.length ? roots : logs).filter(input=>stem(input.file.name)===stem(name));
+    const targets = matched.length ? matched : named.length ? named : roots.length ? roots : logs;
+    if (!matched.length && targets.length>1) {
+      throw Error(`无法确定 ${name} 对应的输入或日志：${targets.map(input=>input.file.name).join('、')}`);
+    }
+    const chosen = new Set(), referredData = new Set();
+    function visit(input) {
+      if (chosen.has(input)) return;
+      chosen.add(input);
+      for (const row of input.rows) {
+        if (row[0]==='include') {
+          const file = referenced(row[1],inputFiles);
+          const include = inputs.find(item=>item.file===file);
+          if (include) visit(include);
+        } else if (row[0]==='read_data') {
+          const file = referenced(row[1],data);
+          if (file) referredData.add(file);
+        }
+      }
+    }
+    targets.forEach(visit);
+    const namedData = data.filter(file=>stem(file.name)===stem(name));
+    const matchingData = referredData.size ? [...referredData] : namedData.length ? namedData : data;
+    if (matchingData.length>1) {
+      throw Error(`无法确定 ${name} 对应的 data 文件：${matchingData.map(file=>file.name).join('、')}`);
+    }
+    return [...matchingData,...[...chosen].map(input=>input.file)];
+  }
+
+  function resolve(files, requiredTypes = [], primary = '') {
     const mapping = {}, masses = {}, labels = {}, evidence = {}, warnings = new Set();
     const settings = {}, sources = {};
     function setting(key,value,source) {
@@ -34,14 +101,14 @@
       labels[value]=type;assign(type,value,source);
     }
     const massRows = [];
+    const dumps = primary ? files.flatMap(commands).filter(row=>row[0]==='dump') : [];
+    const dumpIds = new Set(dumps.filter(row=>literal(row[5]) && basename(row[5])===basename(primary)).map(row=>row[1]));
     for (const file of files) {
       for(const [type,symbol] of Object.entries(file.elementMap||{}))assign(type,symbol,`${file.name}: element`);
       let section = '';
-      const text = file.text.replace(/&\s*\r?\n/g, ' ');
-      const dataUnits = text.split(/\r?\n/)[0].match(/LAMMPS data file.*\bunits\s*=\s*(\w+)/);
+      const dataUnits = file.text.split(/\r?\n/)[0].match(/LAMMPS data file.*\bunits\s*=\s*(\w+)/);
       if(dataUnits)setting('units',dataUnits[1],file.name);
-      for (const raw of text.split(/\r?\n/)) {
-        const hash=raw.indexOf('#'), line=(hash<0?raw:raw.slice(0,hash)).trim(), comment=hash<0?'':raw.slice(hash+1).trim();
+      for (const {line,comment} of commandLines(file.text)) {
         if (!line) continue;
         if (/^\d+\s+atom types$/.test(line)) setting('typeCount',Number(line.split(/\s+/)[0]),file.name);
         if (/^(Atom Type Labels|Masses|Atoms|Bonds|Angles|Dihedrals|Impropers|Velocities|[A-Za-z ]+ Coeffs)$/.test(line)) {
@@ -56,7 +123,7 @@
         if (words[0]==='atom_style' && words.length===2 && !words[1].includes('$')) setting('atomStyle',words[1],file.name);
         if (words[0]==='boundary' && words.length===4 && words.slice(1).every(value=>/^[pfsm]{1,2}$/.test(value))) setting('pbc',words.slice(1).map(value => value==='p'||value==='pp'),file.name);
         if (words[0]==='labelmap' && words[1]==='atom') for(let i=2;i+1<words.length;i+=2) if(/^\d+$/.test(words[i]))label(words[i],words[i+1],`${file.name}: labelmap`);
-        if (words[0]==='dump_modify' && words.includes('element')) {
+        if (words[0]==='dump_modify' && words.includes('element') && (!dumps.length || dumpIds.has(words[1]))) {
           const values=[];for(let i=words.indexOf('element')+1;i<words.length&&element(words[i]);i++)values.push(words[i]);
           if (values.length && values.every(element)) values.forEach((symbol,i)=>assign(String(i+1),symbol,`${file.name}: dump_modify element`));
         }
@@ -98,6 +165,6 @@
     if(!settings.units)warnings.add('未提供 units，长度按 Å 显示（metal/real）；可同时选择输入文件或日志');
     return {mapping,masses,labels,evidence,units,lengthScale:1,atomStyle:settings.atomStyle||'auto',pbc:settings.pbc,typeCount,warnings:[...warnings]};
   }
-  const api={resolve,element,massElement,weights};
+  const api={resolve,selectCompanions,element,massElement,weights};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.StructureLammps=api;
 })(typeof window!=='undefined'?window:globalThis);

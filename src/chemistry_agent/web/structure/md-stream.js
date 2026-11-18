@@ -163,11 +163,14 @@
     let note='GRO 元素按原子名识别，nm 已转为 Å';
     if(format==='lammps-dump-text') {
       const first=dumpMetadata(await source.raw(0));
-      source.metadata=StructureLammps.resolve([...companions,{name:file.name,text:first.text,elementMap:first.elementMap}],first.types);
+      const selected=StructureLammps.selectCompanions(companions,file.name);
+      source.metadata=StructureLammps.resolve([...selected,{name:file.name,text:first.text,elementMap:first.elementMap}],first.types,file.name);
       const mappings=[...new Set(Object.entries(source.metadata.mapping).filter(([type])=>/^\d+$/.test(type)).map(([type,value])=>`${type}=${value}`))];
       note=`自动识别 ${mappings.join('、')||'dump 内的元素列'}${source.metadata.warnings.length?' · '+source.metadata.warnings.join('；'):''}`;
+      if (selected.length) note+=` · 配套文件 ${selected.map(item=>item.name).join('、')}`;
     }
-    const store=new StructureTrajectory.FrameStore('preview.extxyz',source);await store.get(0);
+    const store=new StructureTrajectory.FrameStore('preview.extxyz',source);
+    try { await store.get(0); } catch (error) { store.dispose(); throw error; }
     return {store,note};
   }
   const api={MDSource,parseGro,parseDump,dumpMetadata,open};

@@ -1,7 +1,7 @@
 "use strict";
 const $ = id => document.getElementById(id);
 let doc, frameIndex = 0, frameData, views;
-let selection = [], timer = null, loading = false, readGeneration = 0;
+let selection = [], timer = null, readGeneration = 0, openGeneration = 0;
 let displayState = new StructureSelection.DisplayState();
 let streamComplete = true;
 let drift = null, paintTicket = 0, snapshotTicket = 0, snapshotData = null;
@@ -174,18 +174,14 @@ function discardDocument() {
   inspector?.clear();
   $("drift-settings").disabled = true;
 }
-async function showDocument(store,generation,selection=null) {
-  if(generation!==readGeneration){store.dispose();return;}
+function showDocument(store,target,record) {
   doc=store;
   store.setActive?.(viewVisible);
-  const target=selection?await resolveStructureSelection(store,selection):0;
-  const record=await store.get(target);
-  if(generation!==readGeneration)return;
   activeRecord=record;
   document.body.classList.add("has-structure");
   $("drift-settings").disabled = false;
   setExportAvailable(true);
-  frameIndex=target;streamComplete=store.complete;render(true,true);status('');loading=false;
+  frameIndex=target;streamComplete=store.complete;render(true,true);status('');
   // Render the first frame before starting any background index batch.
   afterPaint(()=>store.scan(()=>{if(doc===store){streamComplete=store.complete;updateTimeline();}})
     .catch(error=>{if(doc===store)status(`加载停止：${error.message}（保留已加载的 ${store.count} 帧）`,true);}));
@@ -327,11 +323,25 @@ $("drift-apply").onclick=async()=>{
 $("source-toggle").onclick = () => { stop(); $("source-panel").hidden = !$("source-panel").hidden; if(doc)$("source").value=activeRecord.text; };
 async function openStructure(files, format = $("import-format").value, selection=null, options={}) {
   const file = files[0];
+  const opening = ++openGeneration;
+  let imported, target, record;
+  status('');
+  try {
+    imported = await StructureImport.open(files, {format,...options});
+    target = selection ? await resolveStructureSelection(imported.store,selection) : 0;
+    record = await imported.store.get(target);
+  } catch (error) {
+    imported?.store.dispose();
+    if (opening !== openGeneration) return;
+    status(error.message,true);
+    return {name:file.name,error:error.message};
+  }
+  if (opening !== openGeneration) { imported.store.dispose(); return; }
   const generation = ++readGeneration;
   stop(); clearFollow(); resetDisplayState(); discardDocument();
   ++snapshotTicket; snapshotData = null;
   for (const id of ["snapshot-dialog", "drift-dialog", "display-dialog"]) $(id).close();
-  frameIndex = 0; frameData = null; loading = true; streamComplete = false;
+  frameIndex = 0; frameData = null; streamComplete = false;
   if (views) {
     for (const pane of views.panes) {
       if (!pane.viewer) continue;
@@ -343,26 +353,19 @@ async function openStructure(files, format = $("import-format").value, selection
   }
   $("atom-title").textContent = $("measurement").textContent = $("atom-list").textContent = "";
   $("frame-total").textContent = "—"; tickLayout=''; $("timeline").disabled = true;
-  $("source-panel").hidden = true; $("source-toggle").hidden = /\.traj$/i.test(file.name);
+  $("source-panel").hidden = true; $("source-toggle").hidden = /\.traj$/i.test(imported.name);
   $("filename").removeAttribute("data-empty-title");
-  $("filename").textContent = file.name; status("");
-  $("import-note").textContent = "";
+  $("filename").textContent = imported.name;
   try {
-    const imported = await StructureImport.open(files, {format,...options});
-    if (generation !== readGeneration) { imported.store.dispose(); return; }
-    $("filename").textContent = imported.name;
-    $("source-toggle").hidden = /\.traj$/i.test(imported.name);
-    await showDocument(imported.store, generation, selection);
-    if (generation !== readGeneration) return;
+    showDocument(imported.store, target, record);
     $("import-note").textContent = imported.note;
     return {name: imported.name,generation,frameIndex,frameCount:doc.count,ionicStep:doc.source.ionicSteps?.[frameIndex] ?? null,simulationStep:doc.source.simulationSteps?.[frameIndex] ?? null};
   } catch (error) {
-    if (generation !== readGeneration) return;
     discardDocument();
     status(error.message, true);
     $("import-note").textContent = "";
     return {name: file.name, error: error.message};
-  } finally { if (generation === readGeneration) loading = false; }
+  }
 }
 async function resolveStructureSelection(store,selection) {
   let index;
@@ -399,7 +402,7 @@ document.addEventListener("drop", event => {
   event.preventDefault(); const files = Array.from(event.dataTransfer.files);
   if (files.length) openStructure(files);
 });
-window.addEventListener("pagehide", () => { stop(); discardDocument(); });
+window.addEventListener("pagehide", () => { ++openGeneration; stop(); discardDocument(); });
 function snapshotOptions(){return {dpi:Number($("snapshot-dpi").value),format:$("snapshot-format").value,transparent:$("snapshot-transparent").checked,crop:$("snapshot-crop").checked};}
 async function refreshSnapshot(){
   const ticket=++snapshotTicket;snapshotData=null;$("snapshot-save").disabled=true;$("snapshot-result").textContent='';

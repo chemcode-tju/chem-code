@@ -12,6 +12,8 @@
     return null;
   }
   async function classify(file) {
+    if (/\.cell$/i.test(file.name)) return 'cell';
+    if (file.openIndexed) return 'local';
     const prefix=await file.slice(0,8192).text();
     if (/^ITEM: (?:TIMESTEP|UNITS|TIME)/m.test(prefix)) return 'lammps-dump-text';
     if (/^\s*\d+\s+atoms\s*$/m.test(prefix) && /^\s*\d+\s+atom types\s*$/m.test(prefix)) return 'lammps-data';
@@ -22,8 +24,60 @@
     return 'companion';
   }
   async function companionsText(files) {
-    if (files.reduce((size,file)=>size+file.size,0)>32*1024*1024) throw Error('配套 data/输入/日志合计超过 32 MiB，请选择较小的元数据文件。轨迹不受此限制。');
-    return Promise.all(files.map(async file=>({name:file.name,text:await file.text()})));
+    const limit = 1024 * 1024;
+    return Promise.all(files.map(async file=>{
+      const name=file.webkitRelativePath || file.name;
+      if (file.size<=limit) return {name,text:await file.text()};
+      const log=/^log(?:\.|$)|\.log$/i.test(file.name);
+      const head = await file.slice(0,log ? limit/2 : limit).text();
+      let text = head.slice(0,head.lastIndexOf('\n')+1);
+      if (log) {
+        const tail = await file.slice(file.size-limit/2,file.size).text();
+        text += tail.slice(tail.indexOf('\n')+1,tail.lastIndexOf('\n')+1);
+      }
+      return {name,text};
+    }));
+  }
+  async function openCp2k(file, cell) {
+    const steps = new Map();
+    let scale = 1;
+    for (const row of (await cell.text()).split(/\r?\n/)) {
+      const line = row.trim();
+      if (!line) continue;
+      if (line.startsWith('#')) {
+        const unit = line.match(/\bAx\s*\[([^\]]+)\]/i)?.[1]?.trim().toLowerCase();
+        if (!unit) continue;
+        if (!['angstrom','å','bohr','a.u.'].includes(unit)) throw Error(`不支持的 CELL 长度单位：${unit}`);
+        scale = ['bohr','a.u.'].includes(unit) ? 0.529177210903 : 1;
+        continue;
+      }
+      const [step,time,...values] = line.split(/\s+/).map(value=>Number(value.replace(/[dD]/,'e')));
+      const lattice = values.slice(0,9);
+      if (!Number.isSafeInteger(step) || !Number.isFinite(time) || lattice.length!==9 || !lattice.every(Number.isFinite)) {
+        throw Error(`CELL 行格式无效：${cell.name}`);
+      }
+      if (steps.has(step)) throw Error(`CELL 中的步号 ${step} 重复：${cell.name}`);
+      steps.set(step,lattice.map(value=>value*scale));
+    }
+    const source = new StructureTrajectory.LocalSource(file,file.name);
+    await source.initialize();
+    const read = source.read.bind(source);
+    source.read = async index => {
+      const raw = await read(index);
+      const firstLine = raw.indexOf('\n');
+      const headerEnd = raw.indexOf('\n',firstLine+1);
+      const header = raw.slice(firstLine+1,headerEnd).trim();
+      const step = header.match(/(?:^|[,\s])i\s*=\s*(-?\d+)\b/i)?.[1];
+      if (step === undefined) throw Error(`XYZ 第 ${index+1} 帧缺少 CP2K 步号 i`);
+      const lattice = steps.get(Number(step));
+      if (!lattice) throw Error(`CELL 中找不到 XYZ 步号 ${step}`);
+      const clean = header.replace(/\bLattice="[^"]*"/i,'').trim();
+      const pbc = /\bpbc\s*=/i.test(clean) ? '' : 'pbc="T T T" ';
+      return `${raw.slice(0,firstLine+1)}Lattice="${lattice.join(' ')}" ${pbc}${clean}${raw.slice(headerEnd)}`;
+    };
+    const store = new StructureTrajectory.FrameStore(file.name,source);
+    try { await store.get(0); } catch (error) { store.dispose(); throw error; }
+    return {name:file.name,store,note:`CP2K XYZ + CELL · ${cell.name} · XYZ 未注明 PBC 时按三维周期显示`};
   }
   async function openSequence(files, name) {
     if(!files.length)throw Error('路径尚无结构像');
@@ -47,16 +101,26 @@
     if (files.length === 1 && files[0].openIndexed) {
       return {name:files[0].name, store:await files[0].openIndexed(), note:''};
     }
-    if (files[0].initialize) files[0] = await files[0].initialize();
-    const entries=await Promise.all(files.map(async file=>({file,format:await classify(file)})));
+    const entries=await Promise.all(files.map(async entry=>{
+      const file = entry.initialize ? await entry.initialize() : entry;
+      return {file,format:await classify(file)};
+    }));
     if(files.length===1 && format!=='auto')entries[0].format=format;
     const dumps=entries.filter(entry=>entry.format==='lammps-dump-text');
-    const candidates=entries.filter(entry=>entry.format!=='companion' && !(dumps.length && entry.format==='lammps-data'));
+    const cells = entries.filter(entry=>entry.format==='cell');
+    const candidates=entries.filter(entry=>!['companion','cell'].includes(entry.format) && !(dumps.length && entry.format==='lammps-data'));
     if(candidates.length!==1)throw Error('请每次选择一条轨迹（或一个结构），可同时选择它的 LAMMPS data、输入文件和日志；不自动拼接多条轨迹。');
     const primary=candidates[0],file=primary.file;
     const selectedFormat=files.length===1 && format!=='auto'?format:primary.format;
-    const other=files.filter(item=>item!==file);
-    if(other.length && !selectedFormat.startsWith('lammps'))throw Error('配套文件联合读取目前用于 LAMMPS；其他格式请一次选择一个结构文件。');
+    const other=entries.filter(item=>item!==primary).map(item=>item.file);
+    if (cells.length) {
+      if (cells.length!==1 || other.length!==1 || file.openIndexed || !/\.(?:xyz|extxyz)$/i.test(file.name)) {
+        throw Error('请选择一条 CP2K XYZ 和一个对应的 CELL 文件。');
+      }
+      if (cells[0].file.size>32*1024*1024) throw Error('CELL 文件超过 32 MiB。');
+      return openCp2k(file,cells[0].file);
+    }
+    if(other.length && !selectedFormat.startsWith('lammps'))throw Error('联合读取支持 LAMMPS 配套文件和 CP2K XYZ + CELL。');
     const name=localName(file.name,selectedFormat==='local'?'auto':selectedFormat);
     if(name)return {name:file.name,store:await StructureTrajectory.local(file,name),note:''};
     const companions=await companionsText(other);

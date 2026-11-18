@@ -137,7 +137,13 @@ def test_lammps_discovers_nested_data_and_latest_complete_frame(tmp_path):
     (tmp_path / "incorrect.data").write_text("Masses\n\n1 12.011 # C\n")
     (tmp_path / "in.trajectory").write_text(
         'units metal\ninclude inputs/system.in\nread_data "inputs/structure data.data"\n'
+        "dump actual all custom 10 trajectory.lammpstrj id type x y z\n"
     )
+    (tmp_path / "in.other").write_text(
+        "units real\nread_data incorrect.data\n"
+        "dump other all custom 10 other.lammpstrj id type x y z\n"
+    )
+    (tmp_path / "log.other").write_text("units real\nmass 1 12.011\n")
     (inputs / "system.in").write_text("boundary p p p\n")
     parts = {
         item["name"]: item["text"]
@@ -147,6 +153,7 @@ def test_lammps_discovers_nested_data_and_latest_complete_frame(tmp_path):
     assert "Atoms # atomic" not in parts["inputs/structure data.data"]
     assert parts["inputs/system.in"] == "boundary p p p"
     assert "incorrect.data" not in parts
+    assert "in.other" not in parts and "log.other" not in parts
     frame = (
         b"ITEM: TIMESTEP\n100\nITEM: NUMBER OF ATOMS\n1\n"
         b"ITEM: BOX BOUNDS pp pp pp\n0 5\n0 5\n0 5\nITEM: ATOMS id type x y z\n1 1 0 0 0\n"

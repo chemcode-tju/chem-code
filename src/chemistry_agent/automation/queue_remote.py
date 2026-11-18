@@ -180,28 +180,64 @@ def lammps_metadata(directory: Path, name: str) -> list[dict]:
     inputs = [
         item
         for item in names
-        if item.startswith("in.") or Path(item).suffix in {".in", ".lammps", ".init", ".settings"}
+        if item != name
+        and not item.lower().startswith("log")
+        and (
+            item.lower().startswith(("in.", "input."))
+            or Path(item).suffix.lower() in {".in", ".inp", ".lammps", ".init", ".settings"}
+        )
     ]
-    datafiles = [item for item in names if Path(item).suffix in {".data", ".lmp"}]
+    datafiles = [item for item in names if Path(item).suffix.lower() in {".data", ".lmp"}]
     logs = [
         item
         for item in names
         if item == "log.lammps" or item.startswith("log.") or item.endswith(".log")
     ]
-    pending = [
-        (item, False)
-        for item in sorted(
-            inputs, key=lambda item: (item not in {f"{stem}.in", f"in.{stem}"}, item)
-        )[:8]
+
+    def read_input(filename: str, *, log: bool = False) -> str:
+        try:
+            return metadata_text(queue_path(directory, filename), 256 * 1024, tail=log)
+        except (OSError, ValueError):
+            return ""
+
+    def paths(text: str, operation: str, index: int) -> list[str]:
+        result = []
+        for line in re.sub(r"&\s*\r?\n", " ", text).splitlines():
+            if not line.lstrip().startswith(operation + " "):
+                continue
+            try:
+                words = shlex.split(line, comments=True)
+            except ValueError:
+                continue
+            if len(words) > index and not any(char in words[index] for char in "$*?[`"):
+                result.append(words[index])
+        return result
+
+    preferred = {f"{stem}.in", f"{stem}.inp", f"in.{stem}", f"input.{stem}"}
+    previews = {
+        item: read_input(item)
+        for item in sorted(inputs, key=lambda item: (item not in preferred, item))[:12]
+    }
+    included = {str(Path(path)) for text in previews.values() for path in paths(text, "include", 1)}
+    matching = [
+        item
+        for item, text in previews.items()
+        if any(Path(path).name == name for path in paths(text, "dump", 5))
     ]
-    pending.extend(
-        (item, True)
-        for item in sorted(
-            logs, key=lambda item: (item not in {"log.lammps", "lammps.log", f"{stem}.log"}, item)
-        )[:2]
-    )
+    named = [item for item in previews if item in preferred]
+    roots = [
+        item
+        for item in previews
+        if item not in included and Path(item).suffix.lower() not in {".init", ".settings"}
+    ]
+    # An unrelated input can redefine species or units. Automatic discovery
+    # only uses an exact reference, a named match or one unambiguous root.
+    pending = [(item, False) for item in (matching or named or (roots if len(roots) == 1 else []))]
+    if not pending:
+        named_logs = [item for item in logs if item in {f"{stem}.log", f"log.{stem}"}]
+        pending = [(item, True) for item in (named_logs or (logs if len(logs) == 1 else []))]
     directives = re.compile(
-        r"^\s*(?:units|boundary|mass|labelmap|dump_modify|pair_coeff|atom_style)\s"
+        r"^\s*(?:units|boundary|mass|labelmap|dump|dump_modify|pair_coeff|atom_style|include|read_data)\s"
     )
     seen, referenced, contents = set(), [], []
     while pending and len(seen) < 12:
@@ -209,10 +245,7 @@ def lammps_metadata(directory: Path, name: str) -> list[dict]:
         if filename in seen:
             continue
         seen.add(filename)
-        try:
-            text = metadata_text(queue_path(directory, filename), 256 * 1024, tail=log)
-        except (OSError, ValueError):
-            continue
+        text = previews[filename] if filename in previews else read_input(filename, log=log)
         lines = []
         for line in re.sub(r"&\s*\r?\n", " ", text).splitlines():
             if directives.match(line):
@@ -232,13 +265,13 @@ def lammps_metadata(directory: Path, name: str) -> list[dict]:
         if lines:
             contents.append({"name": filename, "text": "\n".join(dict.fromkeys(lines))})
     same_stem = [item for item in datafiles if Path(item).stem == stem]
-    possible = same_stem or list(dict.fromkeys(referenced)) or datafiles
+    possible = list(dict.fromkeys(referenced)) or same_stem or datafiles
     if len(possible) == 1:
         filename = possible[0]
         try:
             text = metadata_text(queue_path(directory, filename), 512 * 1024)
             header = re.split(r"(?m)^Atoms(?:\s|$)", text, maxsplit=1)[0]
-            if re.search(r"(?m)^\s*Masses\b", header):
+            if re.search(r"(?m)^\s*(?:Masses|Atom Type Labels)\b", header):
                 contents.insert(0, {"name": filename, "text": header})
         except (OSError, ValueError):
             pass

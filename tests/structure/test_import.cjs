@@ -45,5 +45,25 @@ global.StructureMD = require('../../src/chemistry_agent/web/structure/md-stream.
   assert.equal(batch.name,'trajectory.dump');
   assert.equal((await batch.store.get(0)).frame.atoms[0].elem,'Cu');
   await assert.rejects(open(new File([dump],'trajectory.dump')),/无法识别/);
+  const otherData = new File(['LAMMPS data\n1 atoms\n1 atom types\nMasses\n1 15.999 # O\n'],'other.data');
+  const run = new File(['units metal\nread_data "system.data"\ndump own all custom 10 trajectory.dump id type x y z\n'
+    +'dump extra all custom 10 auxiliary.dump id type x y z\ndump_modify extra element O\n'],'in.target');
+  const unrelated = new File(['units real\nread_data other.data\ndump own all custom 10 other.dump id type x y z\n'],'in.other');
+  const trace = new File([dump],'trajectory.dump');
+  const matched = await open([unrelated,otherData,run,trace,data]);
+  assert.equal((await matched.store.get(0)).frame.atoms[0].elem,'Cu');
+  assert.match(matched.note,/system\.data/);
+  assert.doesNotMatch(matched.note,/other\.data/);
+  await assert.rejects(open([trace,otherData,data]),/无法确定.*other\.data.*system\.data/);
+  const cp2k = new File(['1\ni = 2, time = 1.0\nCu 1 2 3\n1\ni = 4, time = 2.0 pbc="T T F"\nCu 1 2 3\n'],'run-pos-1.xyz');
+  const cell = new File(['# Step Time [fs] Ax [angstrom]\n0 0 3 0 0 0 3 0 0 0 3\n'
+    +'4 2 7 0 0 1 8 0 0 0 9\n2 1 5 0 0 0 5 0 0 0 5\n'],'run-1.cell');
+  const paired = await open([cell,cp2k]);
+  assert.deepEqual((await paired.store.get(0)).frame.cell,[[5,0,0],[0,5,0],[0,0,5]]);
+  await paired.store.advance();
+  const second = (await paired.store.get(1)).frame;
+  assert.deepEqual(second.cell,[[7,0,0],[1,8,0],[0,0,9]]);
+  assert.deepEqual(second.pbc,[true,true,false]);
+  await assert.rejects(open([cp2k,new File(['3 0 5 0 0 0 5 0 0 0 5'],'wrong.cell')]),/找不到 XYZ 步号 2/);
   console.log('Import: local routing, backend conversion, units notice and login expiry passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });
