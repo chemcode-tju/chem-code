@@ -1,5 +1,7 @@
 """Materialize explicit file dependencies without passing binary data through the model."""
 
+import asyncio
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -75,7 +77,16 @@ async def stage_dependencies(
                 if ref.source == "retrieved" and saved and saved.is_file():
                     shutil.copyfile(saved, destination)
                 else:
-                    await plans.slurm.download(record, ref.path, destination)
+                    expected = await plans.slurm.remote(record, "fingerprint", path=ref.path)
+                    downloaded = await plans.slurm.download(record, ref.path, destination)
+                    if (
+                        expected["sha256"] != downloaded["sha256"]
+                        or expected["size"] != downloaded["size"]
+                    ):
+                        destination.unlink(missing_ok=True)
+                        raise AgentError(
+                            "dependency_changed", "上游文件在传输中发生变化，尚未提交下游。", 409
+                        )
             elif identifier:
                 await plans.chat.require_session_job(session, identifier)
                 staging = directory / "_dependency_cache" / str(UUID(identifier))
@@ -101,6 +112,12 @@ async def stage_dependencies(
             **ref.model_dump(mode="json"),
             "file": ref.target,
             "size": destination.stat().st_size,
+            "sha256": await asyncio.to_thread(file_digest, destination),
         }
     (directory / "file_inputs.json").write_text(json.dumps(manifest, ensure_ascii=False))
     return manifest
+
+
+def file_digest(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()

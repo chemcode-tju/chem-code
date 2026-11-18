@@ -1,5 +1,6 @@
 import { escapeHtml } from "./core.mjs";
 import { structureButton, isStructureName } from "./structure-links.mjs";
+import { attachmentPreviewButton } from "./file-preview.mjs";
 import { t } from "./i18n.mjs";
 
 export function createFileUploads({ state, toast, updateControls, onChange, onUnauthorized }) {
@@ -93,7 +94,10 @@ export function createFileUploads({ state, toast, updateControls, onChange, onUn
   };
 }
 
-function fileViewer(file) { return isStructureName(file.name) ? structureButton("file",file.id,file.name,"查看结构") : ""; }
+function fileViewer(file) {
+  return isStructureName(file.name)
+    ? structureButton("file",file.id,file.name,"查看结构") : attachmentPreviewButton(file);
+}
 
 export function renderFiles(files) {
   if (!files?.length) return "";

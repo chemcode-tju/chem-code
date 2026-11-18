@@ -4,6 +4,7 @@ import asyncio
 import re
 from contextvars import ContextVar
 from pathlib import Path
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +22,11 @@ class ShellInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     command: str = Field(min_length=1, max_length=16_384)
     host: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    request_id: str | None = Field(
+        default=None,
+        description="Runner command receipt UUID; reuse only to reconcile the same operation",
+        pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    )
 
 
 def authorized_host(message: str, hosts: tuple[str, ...]) -> str | None:
@@ -70,11 +76,59 @@ def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
         # The local settings selection is a durable grant, shared by new conversations.
         available = enabled_aliases(root, hosts) if root else hosts
         host = args.host or shell_grant.get()
+        requested_host = host
+        if root and host:
+            from chemistry_agent.environments.registry import Environments
+
+            environments = Environments(root)
+            available = tuple(environments.available_hosts(hosts))
+            environment = environments.get(host)
+            if environment and (not environment.enabled or environment.removed):
+                raise AgentError("environment_disabled", "节点未启用。", 409)
+            if host not in available:
+                raise AgentError(
+                    "ssh_authorization_required", "请在服务器与环境中启用此节点。", 403
+                )
+            if environment and environment.transport == "ssh":
+                host = environment.ssh_alias or host
+                available = (*available, host)
+            elif environment:
+                # A native tool replay keeps its identity even if the HTTP response was lost.
+                receipt = (
+                    uuid5(
+                        NAMESPACE_URL,
+                        f"chem-code:{context.session_id}:{context.run_id}:{context.tool_call_id}",
+                    )
+                    if context.tool_call_id
+                    else uuid4()
+                )
+                identifier = str(UUID(args.request_id)) if args.request_id else str(receipt)
+                try:
+                    return {
+                        "host": host,
+                        **await environments.request(
+                            host,
+                            "shell",
+                            {
+                                "id": identifier,
+                                "command": args.command,
+                            },
+                        ),
+                    }
+                except AgentError as exc:
+                    return {
+                        "host": host,
+                        "id": identifier,
+                        "state": "unknown",
+                        "error": exc.message,
+                        "next": "Inspect Runner receipt or scheduler; do not resubmit blindly",
+                    }
         profiles = shell_profiles(root) if root and host else {}
         if host in profiles:
             try:
                 async with asyncio.timeout(30):
-                    return await profiled_command(root, profiles[host], host, args.command)
+                    result = await profiled_command(root, profiles[host], host, args.command)
+                    return result | {"host": requested_host}
             except TimeoutError as exc:
                 raise AgentError(
                     "ssh_timeout", "SSH 已超时，远端操作状态未知；请先检查结果。", 504
@@ -125,7 +179,7 @@ def remote_shell_tool(hosts: tuple[str, ...], root: Path | None = None) -> Tool:
                     feed(), capped_read(proc.stdout), capped_read(proc.stderr), proc.wait()
                 )
             return {
-                "host": host,
+                "host": requested_host,
                 "exit_code": code,
                 "stdout": stdout[0],
                 "stderr": stderr[0],

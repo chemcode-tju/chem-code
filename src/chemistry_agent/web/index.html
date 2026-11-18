@@ -27,6 +27,7 @@
 <link rel="stylesheet" href="/assets/agent-controls.css">
   <link rel="stylesheet" href="/assets/chat-surface.css">
   <link rel="stylesheet" href="/assets/solid-glass.css">
+  <link rel="stylesheet" href="/assets/job-monitor.css">
 </head>
 <body class="auth-checking workspace-shell">
 
@@ -35,6 +36,14 @@
 
   <button class="screen-overlay" id="screen-overlay" aria-label="关闭侧栏" hidden></button>
   <aside class="sidebar" id="sidebar" aria-label="会话导航">
+    <nav class="workspace-rail" aria-label="功能区">
+      <a id="chat-workspace-entry" class="icon-button" href="/" aria-label="对话" title="对话" aria-current="page"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chat"/></svg></a>
+      <div class="workspace-rail-section">
+        <a id="job-monitor-entry" class="icon-button" href="/monitor" title="作业监控" aria-label="作业监控" hidden><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-queues"/></svg></a>
+      </div>
+      <a class="icon-button workspace-rail-settings" href="/settings" title="设置" aria-label="设置"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-settings"/></svg></a>
+    </nav>
+    <div class="sidebar-pane">
     <div class="sidebar-header"><a class="brand" href="/" aria-label="Chem Code 首页">
       <span class="brand-mark"><svg class="icon brand-icon" viewBox="2 15 94 72" aria-hidden="true"><use href="/assets/favicon.svg?v=cat-02#chem-code"/></svg></span>
       <strong>Chem Code</strong>
@@ -52,9 +61,10 @@
     <button class="settings-entry inbox-entry" id="notification-entry" type="button" data-dialog="notification-panel" aria-label="通知" title="通知" hidden><svg class="icon"><use href="/assets/ui-icons.svg#i-bell"/></svg><span>通知</span><small id="unread-count"></small></button>
     <a class="settings-entry" href="/settings" title="设置" aria-label="设置"><svg class="icon"><use href="/assets/ui-icons.svg#i-settings"/></svg><span>设置</span></a>
     </div>
+    </div>
   </aside>
 
-  <main class="main-panel new-session">
+  <main class="main-panel new-session" id="chat-panel">
     <header class="topbar">
       <div class="breadcrumb"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="打开会话导航" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-menu"/></svg></button><h1 id="conversation-title">新对话</h1></div>
       <div class="topbar-actions"><button class="icon-button tools-toggle" id="tools-toggle" aria-controls="inspector" title="展开研究面板" aria-label="展开研究面板" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-left-panel"/></svg><span id="dock-count" class="sr-only" aria-hidden="true">0</span></button></div>
@@ -72,15 +82,20 @@
         <h1><svg class="icon brand-icon" viewBox="2 15 94 72" aria-hidden="true"><use href="/assets/favicon.svg?v=cat-02#chem-code"/></svg><span>Chem Code</span></h1>
         <label class="workspace-picker"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg><span id="draft-project-name" aria-hidden="true">个人工作空间</span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg><select id="draft-project" aria-label="新对话所属项目"><option value="">个人工作空间</option></select></label>
       </section>
+      <div class="composer-context" role="group" aria-label="对话运行位置">
+        <button type="button" id="host-picker" aria-label="选择服务器" aria-haspopup="menu" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-computer"/></svg><span id="host-picker-label">此计算机</span></button>
+        <button type="button" id="folder-picker" aria-label="选择文件夹" aria-haspopup="menu" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-folder"/></svg><span id="folder-picker-label">文件夹</span></button>
+        <button type="button" id="monitor-picker" aria-label="选择作业监控位置" aria-haspopup="menu" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-automation"/></svg><span id="monitor-picker-label">作业监控 · 自动</span></button>
+      </div>
       <form class="composer" id="chat-form">
         <button id="revision-chip" type="button" hidden title="移除修改目标"></button>
         <div id="structure-attachments" class="structure-attachments"></div>
         <div id="attachment-list" class="attachment-list" aria-live="polite" hidden></div>
         <label class="sr-only" for="message-input">输入化学问题</label>
         <textarea id="message-input" rows="1" maxlength="20000" placeholder="输入研究问题…" required></textarea>
-        <div class="composer-toolbar"><div class="composer-left"><div class="add-menu"><button type="button" class="icon-button" id="composer-add" aria-label="添加附件或工具" title="添加附件或工具" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-plus"/></svg></button><div class="upload-menu" id="composer-upload-menu" hidden><button type="button" data-upload>上传文件</button><div id="shell-options"></div></div></div></div><div class="composer-right"><button id="context-ring" type="button" data-dialog="context-panel" aria-haspopup="dialog" aria-controls="context-panel" aria-expanded="false" aria-label="上下文用量" title="上下文用量"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><circle class="context-used" cx="8" cy="8" r="5.8" pathLength="100" transform="rotate(-90 8 8)"/></svg></button><div class="agent-composer-controls">
+        <div class="composer-toolbar"><div class="composer-left"><div class="add-menu"><button type="button" class="icon-button" id="composer-add" aria-label="添加附件或工具" title="添加附件或工具" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-plus"/></svg></button><div class="upload-menu" id="composer-upload-menu" hidden><button type="button" data-upload>上传文件</button><div id="shell-options"></div></div></div><button type="button" id="permission-picker" class="permission-picker" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-shield"/></svg><span id="permission-label">批准</span><svg class="icon small-chevron"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button></div><div class="composer-right"><button id="context-ring" type="button" data-dialog="context-panel" aria-haspopup="dialog" aria-controls="context-panel" aria-expanded="false" aria-label="上下文用量" title="上下文用量"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><circle class="context-used" cx="8" cy="8" r="5.8" pathLength="100" transform="rotate(-90 8 8)"/></svg></button><div class="agent-composer-controls">
           <button type="button" id="agent-picker" class="agent-picker" aria-haspopup="menu" aria-expanded="false" title="Agent、模型与推理强度"><svg class="icon agent-logo"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span id="agent-picker-label">选择模型</span><svg class="icon small-chevron"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
-          <button type="button" id="permission-picker" class="permission-picker" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="/assets/ui-icons.svg#i-shield"/></svg><span id="permission-label">批准</span><svg class="icon small-chevron"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>
+
           <a href="/settings#agent" class="model-status" id="model-status" title="Agent 与模型设置" aria-label="Agent 与模型设置"><span class="status-dot"></span><span class="sr-only" id="model-label">正在连接…</span></a>
         </div><button class="send-button" id="send-button" type="submit" aria-label="发送消息"><svg class="icon"><use href="/assets/ui-icons.svg#i-arrow"/></svg></button></div></div>
         <section id="agent-approvals" aria-live="polite" hidden></section>
@@ -89,6 +104,58 @@
     </div>
     </div>
   </main>
+
+  <main class="queue-page" id="queue-page" hidden>
+    <header class="queue-toolbar">
+      <h1 id="queue-heading" tabindex="-1">作业监控</h1>
+      <div class="queue-controls">
+        <label class="sr-only" for="queue-host">服务器</label>
+        <select id="queue-host"><option value="">全部服务器</option></select>
+        <button type="button" class="icon-button" id="queue-refresh" title="刷新队列" aria-label="刷新队列"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-refresh"/></svg></button>
+      </div>
+    </header>
+    <div class="queue-content">
+      <section class="queue-list" aria-label="作业列表">
+        <div class="queue-modes" role="group" aria-label="作业视图">
+          <button type="button" id="queue-active" aria-pressed="true">活跃作业</button>
+          <button type="button" id="queue-history" aria-pressed="false">历史作业</button>
+        </div>
+        <div class="queue-summary"><span id="queue-count" role="status">正在读取队列…</span><time id="queue-updated"></time></div>
+        <div id="queue-errors"></div>
+        <div id="queue-jobs"></div>
+      </section>
+      <aside class="queue-detail" id="queue-detail" aria-labelledby="job-heading" hidden>
+        <header class="queue-detail-header">
+          <div class="queue-detail-title"><h2 id="job-heading" tabindex="-1"></h2><div id="job-meta"></div></div>
+          <button type="button" class="icon-button" id="job-close" title="关闭作业详情" aria-label="关闭作业详情"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
+        </header>
+        <div class="queue-folder">
+          <button type="button" class="icon-button" id="job-parent" title="上一级" aria-label="上一级" hidden><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-arrow"/></svg></button>
+          <code id="job-path" class="queue-path" tabindex="0" aria-label="当前目录"></code>
+          <button type="button" class="icon-button" id="job-refresh" title="刷新文件" aria-label="刷新文件"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-refresh"/></svg></button>
+        </div>
+        <p id="job-file-status" role="status" hidden></p>
+        <div id="job-files" aria-label="目录文件"></div>
+        <section class="queue-viewer" id="job-file-preview" aria-label="文件预览" hidden>
+          <header>
+            <span id="job-file-name" data-no-i18n></span><div id="job-file-actions" class="workspace-file-actions"></div>
+            <button type="button" id="job-file-close" class="icon-button" title="关闭文件预览" aria-label="关闭文件预览"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
+          </header>
+          <div id="job-file-body" class="shared-file-preview-body"></div>
+        </section>
+        <section class="queue-viewer" id="job-viewer" aria-label="结构预览" hidden>
+          <header><span id="job-viewer-name"></span><button type="button" id="job-viewer-latest" hidden>最新帧</button><button type="button" id="job-viewer-close" class="icon-button" title="关闭结构预览" aria-label="关闭结构预览"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></header>
+          <details id="job-companions" hidden><summary>配套文件</summary>
+            <div id="job-companion-options"></div>
+            <button type="button" id="job-preview-with-companions">重新打开结构</button>
+          </details>
+          <p id="job-viewer-status" role="status" hidden></p>
+          <iframe id="job-viewer-frame" title="结构查看器"></iframe>
+        </section>
+      </aside>
+    </div>
+  </main>
+
 
   <aside class="inspector" id="inspector" aria-label="研究工具与计算结果">
     <div id="dock-grip" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整右栏宽度" aria-valuemin="300" aria-valuenow="360"></div>
@@ -195,7 +262,7 @@
             <div class="file-preview-identity"><strong id="file-preview-name" data-no-i18n></strong><small id="file-preview-path" data-no-i18n></small></div>
             <div class="workspace-file-actions" id="file-preview-actions"></div>
           </header>
-          <div id="file-preview-body"></div>
+          <div id="file-preview-body" class="shared-file-preview-body"></div>
         </section>
         <section class="file-tree-pane" aria-label="文件树">
           <label class="search-field file-browser-filter"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-find"/></svg><input id="file-browser-filter" type="search" maxlength="200" autocomplete="off" spellcheck="false" placeholder="筛选文件…" aria-label="筛选文件" aria-controls="file-browser-results" disabled></label>

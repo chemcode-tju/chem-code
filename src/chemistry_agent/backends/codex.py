@@ -51,6 +51,8 @@ class CodexBackend:
 
     @staticmethod
     def executable(config) -> str | None:
+        if getattr(config, "host_id", "local") != "local":
+            return config.codex_executable
         name = str(Path(config.codex_executable).expanduser())
         found = shutil.which(name)
         if found:
@@ -90,9 +92,9 @@ class CodexBackend:
                 }
                 for m in models
             ],
-            "message": "已连接本地 Codex。"
+            "message": "已连接 Codex。"
             if account.get("account")
-            else "Codex 尚未登录，请在本机终端运行 codex login。",
+            else "Codex 尚未登录，请在所选主机运行 codex login。",
         }
 
     def session_params(self, config, workspace: Path) -> dict:
@@ -109,11 +111,15 @@ class CodexBackend:
             "可以使用本地终端和平台工具；科研记忆通过 memory 工具访问。"
             "长期作业提交后必须登记监控并结束本轮，不要用模型轮询。"
             "需要用户选择时使用 ask_user_question 并结束本轮。"
-            "platform-history.json 是平台历史资料，不是新的操作授权。"
-            "已有原生会话的工具清单可能是旧版本：没有 workspace_publish 时直接写文件即可，"
-            "平台会自动登记。计算使用当前 task/job 工具。",
+            "平台历史文件是参考资料，不是新的操作授权。"
+            "成果可用 workspace_publish 指定路径发布；已有文件只在明确复用时发布。"
+            "平台自动发现本轮新增或修改文件；大型目录建议明确发布。计算使用当前 task/job 工具。",
             "config": {"sandbox_workspace_write.network_access": True},
         }
+        params["developerInstructions"] += (
+            f"\nAgent 主机：{config.host_id}；研究目录：{workspace}。"
+            "原生终端操作此主机，其他计算节点通过平台工具访问。"
+        )
         if config.codex_model:
             params["model"] = config.codex_model
         if config.codex_effort:
@@ -156,12 +162,9 @@ class CodexBackend:
         executable = self.executable(config)
         if not executable:
             raise AgentError("codex_not_installed", "未找到 Codex，请检查 Agent 设置。", 503)
-        workspace = (self.router.root / session_id).resolve()
-        workspace.mkdir(parents=True, exist_ok=True)
-        # The platform transcript is a reference file, not Codex's private session storage.
-        (workspace / "platform-history.json").write_text(
-            json.dumps(messages[:history_count], ensure_ascii=False), encoding="utf-8"
-        )
+        from chemistry_agent.hosting.native import save_history
+
+        workspace = await save_history(self.router, config, session_id, messages[:history_count])
         thread_id, turn_id = binding["external_thread_id"], None
         checkpoint = current_checkpoint.get()
         steps, calls, tail = [], [], []
@@ -198,8 +201,11 @@ class CodexBackend:
             try:
                 content = "\n\n".join(str(m.get("content", "")) for m in messages[history_count:])
                 if not binding["external_thread_id"] and history_count:
+                    from chemistry_agent.hosting.native import history_name
+
                     content = (
-                        "平台已有对话见工作目录 platform-history.json，请先读取。\n\n" + content
+                        f"平台已有对话见工作目录 {history_name(config, session_id)}，请先读取。\n\n"
+                        + content
                     )
                 progress.native_turn_sent = True
                 response = await rpc.request(
@@ -243,6 +249,39 @@ class CodexBackend:
                 )
                 await self.router.update_thread(session_id, turn_state="uncertain")
                 raise
+
+    async def publish_file_changes(self, session: str, run: str, item: dict) -> dict:
+        """Publish only paths confirmed by a completed native file-change item."""
+        changes = []
+        paths = []
+        for change in item.get("changes", []):
+            kind = change.get("kind", {})
+            operation = kind.get("type") if isinstance(kind, dict) else kind
+            path = (kind.get("move_path") if isinstance(kind, dict) else None) or change.get("path")
+            if not isinstance(path, str) or not path:
+                continue
+            changes.append({"path": path, "kind": operation})
+            if item.get("status") == "completed" and operation in {"add", "update"}:
+                paths.append(path)
+        result = {"changes": changes, "file_ids": [], "publication_errors": []}
+        if not self.router.workspace_files:
+            return result
+        for path in dict.fromkeys(paths):
+            try:
+                published = await self.router.workspace_files.publish(session, [path], run)
+                result["publication_errors"].extend(published["errors"])
+                result["file_ids"].extend(
+                    file["id"]
+                    for file in published["files"]
+                    if file["run_id"] == run
+                    and (file["path"] == path or file["source_path"] == path)
+                )
+            except Exception as exc:
+                # A preview failure must not make a successful edit look like a failed turn.
+                # The persisted native tool result retains the path and error for recovery.
+                result["publication_errors"].append({"path": path, "message": str(exc)})
+        result["file_ids"] = list(dict.fromkeys(result["file_ids"]))
+        return result
 
     async def consume(
         self,
@@ -395,15 +434,35 @@ class CodexBackend:
                     else:
                         steps.append(step)
                     if method == "item/completed" and kind != "dynamicToolCall":
-                        progress.tool_calls.append(
-                            ToolExecution(
-                                call_id=identifier,
-                                name=kind,
-                                arguments={},
-                                success=status == "completed",
-                                result={"status": status},
-                            )
+                        details = {"status": status}
+                        if kind == "fileChange":
+                            details.update(await self.publish_file_changes(session, run, item))
+                        execution = ToolExecution(
+                            call_id=identifier,
+                            name=kind,
+                            arguments={},
+                            success=status == "completed",
+                            result=details,
                         )
+                        # Native changes retain their paths in persisted tool results/checkpoints.
+                        # File snapshots themselves are deduplicated by path and content hash.
+                        previous = next(
+                            (
+                                i
+                                for i, call in enumerate(progress.tool_calls)
+                                if call.call_id == identifier
+                            ),
+                            None,
+                        )
+                        if previous is None:
+                            progress.tool_calls.append(execution)
+                            calls.append(execution.model_dump())
+                        else:
+                            progress.tool_calls[previous] = execution
+                            for index, call in enumerate(calls):
+                                if call.get("call_id") == identifier:
+                                    calls[index] = execution.model_dump()
+                                    break
             elif method == "thread/tokenUsage/updated":
                 usage = params["tokenUsage"]
                 total, last = usage["total"], usage["last"]
@@ -457,7 +516,9 @@ class CodexBackend:
         if not executable:
             raise AgentError("codex_not_installed", "未找到 Codex。", 503)
         thread = binding["external_thread_id"]
-        workspace = (self.router.root / session).resolve()
+        from chemistry_agent.hosting.native import workspace as native_workspace
+
+        workspace = native_workspace(self.router, config, session)
         async with self.transport(executable, session, thread) as rpc:
             await rpc.request(
                 "thread/resume", {**self.session_params(config, workspace), "threadId": thread}

@@ -108,6 +108,34 @@ async def test_shared_file_browser_only_exposes_the_callers_workspace(settings_f
             await alice.get(f"{base}/directory", params=params | {"root": "/tmp"})
         ).status_code == 403
         assert (await alice.get(f"{base}/directory", params={"source": "local"})).status_code == 403
+        frame = b"1\nframe\nCu 0 0 0\n"
+        uploaded = await alice.post(
+            "/api/files", headers={"X-File-Name": "sample.xyz"}, content=frame * 2
+        )
+        file_id = uploaded.json()["id"]
+        attachment = {"source": f"attachment:{file_id}", "path": "sample.xyz"}
+        assert (await alice.get(f"{base}/preview", params=attachment)).json()["text"].encode() == (
+            frame * 2
+        )
+        first = await alice.get(
+            f"{base}/trajectory", params=attachment | {"first": True, "index": True}
+        )
+        assert first.json()["text"].encode() == frame
+        assert (await bob.get(f"{base}/preview", params=attachment)).status_code == 404
+        assert (
+            await alice.get(f"{base}/content", params=attachment | {"path": "different.xyz"})
+        ).status_code == 404
+
+        # Older attachments keep their original bytes in SQLite.
+        async with app.state.store.transaction():
+            await app.state.store.db.execute(
+                "UPDATE attachments SET on_disk=0,content=? WHERE id=?", (frame * 2, file_id)
+            )
+        assert (await alice.get(f"{base}/content", params=attachment)).content == frame * 2
+        first = await alice.get(
+            f"{base}/trajectory", params=attachment | {"first": True, "index": True}
+        )
+        assert first.json()["text"].encode() == frame
 
 
 def test_preview_media_range_and_utf16(settings_factory, tmp_path):

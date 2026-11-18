@@ -9,6 +9,7 @@ test('plan runtime labels translate without changing progress values or units', 
   assert.equal(t('v29 · 修改 1 步'), 'v29 · 1 step changed');
   assert.equal(t('10 / 12 步'), '10 / 12 steps');
   assert.equal(t('Cu(100) · -1.25 eV · 298.15 K'), 'Cu(100) · -1.25 eV · 298.15 K');
+  assert.equal(t('已启用 3 个节点'), 'Enabled nodes: 3');
 });
 
 test('notification and tool-count patterns retain all counts', () => {

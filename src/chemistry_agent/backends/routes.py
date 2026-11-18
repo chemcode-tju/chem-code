@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from chemistry_agent.automation.routes import local_service
-from chemistry_agent.backends.service import BackendSettings, SessionSelection
+from chemistry_agent.backends.service import BackendSettings, BackendUpdate, SessionSelection
 
 router = APIRouter(prefix="/api/agents", tags=["agent backends"])
 
@@ -21,6 +21,12 @@ async def settings(request: Request) -> dict:
 async def save(body: BackendSettings, request: Request) -> dict:
     local_service(request)
     return await request.app.state.agent_backends.save_settings(body)
+
+
+@router.patch("/settings/{backend}")
+async def save_card(backend: str, body: BackendUpdate, request: Request) -> dict:
+    local_service(request)
+    return await request.app.state.agent_backends.update_settings(backend, body)
 
 
 @router.post("/codex/probe")

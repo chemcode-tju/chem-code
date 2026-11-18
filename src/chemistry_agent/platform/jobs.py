@@ -69,8 +69,17 @@ class JobOperations:
         if args.host:
             return await plans.slurm.request(args.host, {"root": ".", "action": "environment"})
         allowed = plans.slurm.hosts()
+        from chemistry_agent.environments.registry import Environments
+
         return {
             "hosts": allowed,
+            "environments": [
+                {k: v for k, v in e.items() if k in {"id", "name", "transport", "capabilities"}}
+                for e in Environments(plans.slurm.root).inventory(
+                    plans.slurm.settings.allowed_ssh_hosts
+                )
+                if e["enabled"]
+            ],
             "local_ssh_config": [row for row in discover_aliases() if row["alias"] in allowed],
             "discovery": "Use remote_shell(host=alias, command=...) to inspect remote shell/config "
             "files and find executables/environment scripts/potential libraries; "

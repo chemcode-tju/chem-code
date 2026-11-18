@@ -106,6 +106,8 @@ async def test_backend_completion_discovers_outputs_without_a_publish_tool_call(
         workspace = root / session
         workspace.mkdir(parents=True)
 
+        (workspace / "previous.xyz").write_text("old research file")
+
         class NativeLikeAgent:
             async def run(self, messages, progress, **kwargs):
                 (workspace / "molecule.xyz").write_text("1\nH atom\nH 0 0 0\n")
@@ -134,3 +136,39 @@ async def test_disabled_legacy_backend_cannot_launch_a_worker(settings_factory, 
     service = AutomationService(settings_factory(automation_enabled=True))
     with pytest.raises(AgentError, match="旧执行后端已移除"):
         await service.call("submit", {"preview_id": str(uuid4())})
+
+
+async def test_existing_folder_read_only_turn_and_explicit_reuse(tmp_path):
+    store = await Store.open(tmp_path / "store.sqlite3")
+    try:
+        session = (await store.create_session("existing research"))["id"]
+        root = tmp_path / "workspaces"
+        folder = root / session
+        folder.mkdir(parents=True)
+        (folder / "old.txt").write_text("original")
+
+        class ReadOnlyAgent:
+            async def run(self, messages, progress, **kwargs):
+                return {"messages": [{"role": "assistant", "content": "inspected"}]}
+
+        backend = BackendRouter(store, ReadOnlyAgent(), ToolRegistry(), root, "")
+        await backend.initialize()
+        files = WorkspaceFiles(store, root)
+        await files.initialize()
+        backend.workspace_files = files
+        await backend.run([], None, session_id=session, run_id=str(uuid4()))
+        assert await files.list(session) == []
+        baseline = await backend.output_snapshot(session)
+        (folder / "old.txt").write_text("updated")
+        (folder / "nested").mkdir()
+        (folder / "nested" / "new.txt").write_text("new result")
+        await backend.publish_workspace(session, str(uuid4()), baseline)
+        assert {row["path"] for row in await files.list(session)} == {"old.txt", "nested/new.txt"}
+        # Incomplete metadata is not evidence of creation; explicit publication still works.
+        (folder / "manual.txt").write_text("explicit result")
+        await backend.publish_workspace(session, str(uuid4()), {"complete": False, "files": {}})
+        assert len(await files.list(session)) == 2
+        published = await files.publish(session, ["manual.txt"], str(uuid4()))
+        assert len(published["files"]) == 3
+    finally:
+        await store.close()

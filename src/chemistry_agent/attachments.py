@@ -96,8 +96,7 @@ async def upload_file(request: Request) -> dict:
     return {"id": file_id, "name": name, "size": size, "text_available": decoder is not None}
 
 
-@router.get("/{file_id}")
-async def download_file(file_id: UUID, request: Request) -> Response:
+async def owned_attachment(file_id: UUID, request: Request) -> tuple[str, Path | bytes]:
     store = request.app.state.store
     async with store.lock:
         row = await store._one(
@@ -106,16 +105,22 @@ async def download_file(file_id: UUID, request: Request) -> Response:
         )
     if row is None:
         raise AgentError("file_not_found", "文件不存在。", 404)
+    original = store.attachment_dir / str(file_id) if row["on_disk"] else row["content"]
+    return row["name"], original
+
+
+@router.get("/{file_id}")
+async def download_file(file_id: UUID, request: Request) -> Response:
+    name, original = await owned_attachment(file_id, request)
     headers = {
-        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(row['name'])}",
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
         "X-Content-Type-Options": "nosniff",
     }
-    if row["on_disk"]:
-        path = store.attachment_dir / str(file_id)
-        if not path.is_file():
+    if isinstance(original, Path):
+        if not original.is_file():
             raise AgentError("file_not_found", "原始附件不存在。", 404)
-        return FileResponse(path, media_type="application/octet-stream", headers=headers)
-    return Response(content=row["content"], media_type="application/octet-stream", headers=headers)
+        return FileResponse(original, media_type="application/octet-stream", headers=headers)
+    return Response(content=original, media_type="application/octet-stream", headers=headers)
 
 
 async def attachment_context(store: "Store", file_ids: list[UUID], owner_id: str | None) -> str:

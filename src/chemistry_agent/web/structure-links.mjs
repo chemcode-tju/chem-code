@@ -55,8 +55,10 @@ export function createStructureBridge({selectTab,toast,onFrame=()=>{},frame=docu
       pending=null;queuedSelection=null;loaded=false;failed=false;clearTimeout(timer);
       selectTab('structure');
       try {
-        let input = {trajectory};
-        if (!trajectory) {
+        let input;
+        if (trajectory) {
+          input = {trajectory, companions:companions.map(item=>new File([item.text],item.name))};
+        } else {
           const blob=await fetchBlob({signal});
           if(version!==generation)return;
           if(sequence && (!Array.isArray(blob)||!blob.length||blob.some(item=>!(item instanceof File))))throw Error('路径结构文件无效');
@@ -118,9 +120,12 @@ export function createStructureDocuments({inspector, toast}) {
   };
 }
 
-export async function getFileBlob(url) {
-  const response = await fetch(url, {credentials:'same-origin', redirect:'error'});
-  if (!response.ok) throw new Error(response.status === 401 ? '登录已过期，请重新登录。' : '结构文件暂时无法读取。');
+export async function getFileBlob(url, {signal} = {}) {
+  const response = await fetch(url, {credentials:'same-origin', redirect:'error', signal});
+  if (!response.ok) {
+    const detail = await response.json().catch(()=>null);
+    throw Error(response.status === 401 ? '登录已过期，请重新登录。' : detail?.error?.message || '文件暂时无法读取。');
+  }
   return response.blob();
 }
 

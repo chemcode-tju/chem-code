@@ -162,6 +162,36 @@ async def test_script_to_binary_dependency_and_restart(cluster):
     assert len(json.loads((tmp / "scheduler.json").read_text())) == 2
 
 
+async def test_two_environments_in_one_plan_file_handoff_and_restart(cluster):
+    """Two actual Runner dispatches share the platform session, not a remote directory."""
+    from chemistry_agent.environments.registry import Environment, Environments
+
+    plans, context, tmp = cluster
+    environments = Environments(plans.chat.service.settings.platform_path)
+    for host in ("cpu", "gpu"):
+        environments.save(Environment(id=host, name=host, transport="local"))
+    plans.slurm = SlurmJobs(plans.chat)
+    producer = job(tmp, "reference", "printf '\\000\\001training-data' > result.dat")
+    producer["job"].update(host="cpu", workdir=str(tmp / "cpu"))
+    consumer = job(tmp, "training", "cp dataset.bin result.dat")
+    consumer["job"].update(host="gpu", workdir=str(tmp / "gpu"))
+    consumer["files"] = [{"node": "reference", "path": "result.dat", "target": "dataset.bin"}]
+    identifier = await draft(plans, context, [producer, consumer])
+    await tick(plans, context, identifier)
+    plans.slurm = SlurmJobs(plans.chat)
+    await tick(plans, context, identifier)
+    done = await tick(plans, context, identifier)
+    assert done["status"] == "completed"
+    state = done["runtime"]["training"]
+    directory = plans.chat.directory(context.session_id, "plan_runs") / identifier
+    manifest = json.loads((directory / "training" / "_job_inputs" /
+                           state["generic_job_id"] / "file_inputs.json").read_text())
+    assert len(manifest["dataset.bin"]["sha256"]) == 64
+    assert manifest["dataset.bin"]["node"] == "reference"
+    await tick(plans, context, identifier)
+    assert len(json.loads((tmp / "scheduler.json").read_text())) == 2
+
+
 async def test_failure_preserves_files_blocks_dependents_and_agent_repairs(cluster):
     plans, context, tmp = cluster
     first = job(tmp, script="echo partial > result.dat; exit 7")

@@ -9,17 +9,22 @@ import sqlite3
 from pathlib import Path
 from uuid import UUID
 
-from chemistry_agent.automation import result_reader, slurm_remote
+from chemistry_agent.automation import queue_remote, result_reader, slurm_remote
 from chemistry_agent.automation.job_models import JobSettings, artifact_path
 from chemistry_agent.automation.ssh_profiles import load_profile, shell_profiles, write_private
 from chemistry_agent.errors import AgentError
 from chemistry_agent.store import utc_now
 
 CHUNK_BYTES = 1024 * 1024
-REMOTE_HELPER = Path(slurm_remote.__file__).read_text().replace(
-    "from chemistry_agent.automation.result_reader import result_snapshot",
-    Path(result_reader.__file__).read_text(),
+REMOTE_HELPER = (
+    Path(slurm_remote.__file__)
+    .read_text()
+    .replace(
+        "from chemistry_agent.automation.result_reader import result_snapshot",
+        Path(result_reader.__file__).read_text(),
+    )
 )
+QUEUE_HELPER = Path(queue_remote.__file__).read_text()
 
 
 def input_files(directory: Path) -> list[Path]:
@@ -74,14 +79,14 @@ class SlurmJobs:
         self.settings = chat.service.settings
         self.root = self.settings.platform_path
         self.locks: dict[str, asyncio.Lock] = {}
+        from chemistry_agent.hosting.monitor import MonitorPlacement
+
+        self.placement = MonitorPlacement(self)
 
     def hosts(self) -> list[str]:
-        from chemistry_agent.automation.local_ssh import enabled_aliases
+        from chemistry_agent.environments.registry import Environments
 
-        return sorted(
-            set(enabled_aliases(self.root, self.settings.allowed_ssh_hosts))
-            | set(shell_profiles(self.root))
-        )
+        return Environments(self.root).available_hosts(self.settings.allowed_ssh_hosts)
 
     def load(self, session: str, identifier: str) -> dict:
         return self.chat.load(session, "slurm_jobs", identifier)
@@ -90,9 +95,18 @@ class SlurmJobs:
         write_private(self.chat.directory(session, "slurm_jobs") / f"{record['id']}.json", record)
 
     async def request(self, host: str, payload: dict) -> dict:
+        from chemistry_agent.environments.registry import Environments
+
+        environments = Environments(self.root)
         if host not in self.hosts():
             raise AgentError("job_host_unknown", "请先登记该 SSH 服务器别名。", 422)
-        command = "python3 -c " + shlex.quote(REMOTE_HELPER)
+        environment = environments.get(host)
+        if environment:
+            if environment.transport != "ssh":
+                return await environments.slurm(host, payload)
+            host = environment.ssh_alias or host
+        source = QUEUE_HELPER if payload["action"] in queue_remote.QUEUE_ACTIONS else REMOTE_HELPER
+        command = "python3 -c " + shlex.quote(source)
         encoded = json.dumps(payload).encode()
         process = None
         try:
@@ -273,7 +287,9 @@ class SlurmJobs:
             record = self.load(session, identifier)
             if record.get("terminal"):
                 return record
-            result = await self.remote(record, "status")
+            result = await self.placement.inspect(session, record)
+            if result is None:
+                result = await self.remote(record, "status")
             record.update(result, checked_at=utc_now())
             if record["status"] == "quota_wait":
                 record.setdefault("quota_wait_since", utc_now())

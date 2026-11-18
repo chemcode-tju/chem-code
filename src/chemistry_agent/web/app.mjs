@@ -11,6 +11,7 @@ import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, createStructureDocuments, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
 import { createCalculations } from "./calculations.mjs?v=20261102-general-plans";
+import {initJobMonitor} from "./job-monitor.mjs";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
@@ -30,6 +31,9 @@ const state = {
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
 const setDockMaximized = initWorkspaceControls({closeInspector:()=>setInspectorOpen(false)});
+const jobMonitor = initJobMonitor();
+let activeWorkspace = "chat";
+let restoreChatInspector = false;
 initAnswerControls({root:document.body,answer:i=>state.turns[i]?.answer,toast});
 initDeferredActivities({root:$("conversation"), resolve:id=>state.turns.find((turn,index)=>String(turn.run?.id || index)===id)});
 
@@ -53,6 +57,12 @@ const selectInspectorTab = inspectorTabs.select;
 const viewer = createStructureBridge({selectTab:selectInspectorTab, toast});
 const structureDocuments = createStructureDocuments({inspector:inspectorTabs, toast});
 const fileBrowser = createFileBrowser({api, session:()=>state.sessionId, viewer:structureDocuments});
+document.addEventListener('click', event => {
+  const action = event.target.closest('[data-preview-attachment]');
+  if (!action) return;
+  selectInspectorTab('file');
+  void fileBrowser.openAttachment(action.dataset.previewAttachment, action.dataset.previewName);
+});
 async function syncReport(id,event) {
     if (state.busy || state.loading || state.turns.some(t=>t.event===event)) return;
     const generation = state.navigation;
@@ -84,7 +94,8 @@ const calculations = createCalculations({
     $("revision-chip").insertAdjacentHTML("beforeend", icon("close"));
     field.focus();
   },
-  viewer, chatFiles: () => [...state.turns.flatMap(turn => turn.files?.length ? turn.files : contextFiles(turn.context)), ...uploads.files],
+  viewer, openAttachment:fileBrowser.openAttachmentStructure,
+  chatFiles: () => [...state.turns.flatMap(turn => turn.files?.length ? turn.files : contextFiles(turn.context)), ...uploads.files],
   api, getSession: () => state.sessionId,
   isBusy: () => state.busy || state.loading || chatModels?.saving || uploads.uploading,
   toast, onConfirmed: async (id) => { await selectSession(id); await refreshSessions(); },
@@ -122,6 +133,8 @@ function toast(message) {
 
 function rememberSession(id) {
   $("memory-entry").href = id ? `/memory?session=${encodeURIComponent(id)}` : "/memory";
+  $("job-monitor-entry").href = id ? `/monitor?session=${encodeURIComponent(id)}` : "/monitor";
+  $("chat-workspace-entry").href = id ? `/?session=${encodeURIComponent(id)}` : "/";
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try {
     if (id) localStorage.setItem(storageKey, id);
@@ -136,7 +149,7 @@ function rememberSession(id) {
 
 function syncDrawerAccessibility() {
   const loginRequired = !$("login-screen").hidden;
-  const sidebarHidden = loginRequired || (innerWidth <= 767 && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
+  const sidebarHidden = loginRequired || (activeWorkspace === "chat" && innerWidth <= 767 && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
   const inspectorHidden = loginRequired || !document.body.classList.contains("inspector-open");
   const mainHidden = loginRequired || (innerWidth <= 767 && !inspectorHidden);
   document.querySelector(".main-panel").inert = mainHidden;
@@ -146,6 +159,42 @@ function syncDrawerAccessibility() {
   $("sidebar").setAttribute("aria-hidden", String(sidebarHidden));
   $("inspector").setAttribute("aria-hidden", String(inspectorHidden));
 }
+
+function setWorkspace(name, {navigate = false, focus = false} = {}) {
+  if (name === activeWorkspace) return;
+  if (name === "monitor" && (state.auth.enabled || $("job-monitor-entry").hidden && navigate)) return;
+  if (name === "monitor") {
+    restoreChatInspector = document.body.classList.contains("inspector-open");
+    setDrawer("sidebar", false);
+    setInspectorOpen(false, {focus:false,persist:false});
+  }
+  activeWorkspace = name;
+  const monitor = name === "monitor";
+  const entry = $(monitor ? "job-monitor-entry" : "chat-workspace-entry");
+  document.body.classList.toggle("monitor-workspace", monitor);
+  $("chat-panel").hidden = monitor;
+  $("queue-page").hidden = !monitor;
+  $(monitor ? "chat-workspace-entry" : "job-monitor-entry").removeAttribute("aria-current");
+  entry.setAttribute("aria-current", "page");
+  jobMonitor.show(monitor);
+  if (!monitor && restoreChatInspector) setInspectorOpen(true, {focus:false,persist:false});
+  syncDrawerAccessibility();
+  if (navigate) history.pushState(null, "", entry.href);
+  if (focus) $(monitor ? "queue-heading" : "conversation-title").focus({preventScroll:true});
+}
+
+for (const [id, name] of [["chat-workspace-entry", "chat"], ["job-monitor-entry", "monitor"]]) {
+  $(id).addEventListener("click", event => {
+    if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    setWorkspace(name, {navigate:true,focus:true});
+  });
+}
+window.addEventListener("popstate", () => {
+  if (!history.state?.workspaceSettings) {
+    setWorkspace(location.pathname === "/monitor" ? "monitor" : "chat");
+  }
+});
 
 function inspectorKey(id) {
   return "chemistry.inspector." + (state.auth.user?.id || "local") + "." + (id || "draft");
@@ -171,6 +220,7 @@ function restoreInspector(id, fresh = false) {
   setInspectorOpen(saved?.open === true, {focus:false, persist:false});
 }
 function setInspectorOpen(open, { focus = true, persist = true } = {}) {
+  if (activeWorkspace === "monitor" && open) { restoreChatInspector = true; return; }
   const wasFocused = $("inspector").contains(document.activeElement);
   if (open) {
     inspectorTabs.loadActive();
@@ -216,6 +266,7 @@ function updateControls() {
     (external ? !view || view.disabled : !state.health?.model_configured);
   $("agent-picker").disabled = Boolean(locked || state.metadataLoading);
   $("permission-picker").disabled = Boolean(locked || state.metadataLoading);
+  for (const id of ['host-picker','folder-picker','monitor-picker']) $(id).disabled = Boolean(locked || state.metadataLoading);
   $("message-input").disabled = state.loading;
   $("send-button").disabled = locked || state.metadataLoading || uploads.uploading || !state.health?.model_configured;
   $("composer-add").disabled = locked || uploads.uploading;
@@ -250,6 +301,7 @@ async function refreshHealth() {
       };
       return button;
     }));
+    $("job-monitor-entry").hidden = !state.health.queue_monitor_enabled;
     calculations.enabled(Boolean(state.health.automation_enabled));
     notifications.enabled(Boolean(state.health.automation_enabled));
     chatModels?.render();
@@ -308,7 +360,7 @@ async function refreshSessions(append = false) {
   renderSessions();
 }
 
-const workspaceFiles=createWorkspaceFiles({api,session:()=>state.sessionId,viewer,
+const workspaceFiles=createWorkspaceFiles({api,session:()=>state.sessionId,
   attach:file=>{uploads.add(file);$("message-input").focus();},toast});
 
 function renderUser(text, context, files = [], structures = []) {
@@ -892,6 +944,7 @@ async function startWorkspace() {
     url.searchParams.delete("setup"); history.replaceState(null,"",url);
     field.focus();
   }
+  if (entry.pathname === "/monitor") setWorkspace("monitor");
 }
 
 async function initialize() {

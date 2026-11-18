@@ -47,7 +47,7 @@
     if (files.length === 1 && files[0].openIndexed) {
       return {name:files[0].name, store:await files[0].openIndexed(), note:''};
     }
-    if (files.length === 1 && files[0].initialize) files[0] = await files[0].initialize();
+    if (files[0].initialize) files[0] = await files[0].initialize();
     const entries=await Promise.all(files.map(async file=>({file,format:await classify(file)})));
     if(files.length===1 && format!=='auto')entries[0].format=format;
     const dumps=entries.filter(entry=>entry.format==='lammps-dump-text');

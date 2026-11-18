@@ -42,6 +42,10 @@ test('local links resolve only against registered current-session files',()=>{
   for(const href of ['https://evil.test/api/files/123','file://remote/Users/a/a%20b.xyz','file:///Users/a/credentials.json','file:///Users/b/a%20b.xyz','javascript:alert(1)'])
     assert.equal(linkedWorkspaceFile(href,[file],'http://127.0.0.1:8768'),undefined);
   assert.equal(linkedWorkspaceFile('file:///Users/a/a%20b.xyz',[],'http://127.0.0.1:8768'),undefined);
+  const remote={...file,source_path:'/data/research/a b.xyz',sources:[{host:'cluster-a',path:'/data/research/a b.xyz'},{host:'local',path:'/Users/a/a b.xyz'}]};
+  for(const href of ['file:///data/research/a%20b.xyz','/data/research/a%20b.xyz','file:///Users/a/a%20b.xyz'])
+    assert.equal(linkedWorkspaceFile(href,[remote],'http://127.0.0.1:8768'),remote);
+  assert.equal(linkedWorkspaceFile('/data/another/a%20b.xyz',[remote],'http://127.0.0.1:8768'),undefined);
   assert.match(markdown.render('[unknown](file:///private/not-published.txt)'), /<span class="local-file-reference"/);
   assert.doesNotMatch(markdown.render('`[x](file:///private/x)`'), /data-local-file-path/);
 });

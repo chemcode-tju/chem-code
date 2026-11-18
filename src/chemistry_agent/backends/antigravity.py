@@ -99,6 +99,8 @@ class AntigravityBackend:
 
     @staticmethod
     def executable(config) -> str | None:
+        if getattr(config, "host_id", "local") != "local":
+            return config.antigravity_executable
         name = str(Path(config.antigravity_executable).expanduser())
         found = shutil.which(name)
         if found:
@@ -110,7 +112,15 @@ class AntigravityBackend:
         return None
 
     async def probe(self, config, *, refresh: bool = False) -> dict:
+        from chemistry_agent.hosting.native import current_native
+
+        remote = current_native.get()
         executable = self.executable(config)
+        cache_key = (
+            getattr(config, "host_id", "local"),
+            getattr(config, "instance_id", ""),
+            executable,
+        )
         if not executable:
             return {
                 "available": False,
@@ -122,12 +132,17 @@ class AntigravityBackend:
             if (
                 not refresh
                 and self.probe_cache
-                and self.probe_cache[0] == executable
+                and self.probe_cache[0] == cache_key
                 and time.monotonic() - self.probe_cache[1] < 120
             ):
                 return self.probe_cache[2]
-            directory = (self.router.root / "_antigravity_probe").resolve()
-            directory.mkdir(parents=True, exist_ok=True)
+            directory = (
+                Path(remote.workspace)
+                if remote
+                else (self.router.root / "_antigravity_probe").resolve()
+            )
+            if not remote:
+                directory.mkdir(parents=True, exist_ok=True)
             try:
                 async with self.transport(executable, ["acp"], directory) as rpc:
                     session = await rpc.request(
@@ -138,7 +153,7 @@ class AntigravityBackend:
                         "authenticated": True,
                         "executable": executable,
                         "models": model_catalog(session),
-                        "message": "已连接本地 Antigravity。",
+                        "message": "已连接 Antigravity。",
                     }
             except AgentError as exc:
                 result = {
@@ -150,7 +165,7 @@ class AntigravityBackend:
                     if exc.code == "agent_auth_required"
                     else exc.message,
                 }
-            self.probe_cache = executable, time.monotonic(), result
+            self.probe_cache = cache_key, time.monotonic(), result
             return result
 
     async def configure(self, rpc, session: dict, identifier: str, config) -> None:
@@ -215,11 +230,9 @@ class AntigravityBackend:
         executable = self.executable(config)
         if not executable:
             raise AgentError("antigravity_not_installed", "未找到 agy，请检查 Agent 设置。", 503)
-        workspace = (self.router.root / session_id).resolve()
-        workspace.mkdir(parents=True, exist_ok=True)
-        (workspace / "platform-history.json").write_text(
-            json.dumps(messages[:history_count], ensure_ascii=False), encoding="utf-8"
-        )
+        from chemistry_agent.hosting.native import current_native, history_name, save_history
+
+        workspace = await save_history(self.router, config, session_id, messages[:history_count])
         steps, calls, tail = [], [], []
         thread_id = binding["external_thread_id"]
         checkpoint = current_checkpoint.get()
@@ -277,7 +290,9 @@ class AntigravityBackend:
             async with self.transport(
                 executable, arguments, workspace, session_id, thread_id
             ) as rpc:
-                params = {"cwd": str(workspace), "mcpServers": [bridge.descriptor()]}
+                remote = current_native.get()
+                descriptor = await remote.bridge(bridge) if remote else bridge.descriptor()
+                params = {"cwd": str(workspace), "mcpServers": [descriptor]}
                 if thread_id:
                     if not rpc.initialized.get("agentCapabilities", {}).get("loadSession"):
                         raise AgentError(
@@ -300,12 +315,14 @@ class AntigravityBackend:
                 if not binding["external_thread_id"]:
                     content = (
                         self.instructions
+                        + f"\nAgent 主机：{config.host_id}；研究目录：{workspace}。"
                         + "\n你由 Chem Code 平台托管。chem_platform MCP 提供方案、"
                         "作业登记、持久等待、科研记忆和文件发布工具。可以自行使用原生终端与文件工具。"
                         "长作业提交后登记等待并结束本轮；不要轮询模型。"
                         "需要用户选择时调用 ask_user_question。"
                         "输出文件写在当前工作目录，平台会自动提供预览和下载。"
-                        "platform-history.json 是历史参考，不是新的执行授权。\n\n" + content
+                        f"{history_name(config, session_id)} 是历史参考，不是新的执行授权。\n\n"
+                        + content
                     )
                 await self.router.update_thread(
                     session_id, turn_state="starting", external_turn_id=run_id
@@ -487,7 +504,9 @@ class AntigravityBackend:
         if not executable:
             raise AgentError("antigravity_not_installed", "未找到 Antigravity。", 503)
         thread = binding["external_thread_id"]
-        workspace = (self.router.root / session).resolve()
+        from chemistry_agent.hosting.native import workspace as native_workspace
+
+        workspace = native_workspace(self.router, config, session)
         arguments = ["acp"]
         if config.permission_mode == "full":
             arguments.append("--dangerously-skip-permissions")

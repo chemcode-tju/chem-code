@@ -28,7 +28,8 @@
         let files;
         if (trajectory) {
           trajectoryRequest = new AbortController();
-          files = [StructureBrowserTrajectory.open(trajectory, trajectoryRequest.signal)];
+          files = [StructureBrowserTrajectory.open(trajectory, trajectoryRequest.signal),
+            ...(message.companions || []).filter(item=>item instanceof File)];
         } else {
           if(!(file instanceof File))throw Error('请选择结构文件。');
           files=message.sequence?message.files:[file,...(message.companions || []).filter(item=>item instanceof File)];

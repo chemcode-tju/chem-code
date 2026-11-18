@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -136,6 +136,8 @@ class ToolRegistry:
             args = tool.input_model.model_validate(arguments)
             if tool.contextual and context is None:
                 raise AgentError("chat_context_required", "请在对话中使用此工具。", 422)
+            if context is not None:
+                context = replace(context, tool_call_id=call.id)
             values = (args, context) if tool.contextual else (args,)
             from chemistry_agent.backends.approvals import current_tool_approval
 

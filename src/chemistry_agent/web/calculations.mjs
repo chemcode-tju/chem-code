@@ -38,7 +38,7 @@ export function renderTaskCard(item, job, recovery, sessionPath, policy={}) {
     ${job ? (!job.finished_ok ? `<details data-fold="recovery"><summary>故障处理</summary>${surface && !surface.co_sites?.length ? '' : `<label>自动重试上限 <input type="number" min="0" max="5" value="${esc(policy.max_attempts ?? 2)}" data-retry-limit="${id}"></label><button data-recovery-job="${esc(job.id)}" data-recovery-mode="auto">启用或更新自动重试</button>`}<button data-recovery-job="${esc(job.id)}" data-recovery-mode="diagnose">请求分析</button><button data-recovery-job="${esc(job.id)}" data-recovery-mode="off">关闭自动处理</button></details>` : '') : `${surface && !surface.co_sites?.length ? '' : `<details data-fold="policy"><summary>重试设置</summary><label><input type="checkbox" data-auto-recovery="${id}">自动修复</label><label>最多 <input type="number" min="0" max="5" value="2" data-retry-limit="${id}"> 次</label></details>`}<button type="button" class="tool-submit" data-confirm-preview="${id}">${item.workflow && item.workflow !== 'single' ? '确认整个流程并提交' : '确认提交'}</button>`}</article>`;
 }
 
-export function createCalculations({ api, getSession, isBusy, toast, onConfirmed, viewer, chatFiles, syncReport, refreshProgress, onPlans, reviseStep }) {
+export function createCalculations({ api, getSession, isBusy, toast, onConfirmed, viewer, openAttachment, chatFiles, syncReport, refreshProgress, onPlans, reviseStep }) {
   const panel = document.getElementById("calculation-cards");
   const knownSteps = new Map();
   function displayCount(preview,key,count) {
@@ -127,8 +127,9 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
 
   function openStructure(kind, id, name) {
     if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) return;
+    if (kind === 'file') return openAttachment(id, name);
     const base = path(getSession());
-    const url = kind === 'file' ? `/api/files/${id}` : kind === 'artifact' ? `${base}/files/structure/${id}` : kind === 'job' ? `${base}/jobs/${id}/structure.extxyz` : null;
+    const url = kind === 'artifact' ? `${base}/files/structure/${id}` : kind === 'job' ? `${base}/jobs/${id}/structure.extxyz` : null;
     if (url) return viewer.open(name, () => getFileBlob(url));
   }
   document.addEventListener('click', event => {

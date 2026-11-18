@@ -846,6 +846,20 @@ def dispatch(request: dict) -> dict:
             for chunk in iter(lambda: stream.read(1048576), b""):
                 digest.update(chunk)
         return {"size": target.stat().st_size, "sha256": digest.hexdigest()}
+    if action == "fingerprint":
+        import hashlib
+
+        source = safe_file(root, request["path"])
+        before = source.stat()
+        hasher = hashlib.sha256()
+        with source.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1048576), b""):
+                hasher.update(chunk)
+        digest = hasher.hexdigest()
+        after = source.stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise ValueError("File changed while hashing; wait for a stable output")
+        return {"size": after.st_size, "sha256": digest}
     if action == "upload":
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         target = safe_file(root, request["path"])

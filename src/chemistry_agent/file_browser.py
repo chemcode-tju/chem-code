@@ -1,6 +1,7 @@
 """Read-only navigation of conversation workspaces and local SSH file systems."""
 
 import asyncio
+import base64
 import codecs
 import hashlib
 import json
@@ -21,9 +22,12 @@ from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from chemistry_agent import trajectory_index
+from chemistry_agent.attachments import owned_attachment
 from chemistry_agent.automation.local_ssh import enabled_aliases
+from chemistry_agent.automation.queue_remote import JOB_ID
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.ssh_profiles import load_profile, profile_path, shell_profiles
+from chemistry_agent.environments.registry import Environments
 from chemistry_agent.errors import AgentError
 from chemistry_agent.trajectory_index import index_xyz
 from chemistry_agent.workspace_files import INTERNAL_FILES, MAX_FILE_BYTES
@@ -93,6 +97,10 @@ def checked_path(name: str, *, absolute: bool = False) -> PurePosixPath:
     ):
         raise AgentError("browser_path_invalid", "无法访问此路径。", 403)
     return path
+
+
+def file_path(source: str, name: str) -> PurePosixPath:
+    return PurePosixPath(name) if source.startswith("attachment:") else checked_path(name)
 
 
 def inside(root: PurePosixPath, path: PurePosixPath) -> None:
@@ -173,8 +181,9 @@ def open_directory(root: Path, path: PurePosixPath) -> Iterator[int]:
 
 
 class LocalFilesystem:
-    def __init__(self, workspace: Path | None = None) -> None:
+    def __init__(self, workspace: Path | None = None, *, follow_links: bool = True) -> None:
         self.workspace = workspace
+        self.follow_links = follow_links and workspace is None
 
     async def root(self, path: str) -> Path:
         if self.workspace is not None:
@@ -199,7 +208,7 @@ class LocalFilesystem:
             return root
         target = candidate.resolve(strict=True)
         inside(root, target)
-        if self.workspace is not None and candidate != target:
+        if not self.follow_links and candidate != target:
             raise AgentError("browser_path_invalid", "无法访问此路径。", 403)
         return target
 
@@ -217,7 +226,7 @@ class LocalFilesystem:
                     continue
                 try:
                     if child.is_symlink():
-                        if self.workspace is not None or not follow_links:
+                        if not self.follow_links or not follow_links:
                             continue
                         self.target(root, path / child.name)
                     if child.is_dir():
@@ -226,9 +235,10 @@ class LocalFilesystem:
                         kind = "file"
                     else:
                         continue
+                    size = child.stat(follow_symlinks=True).st_size if kind == "file" else None
                 except (OSError, RuntimeError, AgentError):
                     continue
-                entries.append({"name": child.name, "kind": kind})
+                entries.append({"name": child.name, "kind": kind, "size": size})
         return entries
 
     async def entries(
@@ -296,9 +306,39 @@ class LocalFilesystem:
         )
 
 
+class AttachmentFilesystem(LocalFilesystem):
+    """Use the original snapshot, whether it is stored on disk or in the legacy BLOB."""
+
+    def __init__(self, file_id: UUID, original: Path | bytes) -> None:
+        super().__init__(follow_links=False)
+        self.file_id, self.original = file_id, original
+
+    def open_file(self, root: Path, path: PurePosixPath):
+        return super().open_file(root, PurePosixPath(str(self.file_id)))
+
+    def read_bytes(
+        self, root: Path, path: PurePosixPath, limit: int, full: bool, offset: int
+    ) -> tuple[int, bytes]:
+        if isinstance(self.original, Path):
+            return super().read_bytes(root, path, limit, full, offset)
+        size = len(self.original)
+        read_limit(size, limit, full)
+        return size, self.original[offset : offset + limit]
+
+    def trajectory_bytes(
+        self, root: Path, path: PurePosixPath, offset: int, limit: int, snapshot: str | None
+    ) -> tuple[int, str, bytes]:
+        if isinstance(self.original, Path):
+            return super().trajectory_bytes(root, path, offset, limit, snapshot)
+        version = TrajectoryVersion(len(self.original), (self.file_id,), ())
+        size, token = version.token(snapshot, strict=True)
+        return size, token, self.original[offset : offset + limit]
+
+
 class RemoteFilesystem:
     def __init__(self, connection, sftp, ssh) -> None:
         self.connection, self.sftp, self.ssh = connection, sftp, ssh
+        self.follow_links = True
 
     async def root(self, path: str) -> PurePosixPath:
         if path in {"", "~"} or path.startswith("~/"):
@@ -311,6 +351,8 @@ class RemoteFilesystem:
             return root
         target = checked_path(await self.sftp.realpath(root / path), absolute=True)
         inside(root, target)
+        if not self.follow_links and target != root / path:
+            raise AgentError("browser_path_invalid", "无法访问此路径。", 403)
         return target
 
     async def entries(
@@ -323,7 +365,7 @@ class RemoteFilesystem:
             if attrs.type == self.ssh.FILEXFER_TYPE_DIRECTORY:
                 entries.append({"name": name, "kind": "directory"})
             elif attrs.type == self.ssh.FILEXFER_TYPE_REGULAR:
-                entries.append({"name": name, "kind": "file"})
+                entries.append({"name": name, "kind": "file", "size": attrs.size})
 
         async def add_link(name: str) -> None:
             try:
@@ -345,7 +387,7 @@ class RemoteFilesystem:
                 if not visible_name(name):
                     continue
                 if attrs.type == self.ssh.FILEXFER_TYPE_SYMLINK:
-                    if follow_links:
+                    if follow_links and self.follow_links:
                         links.append(name)
                 else:
                     add(name, attrs)
@@ -374,6 +416,21 @@ class RemoteFilesystem:
             data = await reader.read(count, offset)
         read_limit(len(data), limit, full)
         return attrs.size if attrs.size is not None else len(data), data
+
+    async def queue_request(self, payload: dict) -> dict:
+        from chemistry_agent.automation.slurm_jobs import QUEUE_HELPER
+
+        result = await self.connection.run(
+            shlex.join(["python3", "-c", QUEUE_HELPER]),
+            input=json.dumps(payload),
+            timeout=30,
+        )
+        if result.exit_status != 0:
+            raise AgentError("job_ssh_failed", "无法核验作业目录。", 503)
+        data = json.loads(result.stdout)
+        if data.get("error"):
+            raise AgentError("job_remote_error", data["error"], 422)
+        return data
 
     @staticmethod
     def trajectory_version(target: PurePosixPath, attrs) -> TrajectoryVersion:
@@ -602,6 +659,154 @@ async def remote_filesystem(
         ) from exc
 
 
+@dataclass(frozen=True)
+class JobLocation:
+    host: str
+    job_id: str
+    submitted: str
+    history: bool
+
+    @classmethod
+    def from_request(cls, request: Request, host: str) -> "JobLocation":
+        local_service(request)
+        fields = request.query_params
+        job_id, submitted = fields.get("job_id", ""), fields.get("submitted", "")
+        if not re.fullmatch(JOB_ID, job_id) or len(job_id) > 64 or not 1 <= len(submitted) <= 80:
+            raise AgentError("job_identity_invalid", "作业编号或提交时间无效。", 422)
+        return cls(host, job_id, submitted, fields.get("history") == "true")
+
+    def payload(self) -> dict:
+        return {"job_id": self.job_id, "submitted": self.submitted, "history": self.history}
+
+
+def job_scheduler(request: Request):
+    local_service(request)
+    return request.app.state.calculation_chat.plans.slurm
+
+
+class RunnerFilesystem:
+    """Use the same filesystem operations through the runner's authenticated transport."""
+
+    def __init__(self, scheduler, job: JobLocation) -> None:
+        self.scheduler, self.job = scheduler, job
+
+    async def call(self, operation: str, path: PurePosixPath, **options) -> dict:
+        return await self.scheduler.request(
+            self.job.host,
+            self.job.payload()
+            | {
+                "action": "queue_browse",
+                "operation": operation,
+                "path": "" if not path.parts else str(path),
+                **options,
+            },
+        )
+
+    async def root(self, path: str) -> PurePosixPath:
+        return PurePosixPath()
+
+    async def entries(
+        self, root: PurePosixPath, path: PurePosixPath, *, follow_links: bool = True
+    ) -> list[dict]:
+        return (await self.call("directory", path, follow_links=follow_links))["entries"]
+
+    async def read(
+        self, root: PurePosixPath, path: PurePosixPath, limit: int, *, full: bool, offset: int = 0
+    ) -> tuple[int, bytes]:
+        response = await self.call(
+            "read", path, offset=offset, limit=min(limit, TRAJECTORY_BLOCK), full=False
+        )
+        size = response["size"]
+        read_limit(size, limit, full)
+        data = bytearray(base64.b64decode(response["data"], validate=True))
+        wanted = min(limit, max(0, size - offset))
+        while len(data) < wanted:
+            start = offset + len(data)
+            _, _, chunk = await self.trajectory(
+                root, path, start, min(wanted - len(data), TRAJECTORY_BLOCK), response["snapshot"]
+            )
+            if not chunk:
+                raise AgentError("browser_changed", "文件已改变，请重新打开。", 409)
+            data.extend(chunk)
+        return size, bytes(data)
+
+    async def trajectory(
+        self,
+        root: PurePosixPath,
+        path: PurePosixPath,
+        offset: int,
+        limit: int,
+        snapshot: str | None,
+    ) -> tuple[int, str, bytes]:
+        result = await self.call("range", path, offset=offset, limit=limit, snapshot=snapshot)
+        return result["size"], result["snapshot"], base64.b64decode(result["data"], validate=True)
+
+
+@asynccontextmanager
+async def job_filesystem(request: Request, job: JobLocation):
+    scheduler = job_scheduler(request)
+    if job.host not in scheduler.hosts():
+        raise AgentError("job_host_unknown", "请先登记该 SSH 服务器别名。", 422)
+    environment = await asyncio.to_thread(Environments(scheduler.root).get, job.host)
+    if environment and environment.transport == "runner":
+        yield RunnerFilesystem(scheduler, job), ""
+        return
+    if environment and environment.transport == "local":
+        result = await scheduler.request(job.host, job.payload() | {"action": "queue_root"})
+        yield LocalFilesystem(follow_links=False), result["directory"]
+        return
+    host = (environment.ssh_alias or job.host) if environment else job.host
+    profiles = await asyncio.to_thread(configured_hosts, request)
+    async with remote_filesystem(request, host, profiles.get(host)) as backend:
+        result = await backend.queue_request(job.payload() | {"action": "queue_root"})
+        backend.follow_links = False
+        yield backend, result["directory"]
+
+
+@contextmanager
+def browser_errors() -> Iterator[None]:
+    try:
+        yield
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise AgentError("browser_missing", "文件或目录不存在。", 404) from exc
+    except PermissionError as exc:
+        raise AgentError("browser_access_denied", "没有文件读取权限。", 403) from exc
+    except (OSError, RuntimeError) as exc:
+        raise AgentError("browser_read_failed", "无法读取文件或目录。", 422) from exc
+
+
+@asynccontextmanager
+async def resolved_filesystem(request: Request, source: str, session: UUID | None, root: str):
+    with browser_errors():
+        if source.startswith("job:"):
+            job = JobLocation.from_request(request, source.removeprefix("job:"))
+            async with job_filesystem(request, job) as (backend, directory):
+                yield backend, await backend.root(directory)
+            return
+        async with filesystem(request, source, session) as backend:
+            yield backend, await backend.root(root)
+
+
+@asynccontextmanager
+async def resolved_file(
+    request: Request, source: str, session: UUID | None, root: str, path: PurePosixPath
+):
+    if source.startswith("attachment:"):
+        try:
+            file_id = UUID(source.removeprefix("attachment:"))
+        except ValueError as exc:
+            raise AgentError("file_not_found", "文件不存在。", 404) from exc
+        name, original = await owned_attachment(file_id, request)
+        if path.parts != (name,):
+            raise AgentError("file_not_found", "文件不存在。", 404)
+        base = original.parent if isinstance(original, Path) else Path()
+        with browser_errors():
+            yield AttachmentFilesystem(file_id, original), base
+        return
+    async with resolved_filesystem(request, source, session, root) as location:
+        yield location
+
+
 @asynccontextmanager
 async def filesystem(
     request: Request, source: str, session: UUID | None
@@ -624,14 +829,7 @@ async def filesystem(
         if source != "local":
             raise AgentError("browser_source_invalid", "文件位置不存在。", 404)
         backend = LocalFilesystem()
-    try:
-        yield backend
-    except (FileNotFoundError, NotADirectoryError) as exc:
-        raise AgentError("browser_missing", "文件或目录不存在。", 404) from exc
-    except PermissionError as exc:
-        raise AgentError("browser_access_denied", "没有文件读取权限。", 403) from exc
-    except (OSError, RuntimeError) as exc:
-        raise AgentError("browser_read_failed", "无法读取文件或目录。", 422) from exc
+    yield backend
 
 
 @router.get("/sources")
@@ -659,13 +857,14 @@ async def directory(
     offset: int = Query(default=0, ge=0),
 ) -> dict:
     relative = checked_path(path)
-    async with filesystem(request, source, session) as backend:
-        base = await backend.root(root)
+    async with resolved_filesystem(request, source, session, root) as (backend, base):
         entries = await backend.entries(base, relative)
     entries.sort(
         key=lambda item: (item["kind"] != "directory", item["name"].casefold(), item["name"])
     )
     end = offset + PAGE_SIZE
+    if not source.startswith("job:"):
+        entries = [{key: value for key, value in item.items() if key != "size"} for item in entries]
     return {
         "root": None if source == "workspace" else str(base),
         "entries": entries[offset:end],
@@ -700,7 +899,7 @@ async def match_files(backend: Filesystem, root: PurePosixPath, query: str) -> d
                         else:
                             limited = True
                     elif query in str(path).casefold():
-                        files.append(entry | {"path": str(path)})
+                        files.append({"name": entry["name"], "kind": "file", "path": str(path)})
                         if len(files) >= SEARCH_MATCHES:
                             return {"files": files, "limited": True}
     except TimeoutError:
@@ -716,8 +915,7 @@ async def search(
     root: str = Query(default="", max_length=4096),
     q: str = Query(min_length=1, max_length=200),
 ) -> dict:
-    async with filesystem(request, source, session) as backend:
-        base = await backend.root(root)
+    async with resolved_filesystem(request, source, session, root) as (backend, base):
         if not q.strip():
             return {"files": [], "limited": False}
         return await match_files(backend, base, q.strip().casefold())
@@ -731,9 +929,8 @@ async def preview(
     root: str = Query(default="", max_length=4096),
     path: str = Query(max_length=4096),
 ) -> dict:
-    relative = checked_path(path)
-    async with filesystem(request, source, session) as backend:
-        base = await backend.root(root)
+    relative = file_path(source, path)
+    async with resolved_file(request, source, session, root, relative) as (backend, base):
         size, data = await backend.read(base, relative, PREVIEW_BYTES, full=False)
     result = {"kind": "binary", "size": size, "downloadable": size <= MAX_FILE_BYTES}
     truncated = size > len(data)
@@ -764,7 +961,7 @@ async def trajectory(
     index: bool = False,
     first: bool = False,
 ) -> Response:
-    relative = checked_path(path)
+    relative = file_path(source, path)
     suffix = relative.suffix.lower()
     if suffix not in TRAJECTORY_EXTENSIONS and not TRAJECTORY_NAME.match(relative.name):
         raise AgentError("browser_trajectory_type", "此格式不支持分段预览。", 415)
@@ -772,8 +969,7 @@ async def trajectory(
         raise AgentError("browser_trajectory_type", "此格式不支持 XYZ 帧索引。", 415)
     if offset and not snapshot:
         raise AgentError("browser_changed", "轨迹文件已改变，请重新打开。", 409)
-    async with filesystem(request, source, session) as backend:
-        base = await backend.root(root)
+    async with resolved_file(request, source, session, root, relative) as (backend, base):
         while True:
             batch = None
             if index and not first and isinstance(backend, RemoteFilesystem):
@@ -824,7 +1020,7 @@ async def content(
     root: str = Query(default="", max_length=4096),
     path: str = Query(max_length=4096),
 ) -> Response:
-    relative = checked_path(path)
+    relative = file_path(source, path)
     return await serve_file(request, source, session, root, relative, None)
 
 
@@ -836,7 +1032,7 @@ async def media(
     root: str = Query(default="", max_length=4096),
     path: str = Query(max_length=4096),
 ) -> Response:
-    relative = checked_path(path)
+    relative = file_path(source, path)
     media_type = MEDIA_TYPES.get(relative.suffix.lower())
     if media_type is None:
         raise AgentError("browser_media_type", "无法预览此媒体格式。", 415)
@@ -858,8 +1054,7 @@ async def serve_file(
     if media_type:
         headers["Accept-Ranges"] = "bytes"
     byte_range = request.headers.get("range") if media_type else None
-    async with filesystem(request, source, session) as backend:
-        base = await backend.root(root)
+    async with resolved_file(request, source, session, root, path) as (backend, base):
         if byte_range:
             match = re.fullmatch(r"bytes=([0-9]{1,12})-([0-9]{0,12})", byte_range)
             if not match:
@@ -877,3 +1072,31 @@ async def serve_file(
             return Response(data, status_code=206, media_type=media_type, headers=headers)
         _, data = await backend.read(base, path, MAX_FILE_BYTES, full=True)
     return Response(data, media_type=media_type or "application/octet-stream", headers=headers)
+
+
+async def read_job_on_runner(root: Path, payload: dict) -> dict:
+    backend = LocalFilesystem(follow_links=False)
+    base = await backend.root(str(root))
+    path = checked_path(payload["path"])
+    operation = payload["operation"]
+    if operation == "directory":
+        return {
+            "entries": await backend.entries(base, path, follow_links=bool(payload["follow_links"]))
+        }
+    if operation not in {"read", "range"}:
+        raise ValueError("不支持的文件读取操作。")
+    offset, limit = payload["offset"], payload["limit"]
+    if (
+        not isinstance(offset, int)
+        or not isinstance(limit, int)
+        or offset < 0
+        or not 1 <= limit <= TRAJECTORY_BLOCK
+    ):
+        raise ValueError("读取区间无效。")
+    snapshot = payload.get("snapshot")
+    if snapshot is not None and not re.fullmatch(
+        r"[0-9]{1,16}:[a-f0-9]{24}:[a-f0-9]{24}", snapshot
+    ):
+        raise ValueError("轨迹版本无效。")
+    size, token, data = await backend.trajectory(base, path, offset, limit, snapshot)
+    return {"size": size, "snapshot": token, "data": base64.b64encode(data).decode()}

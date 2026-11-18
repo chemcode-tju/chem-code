@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from chemistry_agent.backends.delivery import BackendDeliveries
 from chemistry_agent.backends.runtime import NativeSessions
@@ -12,6 +12,12 @@ from chemistry_agent.errors import AgentError
 
 
 class BackendSettings(BaseModel):
+    instance_id: str = ""
+    host_id: str = "local"
+    workspace_id: str = ""
+    workspace_path: str = ""
+    working_directory: str = ""
+    monitor_host: str = "auto"
     default_backend: str = Field(default="builtin", pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     codex_executable: str = Field(default="codex", min_length=1, max_length=1024)
     codex_model: str = Field(default="", max_length=160)
@@ -25,6 +31,9 @@ class BackendSettings(BaseModel):
 
 
 class SessionSelection(BaseModel):
+    instance_id: str = ""
+    directory: str | None = Field(default=None, max_length=2048)
+    monitor_host: str = ""
     backend: Literal["builtin", "codex", "antigravity"]
     model: str = Field(default="", max_length=160)
     effort: Literal[
@@ -43,6 +52,21 @@ class SessionSelection(BaseModel):
     ] = ""
     permission: Literal["user", "auto_review", "full"]
 
+    @field_validator("directory")
+    @classmethod
+    def valid_directory(cls, value: str | None) -> str | None:
+        from chemistry_agent.hosting.registry import validate_directory
+
+        return validate_directory(value) if value is not None else None
+
+
+class BackendUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    executable: str | None = Field(default=None, min_length=1, max_length=1024)
+    model: str | None = Field(default=None, max_length=160)
+    effort: str | None = None
+    make_default: bool = False
+
 
 class AgentBackend(Protocol):
     async def run(self, messages: list[dict], progress, **kwargs) -> dict: ...
@@ -55,6 +79,9 @@ class BackendRouter:
         from chemistry_agent.backends.codex import CodexBackend
 
         self.store, self.root = store, root
+        from chemistry_agent.hosting.registry import Hosting
+
+        self.hosting = Hosting(root.parent / "platform")
         self.sessions = NativeSessions(root.parent)
         self.workspace_files = None
         from chemistry_agent.backends.approvals import ApprovalBroker
@@ -139,6 +166,29 @@ class BackendRouter:
             )
         return config.model_dump()
 
+    async def update_settings(self, backend: str, update: BackendUpdate) -> dict:
+        """Save one card against current state; another card's edits cannot be overwritten."""
+        if backend not in {"builtin", "codex", "antigravity"}:
+            raise AgentError("agent_backend_unavailable", "此 Agent 适配器尚未安装。", 422)
+        fields = update.model_dump(exclude_none=True, exclude={"make_default"})
+        if backend == "builtin" and fields:
+            raise AgentError("agent_config_invalid", "Chem Agent 模型配置使用独立的模型接口。", 422)
+        async with self.store.transaction():
+            row = await self.store._one("SELECT payload FROM agent_backend_settings WHERE id=1", ())
+            config = (
+                BackendSettings.model_validate_json(row["payload"]) if row else BackendSettings()
+            )
+            changed = {f"{backend}_{key}": value for key, value in fields.items()}
+            if update.make_default:
+                changed["default_backend"] = backend
+            config = BackendSettings.model_validate(config.model_dump() | changed)
+            await self.store.db.execute(
+                "INSERT INTO agent_backend_settings VALUES(1,?) "
+                "ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                (config.model_dump_json(),),
+            )
+        return config.model_dump()
+
     async def binding(self, session: str | None, *, create: bool = False) -> dict:
         async with self.store.lock:
             row = await self.store._one(
@@ -176,6 +226,8 @@ class BackendRouter:
             )
 
     async def selection(self, session: str | None, provider) -> dict:
+        from chemistry_agent.hosting.native import chosen_directory
+
         binding = await self.binding(session)
         config = BackendSettings.model_validate_json(binding["config"])
         owner, model_config = provider.configuration()
@@ -190,6 +242,10 @@ class BackendRouter:
                 else None
             ) or model_config.model
         return {
+            "instance_id": config.instance_id or f"local-{binding['backend']}",
+            "host_id": config.host_id,
+            "directory": chosen_directory(config, session),
+            "monitor_host": config.monitor_host,
             "backend": binding["backend"],
             "model": model,
             "effort": config.reasoning_effort
@@ -219,12 +275,39 @@ class BackendRouter:
             ):
                 raise AgentError("effort_unsupported", "此模型服务未声明该推理选项。", 422)
         binding = await self.binding(session, create=True)
-        changed = choice.backend != binding["backend"]
+        previous = BackendSettings.model_validate_json(binding["config"])
+        resolved = self.hosting.resolve(choice, await self.settings())
+        from chemistry_agent.hosting.native import chosen_directory
+
+        same_agent = (
+            choice.backend == binding["backend"]
+            and resolved["instance_id"] == (previous.instance_id or f"local-{binding['backend']}")
+            and resolved["host_id"] == previous.host_id
+        )
+        previous_directory = chosen_directory(previous, session)
+        directory = choice.directory
+        if directory is None:
+            directory = previous_directory if resolved["host_id"] == previous.host_id else ""
+        directory_changed = (
+            directory != previous_directory or resolved["host_id"] != previous.host_id
+        )
+        resolved.update(
+            working_directory=directory if directory_changed else previous.working_directory,
+            workspace_path="" if directory_changed else previous.workspace_path,
+            workspace_id="" if directory_changed else previous.workspace_id,
+            monitor_host=choice.monitor_host or previous.monitor_host,
+        )
+        if same_agent:
+            if choice.backend != "builtin":
+                key = f"{choice.backend}_executable"
+                resolved[key] = getattr(previous, key)
+        changed = not same_agent or directory_changed
         config = (
             await self.settings()
             if changed
             else BackendSettings.model_validate_json(binding["config"])
         )
+        config = BackendSettings.model_validate(config.model_dump() | resolved)
         config.permission_mode = choice.permission
         if choice.backend == "codex":
             config.codex_model, config.codex_effort = choice.model, choice.effort
@@ -281,6 +364,36 @@ class BackendRouter:
                 )
         return await self.selection(session, provider)
 
+    async def workspace_directory(self, session: str) -> Path:
+        """Resolve tools' working directory from the saved session location."""
+        from chemistry_agent.hosting.native import workspace
+
+        binding = await self.binding(session)
+        config = BackendSettings.model_validate_json(binding["config"])
+        return workspace(self, config, session)
+
+    async def sync_workspace(self, session: str, paths: list[str]) -> list[str]:
+        from chemistry_agent.hosting.native import current_native, native_scope
+
+        binding = await self.binding(session)
+        config = BackendSettings.model_validate_json(binding["config"])
+        if self.workspace_files:
+            self.workspace_files.locations.pop(session, None)
+            self.workspace_files.origins.pop(session, None)
+        if config.host_id == "local":
+            if (config.working_directory or config.workspace_path) and self.workspace_files:
+                self.workspace_files.locations[session] = await self.workspace_directory(session)
+            if not paths and not (config.working_directory or config.workspace_path):
+                import asyncio
+
+                return await asyncio.to_thread(self.workspace_files.candidates, session)
+            return paths
+        remote = current_native.get()
+        if remote and remote.session == session:
+            return await remote.sync_outputs(paths)
+        async with native_scope(self, config, session, binding["backend"]) as remote:
+            return await remote.sync_outputs(paths)
+
     async def run(self, messages: list[dict], progress, **kwargs) -> dict:
         binding = await self.binding(kwargs["session_id"], create=True)
         adapter = self.adapters.get(binding["backend"])
@@ -298,23 +411,66 @@ class BackendRouter:
         )
         approval_token = current_tool_approval.set(self.approvals if mode == "user" else None)
         effort_token = current_effort.set(config.reasoning_effort)
+        baseline = (
+            await self.output_snapshot(kwargs["session_id"])
+            if binding["backend"] == "builtin"
+            else None
+        )
         try:
             if binding["backend"] != "builtin":
+                from chemistry_agent.hosting.native import HostedBackend
+
                 kwargs["binding"] = binding
-                return await self.deliveries.execute(adapter, messages, progress, **kwargs)
+                hosted = HostedBackend(self, adapter, config, binding["backend"])
+                return await self.deliveries.execute(hosted, messages, progress, **kwargs)
             return await adapter.run(messages, progress, **kwargs)
         finally:
             current_tool_approval.reset(approval_token)
             current_effort.reset(effort_token)
-            if self.workspace_files:
-                import logging
+            if binding["backend"] == "builtin":
+                await self.publish_workspace(kwargs["session_id"], kwargs.get("run_id"), baseline)
 
-                try:
-                    await self.workspace_files.publish(
-                        kwargs["session_id"], [], kwargs.get("run_id")
-                    )
-                except Exception:
-                    logging.getLogger(__name__).exception("Workspace output discovery delayed")
+    async def output_snapshot(self, session: str) -> dict:
+        from chemistry_agent.hosting.connection import helper
+        from chemistry_agent.hosting.native import current_native
+        from chemistry_agent.hosting.remote_helper import output_manifest
+        from chemistry_agent.workspace_files import INTERNAL_FILES, OUTPUT_SUFFIXES
+
+        remote = current_native.get()
+        request = {
+            "operation": "outputs",
+            "workspace": str(await self.workspace_directory(session)),
+            "internal": list(INTERNAL_FILES),
+            "suffixes": list(OUTPUT_SUFFIXES),
+        }
+        try:
+            if remote:
+                return await helper(remote.ssh, request)
+            import asyncio
+
+            return await asyncio.to_thread(output_manifest, request)
+        except Exception:
+            return {"complete": False, "files": {}}
+
+    async def publish_workspace(
+        self, session: str, run_id: str | None, baseline: dict | None = None
+    ) -> None:
+        if self.workspace_files and baseline and baseline["complete"]:
+            import logging
+
+            try:
+                after = await self.output_snapshot(session)
+                if not after["complete"]:
+                    return
+                changed = [
+                    path
+                    for path, metadata in after["files"].items()
+                    if baseline["files"].get(path) != metadata
+                ]
+                if changed:
+                    await self.workspace_files.publish(session, changed, run_id)
+            except Exception:
+                logging.getLogger(__name__).exception("Workspace output discovery delayed")
 
     async def ready(self, session: str | None = None) -> bool:
         binding = await self.binding(session)

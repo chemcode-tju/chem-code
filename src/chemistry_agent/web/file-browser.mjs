@@ -1,14 +1,13 @@
 import {escapeHtml as escape} from './core.mjs';
 import {fileIcon} from './file-actions.mjs';
-import {isStructureName, isStreamableStructure} from './structure-links.mjs';
+import {getFileBlob, isStructureName, isStreamableStructure} from './structure-links.mjs';
 import {t} from './i18n.mjs';
-import {showFileText} from './file-preview-text.mjs';
+import {fileMessage as message, renderFilePreview} from './file-preview.mjs';
 
-const mediaKinds = {
-  pdf:'pdf', avif:'img', bmp:'img', gif:'img', ico:'img', jpeg:'img', jpg:'img', png:'img', webp:'img',
-  mp3:'audio', wav:'audio', m4a:'audio', flac:'audio', oga:'audio', ogg:'audio',
-  mp4:'video', m4v:'video', webm:'video', mov:'video', ogv:'video',
-};
+function attachmentUrl(id, name) {
+  const params = new URLSearchParams({source:`attachment:${id}`, path:name});
+  return operation => `/api/file-browser/${operation}?${params}`;
+}
 
 // Adapted from OpenCode v2.2.0's file/list.tsx. See vendor/opencode/LICENSE.
 function applyFileListKeyDown(event, buttons, highlighted, {onHighlight, onSelect}) {
@@ -44,6 +43,7 @@ export function createFileBrowser({api, session, viewer}) {
   let sources = [], workspace = session(), root = '', treeRequest, sourceRequest, previewRequest;
   let searchRequest, searchTimer;
   let selected = null, directoryId = 0;
+  let previewAttachment = false;
 
   function url(operation, {path = '', offset = 0, query = ''} = {}) {
     const source = sourceMenu.value;
@@ -55,29 +55,12 @@ export function createFileBrowser({api, session, viewer}) {
     return `/api/file-browser/${operation}?${params}`;
   }
 
-  function message(target, text, role = 'status') {
-    const element = document.createElement('p');
-    element.className = 'file-browser-message';
-    element.setAttribute('role', role);
-    element.textContent = t(text);
-    target.replaceChildren(element);
-    return element;
-  }
-
   function clearPreview() {
     previewRequest?.abort();
+    previewAttachment = false;
     previewHeader.hidden = true;
     layout.dataset.view = 'tree';
     previewBody.innerHTML = `<div class="file-preview-empty">${fileIcon('folder-open')}<strong>打开文件</strong><p class="file-browser-message">选择要预览的文件</p></div>`;
-  }
-
-  async function fileBlob(href, signal) {
-    const response = await fetch(href, {credentials:'same-origin', redirect:'error', signal});
-    if (!response.ok) {
-      const error = await response.json().catch(() => null);
-      throw Error(t(error?.error?.message || '文件读取失败。'));
-    }
-    return response.blob();
   }
 
   function structureAction(path, name) {
@@ -192,17 +175,17 @@ export function createFileBrowser({api, session, viewer}) {
       sourceMenu.disabled = false;
       sourceMenu.value = sources.some(item => item.id === previous) ? previous :
         (!workspace && sources.some(item => item.id === 'local') ? 'local' : 'workspace');
-      if (sourceMenu.value !== previous) changeSource();
+      if (sourceMenu.value !== previous) changeSource(!previous && previewAttachment);
     } catch (error) {
       if (signal.aborted) return;
       if (!sources.length) message(tree, error.message, 'alert');
     }
   }
 
-  function changeSource() {
+  function changeSource(preservePreview = false) {
     selected = null;
     clearFilter();
-    clearPreview();
+    if (!preservePreview) clearPreview();
     root = roots.get(sourceMenu.value) || '';
     pathInput.value = root;
     pathInput.title = root;
@@ -255,78 +238,40 @@ export function createFileBrowser({api, session, viewer}) {
     }
   }
 
-  function addDownload(name, contentUrl) {
-    const download = document.createElement('a');
-    download.className = 'file-action';
-    download.href = contentUrl;
-    download.download = name;
-    download.title = t('下载');
-    download.setAttribute('aria-label', t('下载'));
-    download.innerHTML = fileIcon('download');
-    previewActions.append(download);
-  }
-
-  function showMedia(kind, name, href, signal) {
-    const element = document.createElement(kind);
-    if (kind === 'img') element.alt = name;
-    else {element.controls = true; element.preload = 'metadata';}
-    element.onerror = () => {
-      if (!signal.aborted) message(previewBody, '无法预览此媒体。', 'alert');
-    };
-    signal.addEventListener('abort', () => {
-      element.removeAttribute('src');
-      if (kind !== 'img') element.load();
-    }, {once:true});
-    element.src = href;
-    previewBody.replaceChildren(element);
-  }
-
-  async function openPreview(button) {
+  function openPreview(button) {
     const path = button.dataset.entry, name = path.split('/').at(-1);
-    clearPreview();
     selectEntry(button);
-    const previewUrl = url('preview', {path}), contentUrl = url('content', {path});
-    previewRequest = new AbortController();
-    const {signal} = previewRequest;
     const filePath = root ? `${root.replace(/\/$/, '')}/${path}` : path;
     const location = sourceMenu.value.startsWith('ssh:') ? `${sourceMenu.selectedOptions[0].textContent} · ${filePath}` : filePath;
+    return showPreview(name, location, operation => url(operation,{path}),
+      isStructureName(name) ? structureAction(path, name) : '');
+  }
+
+  async function showPreview(name, location, endpoint, structure, attachment = false) {
+    clearPreview();
+    previewAttachment = attachment;
+    previewRequest = new AbortController();
+    const {signal} = previewRequest;
     for (const [id, text] of [['file-preview-name', name], ['file-preview-path', location]]) {
       byId(id).textContent = text;
       byId(id).title = text;
     }
-    previewActions.innerHTML = isStructureName(name) ? structureAction(path, name) : '';
+    previewActions.innerHTML = structure;
     previewHeader.hidden = false;
     message(previewBody, '正在读取文件…');
     layout.dataset.view = 'preview';
     if (backButton.getClientRects().length) backButton.focus({preventScroll:true});
     try {
-      const extension = name.includes('.') ? name.split('.').at(-1).toLowerCase() : '';
-      const kind = Object.hasOwn(mediaKinds, extension) && mediaKinds[extension];
-      if (kind) {
-        const mediaUrl = url('media', {path});
-        addDownload(name, contentUrl);
-        if (kind === 'pdf') {
-          const {showPdf} = await import('./file-preview-pdf.mjs');
-          await showPdf(previewBody, mediaUrl, signal, () => message(previewBody, '无法预览此 PDF。', 'alert'));
-        } else showMedia(kind, name, mediaUrl, signal);
-        return;
-      }
-      const data = await api(previewUrl, {signal});
-      if (signal.aborted) return;
-      if (data.downloadable) addDownload(name, contentUrl);
-      if (data.kind === 'text') {
-        showFileText(previewBody, name, data, signal);
-      } else {
-        const unit = new Intl.NumberFormat(undefined, {style:'unit', unit:'byte', notation:'compact'});
-        const status = message(previewBody, '此文件格式没有文本预览。');
-        status.append(` · ${unit.format(data.size)}`);
-      }
+      await renderFilePreview({
+        api, name, target:previewBody, actions:previewActions, signal,
+        previewUrl:endpoint('preview'), contentUrl:endpoint('content'), mediaUrl:endpoint('media'),
+      });
     } catch (error) {
       if (!signal.aborted) message(previewBody, error.message, 'alert');
     }
   }
 
-  sourceMenu.onchange = changeSource;
+  sourceMenu.onchange = () => changeSource();
   byId('file-browser-refresh').onclick = () => {
     clearTimeout(searchTimer);
     searchRequest?.abort();
@@ -372,7 +317,7 @@ export function createFileBrowser({api, session, viewer}) {
       const path = root ? `${root.replace(/\/$/, '')}/${eye.dataset.fileStructure}` : eye.dataset.fileStructure;
       const {filename:name} = eye.dataset;
       const trajectory = isStreamableStructure(name) ? {name, url:url('trajectory', {path:eye.dataset.fileStructure})} : null;
-      viewer.open(name, ({signal}) => fileBlob(href, signal), {key:href, title:`${source} · ${path}`, trajectory});
+      viewer.open(name, ({signal}) => getFileBlob(href, {signal}), {key:href, title:`${source} · ${path}`, trajectory});
       return;
     }
     const entry = event.target.closest('[data-entry]');
@@ -409,9 +354,18 @@ export function createFileBrowser({api, session, viewer}) {
 
   return {
     activate() { void loadSources(); },
+    openAttachment(id, name) {
+      return showPreview(name,name,attachmentUrl(id,name),'',true);
+    },
+    openAttachmentStructure(id, name) {
+      const endpoint = attachmentUrl(id,name), href = endpoint('content');
+      const trajectory = isStreamableStructure(name) ? {name, url:endpoint('trajectory')} : null;
+      viewer.open(name, options => getFileBlob(href,options), {key:href,title:name,trajectory});
+    },
     syncSession() {
       if (workspace === session()) return;
       workspace = session();
+      if (previewAttachment) clearPreview();
       if (sourceMenu.value === 'workspace') changeSource();
     },
     reset() {
