@@ -24,33 +24,97 @@ const StructureBrowserTrajectory = (() => {
       }
       return response;
     }
-    if (/\.(?:xyz|extxyz)$/i.test(name)) {
+    const vasp = /^XDATCAR(?:$|[._-])|\.xdatcar$/i.test(name);
+    if (vasp || /\.(?:xyz|extxyz)$/i.test(name)) {
       const spans = [];
+      const headers = new Map();
       let offset = 0;
+      let headerOffset = 0;
+      let rangeSource;
+      async function headerFor(index) {
+        if (!vasp) return '';
+        const [, , start, end] = spans[index];
+        if (!headers.has(start)) {
+          const pending = request(start,end-start,{priority:'high'}).then(response=>response.text());
+          headers.set(start,pending);
+          pending.catch(()=>{if(headers.get(start)===pending)headers.delete(start);});
+          while (headers.size>64) headers.delete(headers.keys().next().value);
+        }
+        return headers.get(start);
+      }
+      function addStep(step) {
+        const previous = source.ionicSteps.at(-1);
+        if (step !== null && previous != null && step <= previous) {
+          source.segmentStart = source.ionicSteps.length;
+        }
+        source.ionicSteps.push(step);
+      }
+      async function advanceRanges() {
+        const from = rangeSource.count;
+        await rangeSource.advance();
+        rangeSource.ionicSteps.slice(from).forEach(addStep);
+        source.complete = rangeSource.complete;
+      }
+      async function resumeRanges(size, first) {
+        const file = rangedFile(name, size, null, request, signal);
+        rangeSource = new StructureTrajectory.LocalSource(file, 'XDATCAR');
+        if (!first) {
+          rangeSource.resumeVasp(offset, await headerFor(spans.length - 1));
+          await advanceRanges();
+          return;
+        }
+        await rangeSource.initialize();
+        rangeSource.ionicSteps.forEach(addStep);
+        source.complete = rangeSource.complete;
+        return rangeSource.read(0);
+      }
       const source = {
-        get count() {return spans.length;},
+        get count() {return spans.length + (rangeSource?.count ?? 0);},
         complete:false,
         scanDelay:0,
+        ...(vasp ? {ionicSteps:[],segmentStart:0} : {}),
         async advance(first = false) {
+          if (rangeSource) return advanceRanges();
           // Make the first playable batch available quickly, then switch to
           // the larger server-side scan batches for the rest of the timeline.
           const length = first ? 256 * 1024 : spans.length === 1 ? 4 * MiB : 8 * MiB;
-          const response = await request(offset, length, {index:true, first, priority:first?'high':'low'});
+          const response = await request(offset, length, {
+            index:true, first, priority:first?'high':'low', ...(vasp ? {header_offset:headerOffset} : {}),
+          });
           const batch = await response.json();
           snapshot = batch.snapshot;
           offset = batch.nextOffset;
+          if (vasp) {
+            if (batch.rangeFallback === true) return resumeRanges(batch.size, first);
+            headerOffset = batch.headerOffset;
+            for (const [, , , , step] of batch.spans) addStep(step);
+            if (first) {
+              const header = batch.text.match(/^(?:[^\n]*\n){7}(?:[ \t]*s[^\n]*\n)?/i)?.[0];
+              if (header) headers.set(batch.spans[0][2], header);
+            }
+          }
           spans.push(...batch.spans);
           source.complete = offset === batch.size;
           return batch.text;
         },
         async read(index) {
+          if (index >= spans.length) return rangeSource.read(index - spans.length);
           const [start, end] = spans[index];
-          return (await request(start, end - start, {priority:'high'})).text();
+          const [header,text] = await Promise.all([
+            headerFor(index),
+            request(start,end-start,{priority:'high'}).then(response=>response.text()),
+          ]);
+          return header+text;
         },
         async readMany(indices, onFrame) {
           const batches=[];
+          const rangeIndices=[];
           let batch;
           for(const index of indices) {
+            if (index >= spans.length) {
+              rangeIndices.push(index - spans.length);
+              continue;
+            }
             const [start,end]=spans[index];
             // Keep each read close to the requested frames, including at a large stride.
             if(!batch || end - batch.start > 4 * MiB || start - batch.end > 512 * 1024) {
@@ -65,28 +129,46 @@ const StructureBrowserTrajectory = (() => {
             // A ready batch is playable immediately, even while its neighbor is loading.
             await Promise.all(frames.map(async index=>{
               const [begin,stop]=spans[index];
-              onFrame(index,await blob.slice(begin-start,stop-start).text());
+              const [header,text] = await Promise.all([
+                headerFor(index),blob.slice(begin-start,stop-start).text(),
+              ]);
+              onFrame(index,header+text);
             }));
           }
           for(let cursor=0;cursor<batches.length;cursor+=2) {
             const results=await Promise.allSettled(batches.slice(cursor,cursor+2).map(readBatch));
             if(results.some(result=>result.status==='rejected'))break;
           }
+          if (rangeIndices.length) {
+            await rangeSource.readMany(rangeIndices, (index, text) => onFrame(spans.length + index, text));
+          }
         },
       };
       return {name, async openIndexed() {
         const text = await source.advance(true);
-        const store = new StructureTrajectory.FrameStore(name, source, playbackCache);
+        const store = new StructureTrajectory.FrameStore(vasp?'XDATCAR':name, source, playbackCache);
         store.put(0, text);
         return store;
       }};
     }
 
-    // The indexer and the player share aligned byte blocks and in-flight reads.
-    // A complete scan of a 120 MiB XDATCAR then leaves its data in local memory.
+    return {name, async initialize() {
+      const bootstrap = /\.(?:lammpstrj|dump)$/i.test(name) ? blockSize : 64 * 1024;
+      const response = await request(0, bootstrap, {priority:'high'});
+      snapshot = response.headers.get('X-Trajectory-Snapshot');
+      const size = Number(response.headers.get('X-Trajectory-Size'));
+      return rangedFile(name, size, await response.blob(), request, signal);
+    }};
+  }
+
+  function rangedFile(name, size, prefix, request, signal) {
+    // Formats scanned by the browser share aligned blocks with playback.
     const cached = new Map();
     const pending = new Map();
-    let prefix;
+    if (prefix?.size === Math.min(blockSize, size)) {
+      cached.set(0, prefix);
+      prefix = null;
+    }
     function block(start, priority = 'auto') {
       if (cached.has(start)) {
         const blob = cached.get(start);
@@ -110,7 +192,7 @@ const StructureBrowserTrajectory = (() => {
     }
     const file = {
       name,
-      size:0,
+      size,
       frozen:true,
       playbackCache,
       slice(start, end) {
@@ -139,20 +221,7 @@ const StructureBrowserTrajectory = (() => {
       },
       text() {return file.slice(0, file.size).text();},
     };
-    return {name, async initialize() {
-      const bootstrap = /\.(?:lammpstrj|dump)$/i.test(name) ? blockSize : 64 * 1024;
-      const response = await request(0, bootstrap, {priority:'high'});
-      snapshot = response.headers.get('X-Trajectory-Snapshot');
-      file.size = Number(response.headers.get('X-Trajectory-Size'));
-      // Text dumps commonly need most of the first block for one frame.
-      // Promote aligned prefixes directly so the scanner reuses those bytes.
-      prefix = await response.blob();
-      if (prefix.size === Math.min(blockSize, file.size)) {
-        cached.set(0, prefix);
-        prefix = null;
-      }
-      return file;
-    }};
+    return file;
   }
   return {open};
 })();

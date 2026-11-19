@@ -30,7 +30,7 @@ from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.ssh_profiles import load_profile, profile_path, shell_profiles
 from chemistry_agent.environments.registry import Environments
 from chemistry_agent.errors import AgentError
-from chemistry_agent.trajectory_index import index_xyz
+from chemistry_agent.trajectory_index import VASP_HEADER_BYTES, index_vasp, index_xyz, vasp_header
 from chemistry_agent.workspace_files import INTERNAL_FILES, MAX_FILE_BYTES
 
 router = APIRouter(prefix="/api/file-browser", tags=["file browser"])
@@ -77,7 +77,8 @@ MEDIA_TYPES = {
 }
 # The SSH helper is shipped over the authenticated channel, without installing
 # files on the remote host or placing user-supplied paths in shell arguments.
-REMOTE_XYZ_COMMAND = shlex.join(
+XDATCAR_NAME = re.compile(r"^(?:xdatcar)(?:$|[._-])|\.xdatcar$", re.IGNORECASE)
+REMOTE_INDEX_COMMAND = shlex.join(
     ["python3", "-I", "-S", "-B", "-c", Path(trajectory_index.__file__).read_text(encoding="utf-8")]
 )
 HIDDEN_NAMES = INTERNAL_FILES | {"archive", "__pycache__", "node_modules"}
@@ -523,7 +524,7 @@ class RemoteFilesystem:
             attrs.size, (str(target), attrs.crtime, attrs.crtime_ns), (attrs.mtime, attrs.mtime_ns)
         )
 
-    async def xyz_index(
+    async def frame_index(
         self,
         root: PurePosixPath,
         path: PurePosixPath,
@@ -531,6 +532,9 @@ class RemoteFilesystem:
         limit: int,
         snapshot: str | None,
         first: bool,
+        *,
+        vasp: bool,
+        header_offset: int,
     ) -> dict | None:
         target = await self.target(root, path)
         attrs = await self.sftp.lstat(target)
@@ -541,8 +545,8 @@ class RemoteFilesystem:
             raise AgentError("browser_changed", "轨迹文件已改变，请重新打开。", 409)
         try:
             result = await self.connection.run(
-                REMOTE_XYZ_COMMAND,
-                input=json.dumps([str(target), offset, limit, size, first]),
+                REMOTE_INDEX_COMMAND,
+                input=json.dumps([str(target), offset, limit, size, first, vasp, header_offset]),
                 timeout=30,
             )
         except self.ssh.ChannelOpenError:
@@ -1170,20 +1174,34 @@ async def trajectory(
     snapshot: str | None = Query(default=None, pattern=r"^[0-9]{1,16}:[a-f0-9]{24}:[a-f0-9]{24}$"),
     index: bool = False,
     first: bool = False,
+    header_offset: int = Query(default=0, ge=0, le=2**53 - 1),
 ) -> Response:
     relative = file_path(source, path)
     suffix = relative.suffix.lower()
+    vasp = bool(XDATCAR_NAME.search(relative.name))
     if suffix not in TRAJECTORY_EXTENSIONS and not TRAJECTORY_NAME.match(relative.name):
         raise AgentError("browser_trajectory_type", "此格式不支持分段预览。", 415)
-    if index and suffix not in {".xyz", ".extxyz"}:
-        raise AgentError("browser_trajectory_type", "此格式不支持 XYZ 帧索引。", 415)
+    if index and suffix not in {".xyz", ".extxyz"} and not vasp:
+        raise AgentError("browser_trajectory_type", "此格式不支持分段帧索引。", 415)
+    if index and vasp and (header_offset > offset or (first and offset)):
+        raise AgentError("browser_trajectory_invalid", "VASP 晶胞头或首帧偏移无效。", 422)
     if offset and not snapshot:
         raise AgentError("browser_changed", "轨迹文件已改变，请重新打开。", 409)
     async with resolved_file(request, source, session, root, relative) as (backend, base):
+        header = None
         while True:
             batch = None
-            if index and not first and isinstance(backend, RemoteFilesystem):
-                batch = await backend.xyz_index(base, relative, offset, length, snapshot, first)
+            if index and (vasp or not first) and isinstance(backend, RemoteFilesystem):
+                batch = await backend.frame_index(
+                    base,
+                    relative,
+                    offset,
+                    length,
+                    snapshot,
+                    first,
+                    vasp=vasp,
+                    header_offset=header_offset,
+                )
             if batch is None:
                 size, snapshot, data = await backend.trajectory(
                     base, relative, offset, length, snapshot
@@ -1193,20 +1211,36 @@ async def trajectory(
                 if not index:
                     break
                 try:
-                    spans, cursor = await asyncio.to_thread(
-                        index_xyz, data, offset, size, first=first
-                    )
+                    if vasp:
+                        if offset and header is None:
+                            _, _, header_bytes = await backend.trajectory(
+                                base, relative, header_offset, VASP_HEADER_BYTES, snapshot
+                            )
+                            header = vasp_header(header_bytes, header_offset)
+                            if header.end > offset:
+                                raise ValueError("VASP 晶胞头偏移无效。")
+                        batch = await asyncio.to_thread(
+                            index_vasp, data, offset, size, first=first, header=header
+                        )
+                    else:
+                        spans, cursor = await asyncio.to_thread(
+                            index_xyz, data, offset, size, first=first
+                        )
+                        batch = {"spans": spans, "nextOffset": cursor}
+                        if first and spans:
+                            text = data[spans[0][0] - offset : spans[0][1] - offset]
+                            batch["text"] = text.decode("utf-8", errors="replace")
                 except ValueError as exc:
                     raise AgentError("browser_trajectory_invalid", str(exc), 422) from exc
-                batch = {"size": size, "snapshot": snapshot, "spans": spans, "nextOffset": cursor}
-                if first and spans:
-                    text = data[spans[0][0] - offset : spans[0][1] - offset]
-                    batch["text"] = text.decode("utf-8", errors="replace")
+                batch |= {"size": size, "snapshot": snapshot}
             if batch["spans"] or batch["nextOffset"] == batch["size"]:
                 if first and not batch["spans"]:
                     raise AgentError("browser_trajectory_invalid", "文件尚无完整结构帧。", 422)
                 return JSONResponse(batch)
             if length == TRAJECTORY_BLOCK:
+                if vasp:
+                    # The browser's range scanner can continue across multiple blocks.
+                    return JSONResponse(batch | {"rangeFallback": True})
                 raise AgentError("browser_trajectory_frame", "单帧超过 8 MiB 分段预览上限。", 422)
             snapshot = batch["snapshot"]
             length = min(length * 4, TRAJECTORY_BLOCK)

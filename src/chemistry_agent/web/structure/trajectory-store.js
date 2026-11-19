@@ -170,11 +170,20 @@
     }
     async readHeader(first) {
         const rows=[first.text];for(let i=1;i<7;i++)rows.push((await this.required()).text);
-        const counts=rows[6].trim().split(/\s+/).map(Number);this.atomCount=counts.reduce((a,b)=>a+b,0);
-        if(counts.some(n=>!Number.isSafeInteger(n)||n<0)||this.atomCount<1)throw Error('VASP 元素计数无效');
         this.mode=await this.required();if(/^s/i.test(this.mode.text.trim())){rows.push(this.mode.text);this.mode=await this.required();}
         this.trajectory=/^XDATCAR$/i.test(this.name)||/configuration/i.test(this.mode.text);
+      this.setHeader(rows);
+    }
+    setHeader(rows) {
+      const counts=rows[6].trim().split(/\s+/).map(Number);this.atomCount=counts.reduce((a,b)=>a+b,0);
+      if(counts.some(n=>!Number.isSafeInteger(n)||n<0)||this.atomCount<1)throw Error('VASP 元素计数无效');
         this.header=rows.join('\n')+'\n';
+    }
+    resumeVasp(offset, header) {
+      this.lines.offset=offset;
+      this.setHeader(header.replace(/\r?\n$/,'').split(/\r?\n/));
+      this.trajectory=true;
+      this.resumed=true;
     }
     async advance(limit=4096) {
       const initial=this.lines.offset;
@@ -183,7 +192,7 @@
         let row=this.mode||await this.lines.next();this.mode=null;
         while(row&&!row.text.trim())row=await this.lines.next();
         if(!row){this.complete=true;break;}
-        if(this.vasp && this.trajectory && this.count && !/^(direct|cartesian)(?:\s+configuration\s*=.*)?$/i.test(row.text.trim())) {
+        if(this.vasp && this.trajectory && (this.count || this.resumed) && !/^(direct|cartesian|kartesian|d|c|k)(?:\s+configuration\s*=.*)?$/i.test(row.text.trim())) {
           await this.readHeader(row);
           row=this.mode;this.mode=null;
         }
@@ -209,7 +218,7 @@
         if(this.lines.offset-initial>=1048576)break;
       }
       } catch (error) {
-        if (!(error instanceof IncompleteStructureFrame) || !this.file.frozen || !this.count) throw error;
+        if (!(error instanceof IncompleteStructureFrame) || !this.file.frozen || !(this.count || this.resumed)) throw error;
         this.complete = true;
       }
     }

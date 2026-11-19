@@ -138,7 +138,7 @@ test('the sequential scan keeps remote blocks for playback and later seeks', asy
     },
   });
   vm.runInContext(readFileSync(new URL('browser-trajectory.js', viewer), 'utf8'), context);
-  const adapter=vm.runInContext("StructureBrowserTrajectory.open({name:'XDATCAR.bak',url:'/api/file-browser/trajectory'})",context);
+  const adapter=vm.runInContext("StructureBrowserTrajectory.open({name:'sample.gro',url:'/api/file-browser/trajectory'})",context);
   const file=await adapter.initialize();
   assert.equal(await file.slice(0,7).text(),'AAAAAAA');
   // Two reads of the same aligned block share the same in-flight request.
@@ -150,6 +150,87 @@ test('the sequential scan keeps remote blocks for playback and later seeks', asy
   assert.equal(await file.slice(bytes.length-5,bytes.length).text(),'EEEEE');
   assert.equal(calls.length,afterScan);
 });
+
+test('remote XDATCAR indexes without streaming coordinates and seeks using the latest cell', async () => {
+  const header = cell => '铜\r\n1\r\n'+cell+' 0 0\r\n0 2 0\r\n0 0 2\r\nCu\r\n1\r\n';
+  const frame = step => 'Direct configuration= '+step+'\r\n0.5 0 0\r\n';
+  const chunks = [header(2),frame(2),header(6),frame(1),frame(2)].map(part=>Buffer.from(part));
+  const bytes = Buffer.concat(chunks);
+  const [a,b,c,d] = chunks.map((_,i)=>chunks.slice(0,i+1).reduce((n,part)=>n+part.length,0));
+  const origin = 'http://localhost';
+  const requests = [];
+  const context = vm.createContext({
+    URL, setTimeout, location:{origin},
+    async fetch(url) {
+      const params = url.searchParams;
+      const offset = Number(params.get('offset'));
+      const length = Number(params.get('length'));
+      requests.push({offset,length,index:params.has('index'),snapshot:params.get('snapshot')});
+      if(!params.has('index'))return new Response(bytes.subarray(offset,offset+length));
+      const first = params.get('first') === 'true';
+      return Response.json({
+        snapshot:'frozen', size:bytes.length, headerOffset:first?0:b,
+        spans:first?[[a,b,0,a,2]]:[[c,d,b,c,1],[d,bytes.length,b,c,2]],
+        nextOffset:first?b:bytes.length, text:first?bytes.subarray(0,b).toString():null,
+      });
+    },
+  });
+  for(const path of ['parser.js','trajectory-store.js','browser-trajectory.js']) {
+    vm.runInContext(readFileSync(new URL(path, viewer), 'utf8'),context);
+  }
+  const adapter=vm.runInContext("StructureBrowserTrajectory.open({name:'dynamics.xdatcar',url:'/api/file-browser/trajectory'})",context);
+  const store=await adapter.openIndexed();
+  assert.equal((await store.get(0)).frame.atoms[0].x,1);
+  assert.equal(await store.findIonicStep(2),2);
+  assert.equal(store.count,3);
+  assert.equal(requests.length,2,'indexing uses only JSON requests');
+  await store.prefetch(0,1);
+  for(const index of [2,1]) {
+    const {frame:parsed,text} = await store.get(index);
+    assert.equal(parsed.atoms[0].x,3);
+    assert.ok(text.startsWith(header(6)));
+  }
+  assert.equal(requests.filter(call=>!call.index && call.offset===b).length,1);
+  assert.ok(requests.slice(1).every(call=>call.snapshot==='frozen'));
+});
+
+for (const afterFirst of [false,true]) {
+  test(`XDATCAR keeps the snapshot when a large frame appears ${afterFirst?'after indexing starts':'at file open'}`, async () => {
+    const header = cell => `Cu\n1\n${cell} 0 0\n0 2 0\n0 0 2\nCu\n1\n`;
+    const frame = (step, padding='') => `Direct configuration= ${step}\n0.5 0 0${padding}\n`;
+    const indexed = afterFirst ? header(2)+frame(2) : '';
+    const bytes = Buffer.from(indexed+header(6)+frame(1, ' '.repeat(8*1024**2))+frame(2));
+    const requests = [];
+    const context = vm.createContext({
+      URL, Blob, TextDecoder, location:{origin:'http://localhost'},
+      async fetch(url) {
+        const query=url.searchParams;
+        const start=Number(query.get('offset')), length=Number(query.get('length'));
+        assert.equal(query.get('snapshot'), requests.length ? 'frozen' : null);
+        requests.push({start,length,index:query.has('index')});
+        if (!query.has('index')) return new Response(bytes.subarray(start,start+length));
+        const batch={snapshot:'frozen',size:bytes.length,nextOffset:indexed.length,headerOffset:0};
+        if (afterFirst && query.get('first')==='true') {
+          return Response.json({...batch,spans:[[header(2).length,indexed.length,0,header(2).length,2]],text:indexed});
+        }
+        return Response.json({...batch,spans:[],rangeFallback:true});
+      },
+    });
+    for (const path of ['parser.js','trajectory-store.js','browser-trajectory.js']) {
+      vm.runInContext(readFileSync(new URL(path, viewer), 'utf8'),context);
+    }
+    const adapter=vm.runInContext("StructureBrowserTrajectory.open({name:'XDATCAR',url:'/api/file-browser/trajectory'})",context);
+    const store=await adapter.openIndexed();
+    assert.equal((await store.get(0)).frame.atoms[0].x,afterFirst?1:3);
+    assert.equal(await store.findIonicStep(2),afterFirst?2:1);
+    for (const index of [afterFirst?1:0,store.count-1]) {
+      assert.equal((await store.get(index)).frame.atoms[0].x,3);
+    }
+    assert.equal(requests.filter(request=>request.index).length,afterFirst?2:1);
+    assert.ok(requests.filter(request=>!request.index).length>=5);
+    assert.ok(requests.filter(request=>!request.index).every(request=>request.length<=2*1024**2));
+  });
+}
 
 test('explicit 5× speed samples five trajectory steps per tick at a 60 fps target', async () => {
   const app=readFileSync(new URL('app.js', viewer),'utf8');

@@ -1,11 +1,15 @@
 """Live file reads must preserve account, directory and SSH selection boundaries."""
 
+from contextlib import asynccontextmanager
+from pathlib import Path
+
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from chemistry_agent.api import create_app
 from chemistry_agent.auth import create_user_account
-from chemistry_agent.file_browser import PREVIEW_BYTES
+from chemistry_agent.file_browser import PREVIEW_BYTES, LocalFilesystem, RemoteFilesystem
 
 
 def test_local_files_are_listed_and_previewed_without_publishing(settings_factory, tmp_path):
@@ -200,6 +204,105 @@ def test_xyz_trajectory_indexes_complete_frames_and_freezes_append_boundary(
         replacement.write_bytes(path.read_bytes())
         replacement.replace(path)
         assert client.get(endpoint, params=frozen).status_code == 409
+
+
+@pytest.mark.parametrize("source", ["local", "ssh:cluster-a"])
+def test_xdatcar_index_restarts_and_keeps_its_opening_snapshot(
+    settings_factory, tmp_path: Path, monkeypatch, source: str
+) -> None:
+    first_header = "铜\r\n1\r\n2 0 0\r\n0 2 0\r\n0 0 2\r\nCu\r\n1\r\n".encode()
+    next_header = first_header.replace(b"2 0 0", b"3 0 0")
+    first = b"Direct configuration= 2\r\n0.5 0 0\r\n"
+    later = b"Cartesian configuration= 1\r\n0.25 0 0\r\n"
+    tail = b"Direct configuration= 3\r\n"
+    path = tmp_path / "XDATCAR.partial"
+    path.write_bytes(first_header + first + next_header + later + tail)
+    original_size = path.stat().st_size
+    attempted = []
+
+    class SftpOnly(RemoteFilesystem):
+        def __init__(self) -> None:
+            self.local = LocalFilesystem()
+
+        async def root(self, path: str):
+            return await self.local.root(path)
+
+        async def frame_index(self, *args, **kwargs) -> None:
+            attempted.append(kwargs["vasp"])
+
+        async def trajectory(self, *args):
+            return await self.local.trajectory(*args)
+
+    @asynccontextmanager
+    async def sftp_only(*args):
+        yield SftpOnly()
+
+    monkeypatch.setattr("chemistry_agent.file_browser.remote_filesystem", sftp_only)
+    with TestClient(
+        create_app(settings_factory(ssh_hosts="cluster-a")),
+        base_url="http://127.0.0.1",
+        client=("127.0.0.1", 5000),
+    ) as client:
+        endpoint = "/api/file-browser/trajectory"
+        params = {"source": source, "root": str(tmp_path), "path": path.name}
+        response = client.get(
+            endpoint, params=params | {"index": True, "first": True, "length": 12}
+        )
+        assert response.is_success, response.text
+        opening = response.json()
+        assert opening["spans"] == [
+            [len(first_header), len(first_header + first), 0, len(first_header), 2]
+        ]
+        assert opening["text"].encode() == first_header + first
+        with path.open("ab") as output:
+            output.write(b"0 0 0\r\n")
+        after_first = params | {"snapshot": opening["snapshot"], "offset": opening["nextOffset"]}
+        response = client.get(endpoint, params=after_first | {"index": True})
+        assert response.is_success, response.text
+        batch = response.json()
+        new_start = len(first_header + first)
+        start, end, header_start, header_end, ionic_step = batch["spans"][0]
+        assert len(batch["spans"]) == 1 and ionic_step == 1
+        assert batch["headerOffset"] == header_start == new_start
+        assert batch["nextOffset"] == original_size
+        assert (
+            client.get(
+                endpoint,
+                params=after_first | {"offset": header_start, "length": header_end - header_start},
+            ).content
+            == next_header
+        )
+        assert (
+            client.get(
+                endpoint, params=after_first | {"offset": start, "length": end - start}
+            ).content
+            == later
+        )
+        reopened = client.get(endpoint, params=params | {"index": True}).json()
+        assert len(reopened["spans"]) == 3
+        path.write_bytes(first_header)
+        assert client.get(endpoint, params=after_first | {"index": True}).status_code == 409
+        if source.startswith("ssh:"):
+            assert attempted and all(attempted)
+
+
+def test_xdatcar_index_leaves_oversized_frame_available_as_ranges(settings_factory, tmp_path):
+    path = tmp_path / "XDATCAR"
+    prefix = b"Cu\n1\n2 0 0\n0 2 0\n0 0 2\nCu\n1\nDirect configuration= 1\n"
+    path.write_bytes(prefix + b"0.5 0 0" + b" " * (8 * 1024**2) + b"\n")
+    with TestClient(
+        create_app(settings_factory()), base_url="http://127.0.0.1", client=("127.0.0.1", 5000)
+    ) as client:
+        endpoint = "/api/file-browser/trajectory"
+        params = {"source": "local", "root": str(tmp_path), "path": path.name}
+        response = client.get(endpoint, params=params | {"index": True, "first": True})
+        assert response.is_success, response.text
+        batch = response.json()
+        assert batch["rangeFallback"] and not batch["spans"] and batch["nextOffset"] == 0
+        tail = params | {"snapshot": batch["snapshot"], "offset": batch["size"] - 4, "length": 4}
+        assert client.get(endpoint, params=tail).content == b"   \n"
+        path.write_bytes(prefix)
+        assert client.get(endpoint, params=tail).status_code == 409
 
 
 def test_large_binary_trajectory_reads_a_small_range(settings_factory, tmp_path):
