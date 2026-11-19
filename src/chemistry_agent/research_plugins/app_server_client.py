@@ -23,7 +23,7 @@ class AppServerClient:
             self.request(
                 "initialize",
                 {
-                    "clientInfo": {"name": "chem_job_completion_trigger", "version": "0.1.0"},
+                    "clientInfo": {"name": "chem_job_monitor", "version": "0.1.3"},
                     "capabilities": {"experimentalApi": True},
                 },
             )
@@ -100,7 +100,7 @@ class AppServerClient:
                             "threadId": thread_id,
                             "turnId": turn["id"],
                             "limit": 100,
-                            "deferOutput": True,
+                            "deferOutput": {"commandExecution": True, "mcpToolCall": True},
                             "sortDirection": "asc",
                             "cursor": item_cursor,
                         },
@@ -110,7 +110,8 @@ class AppServerClient:
                         if item.get("type") == "userMessage" and (
                             item.get("id") == message_id
                             or any(
-                                marker in value.get("text", "") for value in item.get("content", [])
+                                value.get("text", "").startswith(marker + "\n")
+                                for value in item.get("content", [])
                             )
                         ):
                             return turn
@@ -143,3 +144,12 @@ class AppServerClient:
 
     def close(self) -> None:
         self.socket.close()
+
+    def delete(self, thread_id: str, submission_id: str) -> None:
+        self.request(
+            "thread/queue/delete", {"threadId": thread_id, "queuedSubmissionId": submission_id}
+        )
+
+    def unsubscribe(self, thread_id: str) -> None:
+        self.request("thread/unsubscribe", {"threadId": thread_id})
+        self.resumed.discard(thread_id)

@@ -7,7 +7,9 @@ listen_port = 29841
 ssh_hosts = ""
 local_host = ""
 project_directory = "."
+codex_control_socket = ""
 
+import logging
 import sys
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from chemistry_agent.research_plugins.daemon import create_app
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     root = Path(__file__).resolve().parents[1]
     home = (root / data_directory).resolve()
     app = create_app(
@@ -26,6 +29,7 @@ def main() -> None:
         tuple(host.strip() for host in ssh_hosts.split(",") if host.strip()),
         ((root / project_directory).resolve(),),
         local_host=local_host,
+        codex_socket=Path(codex_control_socket).expanduser() if codex_control_socket else None,
     )
     uvicorn.run(app, host="127.0.0.1", port=listen_port)
 

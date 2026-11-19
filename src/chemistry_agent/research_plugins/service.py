@@ -22,6 +22,7 @@ from chemistry_agent.research_plugins.models import (
     JobRegister,
     Scope,
     WaitControl,
+    WaitList,
     WaitRead,
     WaitRegister,
 )
@@ -63,9 +64,11 @@ class ResearchService:
         ssh_hosts: tuple[str, ...] = (),
         project_roots: tuple[Path, ...] = (),
         local_host: str = "",
+        codex_wakeup: bool = False,
     ) -> None:
         self.home, self.ssh_hosts = home, ssh_hosts
         self.local_host = local_host
+        self.codex_wakeup = codex_wakeup
         self.project_roots = tuple(path.resolve() for path in project_roots)
         self.ledger = MonitorLedger(home / "monitor.sqlite3")
         # Explicit isolation: never load the application's .env, agents, or production paths.
@@ -81,6 +84,7 @@ class ResearchService:
             "monitor_register_job": (JobRegister, self.register_job),
             "monitor_list_jobs": (Scope, self.list_jobs),
             "monitor_register_wait": (WaitRegister, self.register_wait),
+            "monitor_list_waits": (WaitList, self.list_waits),
             "monitor_read_wait": (WaitRead, self.read_wait),
             "monitor_control_wait": (WaitControl, self.control_wait),
             "research_save_plan": (PlanSave, self.save_plan),
@@ -101,9 +105,12 @@ class ResearchService:
                 "completion does not imply scientific convergence."
             ),
             "monitor_register_wait": (
-                "Persist a one-shot all/any wait bound to a supplied Codex thread UUID. "
-                "Returns pull delivery, NOT automatic desktop wakeup."
+                "Persist a one-shot all/any group tied to the original chat UUID. "
+                "On cluster-a, defaults to waking that chat for a read-only summary. "
+                "Register after submitting tracked jobs unless the user opted out. "
+                "Use pull for manual-only monitoring."
             ),
+            "monitor_list_waits": "List job groups and their wait and Codex delivery status.",
             "monitor_read_wait": (
                 "Read a durable event, optionally waiting up to 30 seconds. Reading does "
                 "not acknowledge it. Retry the same wait after reconnecting."
@@ -133,6 +140,7 @@ class ResearchService:
         ]
         readonly = {
             "monitor_list_jobs",
+            "monitor_list_waits",
             "monitor_read_wait",
             "research_read_plan",
             "research_read_folder",
@@ -205,7 +213,17 @@ class ResearchService:
         return {"jobs": self.ledger.jobs(str(args.workspace_id))}
 
     async def register_wait(self, args: WaitRegister) -> dict:
-        return self.ledger.register_wait(args)
+        delivery = args.delivery
+        if delivery == "default":
+            delivery = "codex" if self.codex_wakeup else "pull"
+        if not self.codex_wakeup and (delivery == "codex" or args.summary):
+            raise ValueError("此服务未配置 Codex 自动汇总")
+        workspace = str(args.workspace_id)
+        project = self.chat.load(workspace, "workspaces", workspace).get("project_path")
+        return self.ledger.register_wait(args.model_copy(update={"delivery": delivery}), project)
+
+    async def list_waits(self, args: WaitList) -> dict:
+        return self.ledger.list_waits(str(args.workspace_id), args.offset)
 
     async def read_wait(self, args: WaitRead) -> dict:
         deadline = time.monotonic() + args.timeout_seconds
