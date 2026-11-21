@@ -3,7 +3,7 @@
 import asyncio
 import shlex
 
-from chemistry_agent.research_plugins.ledger import MonitorLedger
+from chemistry_agent.research_plugins.ledger import TERMINAL, MonitorLedger
 
 
 async def scheduler_read(host: str, arguments: list[str], local_host: str = "") -> str:
@@ -41,7 +41,8 @@ def scheduler_row(text: str, job_id: str) -> tuple[str, str | None]:
     """Only the exact job/allocation counts; batch/extern rows are not its outcome."""
     for line in text.splitlines():
         fields = line.strip().split("|")
-        if len(fields) >= 2 and fields[0] == job_id:
+        # sacct uses parent_task for JobID and the allocation number for JobIDRaw.
+        if len(fields) >= 2 and (fields[0] == job_id or len(fields) >= 4 and fields[3] == job_id):
             return fields[1].split()[0].rstrip("+"), fields[2] if len(fields) > 2 else None
     return "UNKNOWN", None
 
@@ -56,17 +57,30 @@ async def observe_slurm(
             if job["host"] not in hosts and job["host"] != local_host:
                 raise ValueError("此主机未在独立监控服务中启用")
             identifier = job["scheduler_id"]  # Validated digits and optional array index.
-            text = await scheduler_read(
-                job["host"], ["squeue", "-h", "-j", identifier, "-o", "%i|%T"], local_host
-            )
-            state, code = scheduler_row(text, identifier)
-            if state == "UNKNOWN":
+            queue_error = None
+            try:
+                text = await scheduler_read(
+                    job["host"], ["squeue", "-h", "-j", identifier, "-o", "%i|%T"], local_host
+                )
+                state, code = scheduler_row(text, identifier)
+            except (OSError, ValueError, TimeoutError) as error:
+                # A completed job can disappear from squeue before sacct reports it.
+                queue_error = str(error)
+                state, code = "UNKNOWN", None
+            if state == "UNKNOWN" or state in TERMINAL:
                 text = await scheduler_read(
                     job["host"],
-                    ["sacct", "-n", "-P", "-j", identifier, "--format=JobIDRaw,State,ExitCode"],
+                    [
+                        "sacct",
+                        "-n",
+                        "-P",
+                        "-j",
+                        identifier,
+                        "--format=JobID%64,State,ExitCode,JobIDRaw%64",
+                    ],
                     local_host,
                 )
                 state, code = scheduler_row(text, identifier)
-            ledger.observe(job["id"], state, code)
+            ledger.observe(job["id"], state, code, queue_error if state == "UNKNOWN" else None)
         except (OSError, ValueError, TimeoutError) as error:
             ledger.observe(job["id"], "UNKNOWN", error=str(error))
