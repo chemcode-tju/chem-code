@@ -1,6 +1,6 @@
 {
   "name": "chem-job-monitor",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "登记作业与分组等待；作业结束后回原聊天汇总。",
   "license": "MIT",
   "skills": "./skills/",

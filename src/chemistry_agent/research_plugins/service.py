@@ -106,7 +106,7 @@ class ResearchService:
             ),
             "monitor_register_wait": (
                 "Persist a one-shot all/any group tied to the original chat UUID. "
-                "On cluster-a, defaults to waking that chat for a read-only summary. "
+                "When automatic wakeup is configured, it defaults to a read-only summary. "
                 "Register after submitting tracked jobs unless the user opted out. "
                 "Use pull for manual-only monitoring."
             ),

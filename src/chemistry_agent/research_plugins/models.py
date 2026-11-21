@@ -37,7 +37,7 @@ class WaitRegister(Scope):
     job_ids: list[UUID] = Field(min_length=1, max_length=100)
     mode: Literal["all", "any"] = "all"
     delivery: Literal["default", "pull", "codex"] = Field(
-        default="default", description="Default wakes this chat on cluster-a; pull is manual lookup only."
+        default="default", description="Use the server's default delivery; pull is manual lookup."
     )
     summary: str = Field(
         default="", max_length=2000, description="Read-only summary goal and known result paths."
