@@ -1,14 +1,12 @@
 // Run before styles and deferred modules: the first painted layout is the final one.
 (() => {
   const root = document.documentElement;
-  const agentPage = location.pathname === '/agents';
-  root.classList.toggle('agent-settings-page', agentPage);
   let embedded = false;
-  if (!agentPage && parent !== window && new URLSearchParams(location.search).get('embed') === '1') {
+  if (parent !== window && new URLSearchParams(location.search).get('embed') === '1') {
     try { embedded = parent.location.origin === location.origin; } catch { /* Foreign host. */ }
   }
   root.classList.toggle('embedded-settings', embedded);
-  root.classList.toggle('compact-settings', !agentPage && (embedded ? parent : window).matchMedia('(max-width:767px)').matches);
+  root.classList.toggle('compact-settings', (embedded ? parent : window).matchMedia('(max-width:767px)').matches);
   root.dataset.settingsState = 'loading';
   const english = root.lang === 'en';
   function status(failed = false) {

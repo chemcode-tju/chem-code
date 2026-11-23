@@ -43,15 +43,28 @@ def test_workspace_preserves_attachments_structures_models_and_routes(settings_f
         html = client.get("/").text
         assert client.get("/settings").text == html
         assert 'id="structure-upload"' not in html and 'id="sidebar-add"' not in html
-        assert 'id="agent-settings-entry" href="/agents"' in html
+        assert 'id="agent-settings-entry"' not in html
+        assert 'class="sidebar-toolbar"' not in html
+        full_rail = html.split('class="workspace-rail"', 1)[1].split("</nav>", 1)[0]
+        assert 'id="rail-brand"' in full_rail
+        workspace_rail = html.split('class="workspace-rail-section"', 1)[1].split("</nav>", 1)[0]
+        assert 'id="job-monitor-entry"' in workspace_rail
+        assert 'id="memory-entry" class="icon-button" href="/memory"' in workspace_rail
+        sidebar_content = html.split('id="sidebar-content"', 1)[1].split("</aside>", 1)[0]
+        assert 'id="new-chat"' in sidebar_content
+        assert 'id="sidebar-collapse"' in sidebar_content
+        topbar = html.split('<header class="topbar">', 1)[1].split("</header>", 1)[0]
+        assert 'id="sidebar-expand"' in topbar and 'id="tools-toggle"' in topbar
+        assert '<main class="memory-page" id="memory-page"' in html
+        assert client.get("/memory").text == html
         settings_sheet = client.get("/settings?embed=1").text
-        assert 'class="settings-agent-link" href="/agents"' in settings_sheet
+        assert 'id="tab-agent" role="tab" aria-controls="agent-settings"' in settings_sheet
+        assert 'id="task-agent-settings"' in settings_sheet
+        assert 'id="agent-instances-heading"' in settings_sheet
         assert 'id="workspace-settings"' not in settings_sheet
-        agents_page = client.get("/agents")
-        assert agents_page.status_code == 200
-        assert 'id="task-agent-settings"' in agents_page.text
-        assert 'id="agent-instances-heading"' in agents_page.text
-        assert 'id="workspace-settings"' not in agents_page.text
+        old_agent_link = client.get("/agents?session=fixture&host=cluster-b", follow_redirects=False)
+        assert old_agent_link.status_code == 307
+        assert old_agent_link.headers["location"] == "/settings?session=fixture&host=cluster-b#agent"
         assert client.get("/assets/calculations.mjs").headers["cache-control"] == "no-cache"
         for identifier in (
             "project-list",

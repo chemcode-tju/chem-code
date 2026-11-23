@@ -51,20 +51,19 @@ body.workspace-shell {background:var(--opaque-panel);padding:0 8px 8px 0;transit
 .workspace-shell.sidebar-open .sidebar {background:var(--opaque-panel);}
 .workspace-shell .sidebar-header {
   height:var(--workspace-header-height,44px);min-height:var(--workspace-header-height,44px);
-  flex:none;padding-block:0;margin-bottom:8px;
+  flex:none;padding-block:0;margin-bottom:4px;
 }
 .workspace-shell:not(.inspector-open) .sidebar-header {height:44px;min-height:44px;}
-.workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close) {
-  width:32px;height:32px;border:0;background:transparent;box-shadow:none;
+.workspace-shell :is(#sidebar-expand,#sidebar-collapse,#tools-toggle,#inspector-close) {
+  width:32px;height:32px;padding:0;border:0;background:transparent;box-shadow:none;
+  border-radius:var(--radius-control);color:var(--muted);
 }
-.workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close):hover {background:var(--hover);}
-.workspace-shell :is(#sidebar-collapse,#tools-toggle,#inspector-close) .icon {width:18px;height:18px;}
+.workspace-shell :is(#sidebar-expand,#sidebar-collapse,#tools-toggle,#inspector-close):hover {background:var(--hover);color:var(--text);}
+.workspace-shell :is(#sidebar-expand,#sidebar-collapse,#tools-toggle,#inspector-close) .icon {width:18px;height:18px;}
 .workspace-shell #new-chat {
-  position:relative;align-self:flex-start;justify-content:center;flex:none;width:32px;height:36px;min-height:36px;
-  margin:0 0 8px 4px;padding:0;background:transparent;border:0;box-shadow:none;
+  height:36px;min-height:36px;background:transparent;border:0;box-shadow:none;
 }
 .workspace-shell #new-chat:hover {background:var(--hover);}
-.workspace-shell #new-chat>.nav-label {position:absolute;left:40px;white-space:nowrap;}
 .workspace-shell .inspector-launcher {gap:8px;}
 .workspace-shell .inspector-launcher button {border:1px solid var(--border);background:var(--panel);border-radius:var(--radius-control);}
 .workspace-shell .inspector-launcher button:hover {background:var(--selected);}

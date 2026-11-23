@@ -7,16 +7,12 @@ import { createKnowledgeSettings } from "./knowledge-settings.mjs";
 import { createEnvironmentSettings } from "./environment-settings.mjs";
 import { createMcpSettings } from "./mcp-settings.mjs";
 import { createTaskAgentSettings } from "./task-agent-settings.mjs";
-import { agentSettingsHref } from "./settings-dialog.mjs";
 const $ = (id) => document.getElementById(id);
 const pageParams = new URLSearchParams(location.search);
-const agentPage = location.pathname === "/agents";
 const session = pageParams.get("session");
 const sessionQuery = session ? "?" + new URLSearchParams({session}) : "";
 const workspaceHref = "/" + sessionQuery;
-document.querySelector(".agent-back-link").href = workspaceHref;
-document.querySelector(".settings-agent-link").href = agentSettingsHref(session, pageParams.get("host"));
-if (agentPage) $("agent-server-settings").href = "/settings" + sessionQuery + "#servers";
+document.querySelector(".close-settings").href = workspaceHref;
 let polling;
 let busy = false;
 let savedSettings = null;
@@ -28,13 +24,13 @@ let accounts = [];
 
 // Only the same-origin workspace may host the settings controls and their messages.
 let embedded = false;
-if (!agentPage && parent !== window && pageParams.get("embed") === "1") {
+if (parent !== window && pageParams.get("embed") === "1") {
   try { embedded = parent.location.origin === location.origin; } catch { /* Foreign host. */ }
 }
 document.documentElement.classList.toggle("embedded-settings", embedded);
 const compactLayout = (embedded ? parent : window).matchMedia("(max-width:767px)");
 function syncNavigationLayout() {
-  document.documentElement.classList.toggle("compact-settings", !agentPage && compactLayout.matches);
+  document.documentElement.classList.toggle("compact-settings", compactLayout.matches);
   document.querySelector(".settings-sidebar nav").setAttribute("aria-orientation", compactLayout.matches ? "horizontal" : "vertical");
 }
 syncNavigationLayout();
@@ -48,7 +44,7 @@ document.querySelector(".close-settings").addEventListener("click", (event) => {
   event.preventDefault(); closeSettings();
 });
 document.addEventListener("keydown", (event) => {
-  if (!agentPage && event.key === "Escape" && !document.querySelector("dialog[open]")) {
+  if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
     event.preventDefault(); closeSettings();
   }
 });
@@ -280,8 +276,7 @@ createMcpSettings(api);
 function showSettingsPanel() {
   const aliases = { account: "general", "model-form": "agent", model: "agent" };
   const hash = embedded ? new URLSearchParams(location.search).get("tab") : location.hash.slice(1);
-  const selected = agentPage || hash === "agent" ? "agent" :
-    aliases[hash] || (tabs.some(tab => tab.dataset.tab === hash) ? hash : "general");
+  const selected = aliases[hash] || (tabs.some(tab => tab.dataset.tab === hash) ? hash : "general");
   document.querySelectorAll("[data-panel]").forEach((panel) => { panel.hidden = panel.dataset.panel !== selected; });
   document.querySelectorAll("[data-tab]").forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === selected));
@@ -289,7 +284,7 @@ function showSettingsPanel() {
   });
   $("notice").hidden = selected !== "agent";
   document.querySelector("main").scrollTop = 0;
-  if (!agentPage && compactLayout.matches) document.querySelector('[data-tab][aria-selected="true"]')?.scrollIntoView({block:"nearest", inline:"nearest"});
+  if (compactLayout.matches) document.querySelector('[data-tab][aria-selected="true"]')?.scrollIntoView({block:"nearest", inline:"nearest"});
   if (embedded) parent.postMessage({type:"chem:settings-tab", tab:selected}, location.origin);
   computeSettings.activate(selected);
   void knowledgeSettings.activate(selected);

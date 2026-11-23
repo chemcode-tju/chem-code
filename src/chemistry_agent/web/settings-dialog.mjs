@@ -1,14 +1,10 @@
 // A normal settings URL remains usable as a separate page. Opening it from the
 // workspace keeps the current chat, draft and scroll position in the document.
-export function agentSettingsHref(session, host) {
+export function settingsHref(tab, session, host) {
   const params = new URLSearchParams();
   if (session) params.set('session', session);
   if (host && host !== 'local') params.set('host', host);
-  return '/agents' + (params.size ? '?' + params : '');
-}
-
-function legacyAgentSettings(link) {
-  return ['#agent', '#model', '#model-form'].includes(link.hash);
+  return '/settings' + (params.size ? '?' + params : '') + '#' + tab;
 }
 
 export function initSettingsDialog({onOpen, onClose}) {
@@ -33,6 +29,11 @@ export function initSettingsDialog({onOpen, onClose}) {
     if (history.state?.workspaceSettings) history.back();
     else dialog.close();
   }
+  function open(tab, session, host) {
+    if (dialog.open) return;
+    history.pushState({workspaceSettings:true}, "", settingsHref(tab, session, host));
+    show();
+  }
   document.addEventListener("click", (event) => {
     const link = event.target.closest?.('a[href]');
     if (!link || event.defaultPrevented || event.button || event.metaKey || event.ctrlKey ||
@@ -42,20 +43,10 @@ export function initSettingsDialog({onOpen, onClose}) {
     const target = new URL(link.href);
     const session = new URLSearchParams(location.search).get("session");
     if (session && !target.searchParams.has("session")) target.searchParams.set("session", session);
-    if (legacyAgentSettings(target)) {
-      location.assign(agentSettingsHref(target.searchParams.get("session"), target.searchParams.get("host")));
-      return;
-    }
-    history.pushState({workspaceSettings:true}, "", target);
-    show();
+    open(target.hash.slice(1) || "general", target.searchParams.get("session"), target.searchParams.get("host"));
   });
   function restoreLinkedSettings() {
     if (location.pathname !== "/settings") return;
-    const target = new URL(location.href);
-    if (legacyAgentSettings(target)) {
-      location.replace(agentSettingsHref(target.searchParams.get('session'), target.searchParams.get('host')));
-      return;
-    }
     // A copied link gets its own workspace history entry, just like a sidebar click.
     if (!history.state?.workspaceSettings) {
       const url = location.href;
@@ -87,5 +78,5 @@ export function initSettingsDialog({onOpen, onClose}) {
       history.replaceState({workspaceSettings:true}, "", "/settings" + location.search + "#" + event.data.tab);
     }
   });
-  return restoreLinkedSettings;
+  return {open, restoreLinkedSettings};
 }

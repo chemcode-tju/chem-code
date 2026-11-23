@@ -217,6 +217,7 @@ class AuthenticationMiddleware:
             request.state.user_id = user["id"] if user else None
             public = request.url.path in {
                 "/",
+                "/memory",
                 "/health",
                 "/auth/status",
                 "/auth/login",

@@ -120,6 +120,7 @@ async def test_public_endpoints_remain_available_and_private_endpoints_require_l
         for path in ("/", "/assets/styles.css", "/assets/app.mjs", "/health", "/auth/status"):
             assert client.get(path).status_code == 200
         assert client.get("/settings").text == client.get("/").text
+        assert client.get("/memory").text == client.get("/").text
         agent_settings = client.get("/agents?session=fixture", follow_redirects=False)
         assert agent_settings.status_code == 307
         assert agent_settings.headers["location"] == "/settings?session=fixture#agent"
@@ -127,6 +128,7 @@ async def test_public_endpoints_remain_available_and_private_endpoints_require_l
         for path in (
             "/settings?embed=1",
             "/api/model/settings",
+            "/api/research/memories",
             "/sessions",
             "/tools",
             "/docs",

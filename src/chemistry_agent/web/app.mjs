@@ -5,7 +5,7 @@ import {userQuestions} from './user-questions.mjs';
 import {visibleReference, activity, activityOpen, activitySteps, answerBox, answerFooter, liveAnswerFooter, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
-import { agentSettingsHref, initSettingsDialog } from "./settings-dialog.mjs";
+import { settingsHref, initSettingsDialog } from "./settings-dialog.mjs";
 import {initWorkspaceControls} from './workspace-controls.mjs';
 import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
@@ -13,6 +13,7 @@ import { createStructureBridge, createStructureDocuments, structureButton, inlin
 import { createCalculations } from "./calculations.mjs?v=20261102-general-plans";
 import {initJobMonitor} from "./job-monitor.mjs";
 import {initJobBoard} from "./job-board.mjs";
+import {createMemoryWorkspace} from "./memory.mjs";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
@@ -32,7 +33,7 @@ const state = {
   auth: { enabled: false, user: null }, accountVersion: 0,
 };
 const splitWorkspace = matchMedia("(min-width:688px)");
-const compactNavigation = matchMedia("(min-width:688px) and (max-width:1023px)");
+const dockedNavigation = matchMedia("(min-width:1024px)");
 const setDockMaximized = initWorkspaceControls({closeInspector:()=>setInspectorOpen(false), onMaximized:syncDrawerAccessibility});
 const jobMonitor = initJobMonitor();
 const jobBoard = initJobBoard();
@@ -40,9 +41,13 @@ const workspaces = {
   chat: {path:"/", entry:"chat-workspace-entry", panel:"chat-panel", heading:"conversation-title"},
   monitor: {path:"/monitor", entry:"job-monitor-entry", panel:"queue-page", heading:"queue-heading"},
   board: {path:"/monitor/board", entry:"job-board-entry", panel:"job-board-page", heading:"job-board-heading"},
+  memory: {path:"/memory", entry:"memory-entry", panel:"memory-page", heading:"memory-heading"},
 };
 let activeWorkspace = "chat";
 let restoreChatInspector = false;
+let sidebarDrawerOpen = false;
+let preferredSidebarCollapsed = false;
+try { preferredSidebarCollapsed = localStorage.getItem("chemistry.sidebarCollapsed") === "true"; } catch { /* Optional. */ }
 initAnswerControls({root:document.body,answer:i=>state.turns[i]?.answer,toast});
 initDeferredActivities({root:$("conversation"), resolve:id=>state.turns.find((turn,index)=>String(turn.run?.id || index)===id)});
 
@@ -57,9 +62,10 @@ let contextSignature = "";
 let contextRequest = null;
 const nativeContextSynced = new Set();
 let contextPolling = false;
-const notifications = createNotifications({ api, selectSession });
+const notifications = createNotifications({api, selectSession:openWorkspaceSession});
+const memoryWorkspace = createMemoryWorkspace({api, markdown, updateLocation:rememberMemoryLocation, openSession:openWorkspaceSession});
 const inspectorTabs = initInspectorTabs(open => {
-  if (open) setDrawer("sidebar", false);
+  if (open) setSidebarDrawer(false);
   setInspectorOpen(open, {focus:false});
 });
 const selectInspectorTab = inspectorTabs.select;
@@ -141,59 +147,77 @@ function toast(message) {
 }
 
 function rememberSession(id) {
-  $("memory-entry").href = id ? `/memory?session=${encodeURIComponent(id)}` : "/memory";
-  $("agent-settings-entry").href = $("model-status").href = agentSettingsHref(id);
-  for (const {path, entry} of Object.values(workspaces)) {
-    $(entry).href = id ? `${path}?session=${encodeURIComponent(id)}` : path;
+  $("model-status").href = settingsHref("agent", id);
+  document.querySelector(".workspace-rail-settings").href = settingsHref("general", id);
+  for (const [name, {path, entry}] of Object.entries(workspaces)) {
+    if (name === "memory" && activeWorkspace === "memory") continue;
+    $(entry).href = workspaceHref(path, id);
   }
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try {
     if (id) localStorage.setItem(storageKey, id);
     else localStorage.removeItem(storageKey);
   } catch { /* Storage can be unavailable in a private browser. */ }
-  if (history.state?.workspaceSettings) return;
+  if (history.state?.workspaceSettings || location.pathname === "/memory") return;
   const url = new URL(location.href);
   if (id) url.searchParams.set("session", id);
   else url.searchParams.delete("session");
   history.replaceState(null, "", url);
 }
 
-function syncDrawerAccessibility() {
-  const loginRequired = !$("login-screen").hidden;
-  const sidebarHidden = loginRequired || (activeWorkspace === "chat" && !splitWorkspace.matches && !document.body.classList.contains("sidebar-open") && !document.body.classList.contains("sidebar-collapsed"));
-  const inspectorHidden = loginRequired || !document.body.classList.contains("inspector-open");
-  const mainHidden = loginRequired || (!inspectorHidden && document.body.classList.contains('dock-max'));
-  document.querySelector(".main-panel").inert = mainHidden;
-  document.querySelector(".main-panel").setAttribute("aria-hidden", String(mainHidden));
-  $("sidebar").inert = sidebarHidden;
-  $("inspector").inert = inspectorHidden;
-  $("sidebar").setAttribute("aria-hidden", String(sidebarHidden));
-  $("inspector").setAttribute("aria-hidden", String(inspectorHidden));
+function workspaceHref(path, id) {
+  return id ? `${path}?session=${encodeURIComponent(id)}` : path;
 }
 
-function setWorkspace(name, {navigate = false, focus = false} = {}) {
-  if (name === activeWorkspace) return;
+function rememberMemoryLocation(params) {
+  if (activeWorkspace !== "memory" || location.pathname !== "/memory") return;
+  const href = "/memory" + (params.size ? "?" + params : "");
+  $("memory-entry").href = href;
+  history.replaceState(null, "", href);
+}
+
+function syncDrawerAccessibility() {
+  const loginRequired = !$("login-screen").hidden;
+  const inspectorHidden = loginRequired || sidebarDrawerOpen || !document.body.classList.contains("inspector-open");
+  const chat = $("chat-panel");
+  chat.inert = loginRequired || sidebarDrawerOpen || document.body.classList.contains("dock-max");
+  $("sidebar").inert = loginRequired;
+  $("inspector").inert = inspectorHidden;
+  $("inspector").setAttribute("aria-hidden", String(inspectorHidden));
+  $("queue-page").inert = loginRequired;
+  $("job-board-page").inert = loginRequired;
+  $("memory-page").inert = loginRequired;
+}
+
+function setWorkspace(name, {navigate = false, focus = false, chatSession = state.sessionId} = {}) {
+  if (name === activeWorkspace) {
+    if (name === "memory" && !navigate) void memoryWorkspace.activate(location.search);
+    return;
+  }
   const workspace = workspaces[name];
   const entry = $(workspace.entry);
   const chat = name === "chat";
-  if (!chat && (state.auth.enabled || (entry.hidden && navigate))) return;
+  if ((name === "monitor" || name === "board") && (state.auth.enabled || (entry.hidden && navigate))) return;
+
   if (!chat && activeWorkspace === "chat") {
     restoreChatInspector = document.body.classList.contains("inspector-open");
-    setDrawer("sidebar", false);
+    setSidebarDrawer(false, {restoreFocus:false});
     setInspectorOpen(false, {focus:false,persist:false});
   }
+  if (activeWorkspace === "memory") memoryWorkspace.closeDialogs();
   activeWorkspace = name;
-  document.body.classList.toggle("monitor-workspace", !chat);
   for (const [key, view] of Object.entries(workspaces)) {
     $(view.panel).hidden = name !== key;
     $(view.entry).removeAttribute("aria-current");
   }
   entry.setAttribute("aria-current", "page");
+  if (navigate) history.pushState(null, "", chat ? workspaceHref(workspace.path, chatSession) : entry.href);
+
+  syncSidebarNavigation();
   jobMonitor.show(name === "monitor");
   jobBoard.show(name === "board");
   if (chat && restoreChatInspector) setInspectorOpen(true, {focus:false,persist:false});
-  syncDrawerAccessibility();
-  if (navigate) history.pushState(null, "", entry.href);
+  if (name === "memory") void memoryWorkspace.activate(location.search);
   if (focus) $(workspace.heading).focus({preventScroll:true});
 }
 
@@ -201,17 +225,41 @@ function workspaceForPath(path) {
   return Object.keys(workspaces).find(name => workspaces[name].path === path) || "chat";
 }
 
+async function openWorkspaceSession(session) {
+  if (state.busy) return;
+  setWorkspace("chat", {navigate:true,chatSession:session});
+  if (session !== state.sessionId) await selectSession(session);
+  $("conversation-title").focus({preventScroll:true});
+}
+
 for (const [name, {entry}] of Object.entries(workspaces)) {
   $(entry).addEventListener("click", event => {
     if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    setWorkspace(name, {navigate:true,focus:true});
+    if (name === "chat" && activeWorkspace === "chat") {
+      toggleChatSidebar({keepFocus:true});
+      return;
+    }
+    setWorkspace(name, {navigate:true,focus:event.detail === 0});
+  });
+}
+for (const brand of [$("rail-brand"), document.querySelector(".sidebar-header .brand")].filter(Boolean)) {
+  brand.addEventListener("click", event => {
+    if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (activeWorkspace !== "chat") setWorkspace("chat", {navigate:true, focus:event.detail === 0});
+    else if (sidebarDrawerOpen) setSidebarDrawer(false);
   });
 }
 window.addEventListener("popstate", () => {
-  if (!history.state?.workspaceSettings) {
-    setWorkspace(workspaceForPath(location.pathname));
-  }
+  if (history.state?.workspaceSettings || !$("login-screen").hidden) return;
+  const workspace = workspaceForPath(location.pathname);
+  setWorkspace(workspace);
+  if (workspace !== "chat" || state.busy) return;
+  const id = new URLSearchParams(location.search).get("session");
+  if (id === state.sessionId) return;
+  if (id) void selectSession(id, true);
+  else newConversation({restoreSavedDraft:true});
 });
 
 function inspectorKey(id) {
@@ -258,27 +306,61 @@ function setInspectorOpen(open, { focus = true, persist = true } = {}) {
   else if (focus && wasFocused) $("tools-toggle").focus({preventScroll:true});
 }
 
-function setDrawer(name, open) {
-  if (name === "inspector") { setInspectorOpen(open); return; }
-  const panel = $(name === "sidebar" ? "sidebar" : "inspector");
-  const trigger = $(compactNavigation.matches ? "sidebar-collapse" : "menu-toggle");
-  const wasFocused = panel.contains(document.activeElement);
-  document.body.classList.toggle(`${name}-open`, open);
-  if (name === "sidebar") {
-    if (compactNavigation.matches) setSidebarCollapsed(!open, false);
-    else if (!splitWorkspace.matches) setSidebarCollapsed(false, false);
-  }
-  const anyOpen = document.body.classList.contains("sidebar-open");
-  $("screen-overlay").hidden = !anyOpen;
-  $("menu-toggle").setAttribute("aria-expanded", String(document.body.classList.contains("sidebar-open")));
-  $("tools-toggle").setAttribute("aria-expanded", String(document.body.classList.contains("inspector-open")));
+function syncSidebarNavigation() {
+  const chat = activeWorkspace === "chat";
+  const docked = dockedNavigation.matches;
+  const expanded = chat && (docked ? !preferredSidebarCollapsed : sidebarDrawerOpen);
+  const collapseButton = $("sidebar-collapse");
+  const expandButton = $("sidebar-expand");
+  document.body.classList.toggle("sidebar-collapsed", !docked || !expanded);
+  document.body.classList.toggle("sidebar-open", sidebarDrawerOpen);
+  $("screen-overlay").hidden = !sidebarDrawerOpen;
+  $("sidebar-content").hidden = !expanded;
+  collapseButton.hidden = !expanded;
+  collapseButton.setAttribute("aria-expanded", String(expanded));
+  collapseButton.title = t("折叠侧栏");
+  collapseButton.setAttribute("aria-label", collapseButton.title);
+  expandButton.hidden = !chat || expanded;
+  expandButton.setAttribute("aria-expanded", String(expanded));
+  expandButton.title = t("展开侧栏");
+  expandButton.setAttribute("aria-label", expandButton.title);
   syncDrawerAccessibility();
-  if (open) panel.querySelector("button, input, summary")?.focus();
-  else if (wasFocused && trigger.getClientRects().length) trigger.focus();
+}
+
+function setSidebarDrawer(open, {restoreFocus = true} = {}) {
+  if (open === sidebarDrawerOpen) return;
+  const focusedInside = $("sidebar-content").contains(document.activeElement);
+  sidebarDrawerOpen = open;
+  syncSidebarNavigation();
+  if (!open && restoreFocus && focusedInside && activeWorkspace === "chat") {
+    $("sidebar-expand").focus({preventScroll:true});
+  }
+}
+
+function toggleChatSidebar({keyboard = false, keepFocus = false} = {}) {
+  if (activeWorkspace !== "chat") return;
+  if (!dockedNavigation.matches) {
+    const opening = !sidebarDrawerOpen;
+    setSidebarDrawer(opening, {restoreFocus: !keepFocus});
+    if (opening && keyboard && !keepFocus) {
+      ($("new-chat").disabled ? $("sidebar-collapse") : $("new-chat")).focus({preventScroll:true});
+    }
+    return;
+  }
+  const focusedInside = $("sidebar-content").contains(document.activeElement);
+  preferredSidebarCollapsed = !preferredSidebarCollapsed;
+  try { localStorage.setItem("chemistry.sidebarCollapsed", String(preferredSidebarCollapsed)); } catch { /* Optional. */ }
+  syncSidebarNavigation();
+  if (keepFocus) return;
+  if (!preferredSidebarCollapsed && keyboard) {
+    $("sidebar-collapse").focus({preventScroll:true});
+  } else if (preferredSidebarCollapsed && (keyboard || focusedInside)) {
+    $("sidebar-expand").focus({preventScroll:true});
+  }
 }
 
 function closeDrawers() {
-  setDrawer("sidebar", false);
+  setSidebarDrawer(false);
 }
 
 function updateControls() {
@@ -298,7 +380,6 @@ function updateControls() {
   $("send-button").title = sendLabel;
   $("send-button").setAttribute("aria-label", sendLabel);
   $("new-chat").disabled = locked;
-  $("new-chat-list").disabled = locked;
   $("new-project").disabled = locked;
   document.querySelectorAll("[data-new-in]").forEach((button) => { button.disabled = locked; });
   document.querySelectorAll(".session-button,.suggestion-card").forEach((button) => { button.disabled = locked; });
@@ -365,6 +446,7 @@ function sessionButton(session) {
 const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
 chatModels = createChatModelPicker({
   api, state, toast, updateControls, refreshHealth, onLocation:fileBrowser.syncProject,
+  openSettingsTab:(tab, host)=>settingsDialog.open(tab, state.sessionId, host),
 });
 const uploads = createFileUploads({ state, toast, updateControls, onChange: () => calculations.drawStructures(), onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
 
@@ -517,7 +599,7 @@ async function selectSession(id, quiet = false) {
   state.loading = true;
   state.pending = null;
   renderConversation(false);
-  setDrawer("sidebar", false);
+  setSidebarDrawer(false);
   if (inspectorSession !== id) restoreInspector(id);
   // Loading model catalogs must never gate reading a saved conversation.
   void Promise.allSettled([chatModels.loadSession(id), refreshHealth()]).then(() => {
@@ -581,7 +663,7 @@ function clearRevision() {
 }
 $("revision-chip").addEventListener("click",clearRevision);
 
-function newConversation() {
+function newConversation({restoreSavedDraft = false} = {}) {
   if(state.sessionId) chatPositions.set(state.sessionId,$("chat-scroll").scrollTop);
   if (state.busy || state.loading || chatModels.saving) return;
   saveDraft();
@@ -597,9 +679,10 @@ function newConversation() {
   viewer.reset(); structureDocuments.reset(); calculations.reset();
   resetContextMeter();
   rememberSession(null);
-  restoreInspector(null, true);
+  restoreInspector(null, !restoreSavedDraft);
   $("conversation-title").textContent = t("新对话");
   $("message-input").value = "";
+  if (restoreSavedDraft) restoreDraft();
   uploads.select(null);
   renderConversation(false);
   renderSessions();
@@ -848,7 +931,6 @@ $("session-list").addEventListener("click", (event) => {
   const button = event.target.closest("[data-session]");
   if (button) selectSession(button.dataset.session);
 });
-$("new-chat-list").addEventListener("click", newConversation);
 $("load-more").addEventListener("click", async () => {
   $("load-more").disabled = true;
   try { await refreshSessions(true); } catch (error) { toast(error.message); }
@@ -867,52 +949,29 @@ $("conversation").addEventListener("click", async (event) => {
 });
 $("properties-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_properties", event.currentTarget); });
 $("similarity-form").addEventListener("submit", (event) => { event.preventDefault(); runLocalTool("molecular_similarity", event.currentTarget); });
-let preferredSidebarCollapsed = false;
-try { preferredSidebarCollapsed = localStorage.getItem("chemistry.sidebarCollapsed") === "true"; } catch { /* Optional. */ }
-
-function setSidebarCollapsed(collapsed, persist = true) {
-  document.body.classList.toggle("sidebar-collapsed", collapsed);
-  const button = $("sidebar-collapse");
-  button.setAttribute("aria-expanded", String(!collapsed && (splitWorkspace.matches || document.body.classList.contains("sidebar-open"))));
-  const label = t(collapsed ? "展开侧栏" : "折叠侧栏");
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  if (persist) {
-    preferredSidebarCollapsed = collapsed;
-    try { localStorage.setItem("chemistry.sidebarCollapsed", String(collapsed)); } catch { /* Optional. */ }
-  }
-  syncDrawerAccessibility();
-}
-
 function syncWorkspaceLayout() {
-  document.body.classList.toggle("responsive-sidebar", compactNavigation.matches);
-  setDrawer("sidebar", false);
-  setSidebarCollapsed(splitWorkspace.matches && (compactNavigation.matches || preferredSidebarCollapsed), false);
+  if (dockedNavigation.matches) setSidebarDrawer(false);
+  syncSidebarNavigation();
   if (!splitWorkspace.matches) setDockMaximized(false);
 }
 syncWorkspaceLayout();
-compactNavigation.addEventListener("change", syncWorkspaceLayout);
+dockedNavigation.addEventListener("change", syncWorkspaceLayout);
 splitWorkspace.addEventListener("change", syncWorkspaceLayout);
 
-$("sidebar-collapse").addEventListener("click", () => {
-  if (!splitWorkspace.matches || compactNavigation.matches) {
-    setDrawer("sidebar", !document.body.classList.contains("sidebar-open"));
-    return;
-  }
-  setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"));
-});
-$("menu-toggle").addEventListener("click", () => setDrawer("sidebar", !document.body.classList.contains("sidebar-open")));
+for (const button of [$("sidebar-expand"), $("sidebar-collapse")]) {
+  button.addEventListener("click", event => toggleChatSidebar({keyboard: event.detail === 0}));
+}
 $("tools-toggle").addEventListener("click", () => {
-  setDrawer("sidebar", false);
+  setSidebarDrawer(false);
   setInspectorOpen(!document.body.classList.contains("inspector-open"));
 });
-$("inspector-close").addEventListener("click", () => setDrawer("inspector", false));
+$("inspector-close").addEventListener("click", () => setInspectorOpen(false));
 $("screen-overlay").addEventListener("click", closeDrawers);
 document.addEventListener("keydown", (event) => {
   if (document.querySelector("dialog[open]")) return;
   if (event.defaultPrevented) return;
   if (event.key === "Escape") {
-    if (document.body.classList.contains("sidebar-open")) setDrawer("sidebar", false);
+    if (document.body.classList.contains("sidebar-open")) setSidebarDrawer(false);
     else if (document.body.classList.contains("inspector-open")) setInspectorOpen(false);
   }
   if (event.key !== "Tab") return;
@@ -930,6 +989,7 @@ document.addEventListener("keydown", (event) => {
 
 function showLogin(message = "") {
   $("workspace-settings").close();
+  memoryWorkspace.reset();
   chatPositions.clear();progressFeed.reset();
   clearRevision(); viewer.reset(); structureDocuments.reset(); calculations.reset(); notifications.enabled(false);
   resetContextMeter();
@@ -974,12 +1034,13 @@ async function startWorkspace() {
   $("login-screen").hidden = true;
   document.body.classList.remove("auth-checking");
   syncDrawerAccessibility();
-  restoreLinkedSettings();
+  settingsDialog.restoreLinkedSettings();
   const entry = new URL(location.href);
   const setup = entry.searchParams.get("setup") === "compute";
   let id = entry.searchParams.get("session");
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try { if (!setup) id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
+  setWorkspace(workspaceForPath(entry.pathname));
   void refreshSessions().catch(error => toast(error.message));
   if (id) await selectSession(id, true);
   else { chatModels.newConversation(); void refreshHealth(); uploads.select(null); restoreInspector(null); $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
@@ -991,7 +1052,6 @@ async function startWorkspace() {
     url.searchParams.delete("setup"); history.replaceState(null,"",url);
     field.focus();
   }
-  setWorkspace(workspaceForPath(entry.pathname));
 }
 
 async function initialize() {
@@ -1025,10 +1085,11 @@ $("login-form").addEventListener("submit", async (event) => {
 
 window.addEventListener("languagechange", () => {
   if (!state.sessionId) $("conversation-title").textContent = t("新对话");
+  syncSidebarNavigation();
 });
 setInspectorOpen(false, {focus:false, persist:false});
-const restoreLinkedSettings = initSettingsDialog({
-  onOpen() { if (document.body.classList.contains("sidebar-open")) setDrawer("sidebar", false); },
+const settingsDialog = initSettingsDialog({
+  onOpen() { if (document.body.classList.contains("sidebar-open")) setSidebarDrawer(false); },
   async onClose() {
     if (!$("login-screen").hidden) return;
     await refreshHealth();

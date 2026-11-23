@@ -822,7 +822,6 @@ export function translateUI() {
 }
 function updateDocumentTitle() {
   const page = {
-    '/agents':'Agent 与模型',
     '/memory':'科研记忆',
   }[location.pathname] || (document.querySelector('[data-panel],#workspace-settings[open]') ? '设置' : '');
   const title = page ? `${t(page)} · Chem Code` : 'Chem Code';

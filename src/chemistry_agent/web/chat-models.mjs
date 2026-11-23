@@ -2,11 +2,10 @@ import { createCascadeMenu, effortLabel, permissionLabel } from './agent-menu.mj
 import {t} from './i18n.mjs';
 import {createModelPickerPanel} from './model-picker-panel.mjs';
 import {createChatLocationPicker} from './chat-location.mjs';
-import {agentSettingsHref} from './settings-dialog.mjs';
 
 const permissionIcons = {user:'hand', auto_review:'automation', full:'alert'};
 
-export function createChatModelPicker({api, state, toast, updateControls, refreshHealth, onLocation=()=>{}}) {
+export function createChatModelPicker({api, state, toast, updateControls, refreshHealth, openSettingsTab, onLocation=()=>{}}) {
   const $ = id => document.getElementById(id);
   const picker = $('agent-picker'), permission = $('permission-picker');
   const permissions = createCascadeMenu(permission, 'permission-menu');
@@ -18,12 +17,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
   let selection = null, defaultInstance = null, generation = 0, saving = false, catalogs = {};
   let locations={hosts:[],agents:[]};
   function openSettings(tab='agent', host=selection?.host_id) {
-    if (tab==='agent') { location.assign(agentSettingsHref(state.sessionId, host)); return; }
-    const link=$('model-status');
-    const previous=link.getAttribute('href');
-    link.href=`/settings#${tab}`;
-    link.click();
-    link.setAttribute('href',previous);
+    openSettingsTab(tab, host);
   }
   const locationPicker=createChatLocationPicker({api,current:()=>selection,locations:()=>locations,loadLocations,choose,
     ensureSelection:async()=>{if(!selection)await defaults();},refreshModels:()=>refresh(false),

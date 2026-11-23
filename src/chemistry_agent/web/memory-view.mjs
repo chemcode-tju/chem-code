@@ -54,7 +54,7 @@ export function documentBody(item, sourceTitle, markdown) {
   const raw = JSON.stringify({parameters:item.parameters, applicability:item.applicability, evidence, source_key:item.source_key}, null, 2);
   return `<header class="document-header"><div class="card-meta"><span>${esc(kinds[item.kind] || item.kind)}</span><span class="evidence-tag ${evidence.level === 'converged' ? 'converged' : ''}">${esc(levels[evidence.level] || '未核验')}</span><span>v${esc(item.version)}</span></div>
     <h2 data-no-i18n>${esc(item.title)}</h2><p class="document-meta"><span${sourceTitle ? ' data-no-i18n' : ''}>${esc(sourceTitle || '研究平台')}</span> · <time data-no-i18n datetime="${esc(item.updated_at)}">${esc(dateText(item.updated_at))}</time></p></header>
-    <div class="actions"><a data-download>下载 Markdown</a>${item.session_id ? `<a href="/?session=${encodeURIComponent(item.session_id)}">来源对话</a>` : ''}<button type="button" data-versions>版本记录</button><button class="forget" type="button" data-forget>移出检索</button></div>
+    <div class="actions"><a data-download>下载 Markdown</a>${item.session_id ? `<a data-memory-source href="/?session=${encodeURIComponent(item.session_id)}">来源对话</a>` : ''}<button type="button" data-versions>版本记录</button><button class="forget" type="button" data-forget>移出检索</button></div>
     ${tags.length ? `<p class="document-meta" data-no-i18n>${tags.map(esc).join(' · ')}</p>` : ''}
     ${lesson ?? `<div class="markdown">${markdown.render(item.content)}</div>`}
     ${section('证据与适用性', table(['检查项','记录'], evidenceRows,(row,column)=>row>=3&&column===1))}

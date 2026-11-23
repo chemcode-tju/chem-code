@@ -319,6 +319,7 @@ def create_app(
         return JSONResponse(status_code=exc.status_code, content={"error": detail})
 
     @app.get("/", include_in_schema=False)
+    @app.get("/memory", include_in_schema=False)
     async def index():
         return FileResponse(WEB_DIRECTORY / "index.html")
 
@@ -334,16 +335,14 @@ def create_app(
 
     @app.get("/agents", include_in_schema=False)
     async def agent_settings_page(request: Request):
-        if settings.auth_enabled and request.state.user_id is None:
-            parameters = urlencode(
-                [
-                    (key, request.query_params[key])
-                    for key in ("session", "host")
-                    if key in request.query_params
-                ]
-            )
-            return RedirectResponse(f"/settings{'?' + parameters if parameters else ''}#agent")
-        return FileResponse(WEB_DIRECTORY / "settings.html")
+        parameters = urlencode(
+            [
+                (key, request.query_params[key])
+                for key in ("session", "host")
+                if key in request.query_params
+            ]
+        )
+        return RedirectResponse(f"/settings{'?' + parameters if parameters else ''}#agent")
 
     @app.get("/health", tags=["service"])
     async def health(request: Request, session_id: UUID | None = None):

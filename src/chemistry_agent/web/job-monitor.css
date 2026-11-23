@@ -1,23 +1,101 @@
-/* Chat and queue monitoring share the same navigation shell. */
-.workspace-shell .sidebar { display:grid; grid-template-columns:44px minmax(0,1fr); padding-inline:0 8px; }
-.sidebar-pane { display:flex; flex-direction:column; min-width:0; min-height:0; }
-.workspace-rail { display:flex; align-items:center; flex-direction:column; padding:5px 0; gap:6px; }
-.workspace-rail .icon-button { width:34px; height:34px; min-width:34px; color:var(--muted); border-radius:var(--radius-control); }
-.workspace-rail [aria-current="page"],.workspace-rail .icon-button:hover { background:var(--selected); color:var(--text); }
-.workspace-rail-section { display:grid; gap:6px; padding-top:7px; border-top:1px solid var(--border); }
-.workspace-rail-settings { margin-top:auto; }
-.workspace-shell:not(.monitor-workspace) .workspace-rail-settings { display:none; }
-.workspace-shell.sidebar-collapsed .sidebar { display:flex; align-items:center; padding-inline:0; }
-.workspace-shell.sidebar-collapsed .sidebar-pane { flex:1; width:100%; }
-body.workspace-shell.monitor-workspace {
-  --sidebar:48px; display:grid; grid-template-columns:48px minmax(0,1fr);
+/* The feature rail keeps its position across workspaces. */
+body.workspace-shell {
+  --workspace-rail-width:56px;
+  --sidebar:280px;
+  grid-template-rows:minmax(0,1fr);
 }
-.workspace-shell.monitor-workspace .sidebar {
-  display:flex; position:static; transform:none; visibility:visible; pointer-events:auto;
-  width:48px; height:100%; padding-inline:0; align-items:center;
+@media (min-width:1024px) and (max-width:1200px) {
+  body.workspace-shell { --sidebar:264px; }
 }
-.monitor-workspace .workspace-rail { flex:1; }
-.monitor-workspace .sidebar-pane, .monitor-workspace .main-panel, .monitor-workspace #inspector { display:none; }
+body.workspace-shell.sidebar-collapsed { --sidebar:var(--workspace-rail-width); }
+.workspace-shell > .sidebar {
+  display:grid; grid-area:1/1/-1/2; padding:0;
+  grid-template:minmax(0,1fr) / var(--workspace-rail-width) minmax(0,1fr);
+}
+.workspace-rail {
+  grid-area:1/1; display:flex; align-items:center; flex-direction:column;
+  padding:0 0 8px; gap:6px; min-height:0; overflow:auto;
+}
+.workspace-rail .icon-button {
+  width:34px; height:34px; min-width:34px; padding:0;
+  color:var(--muted); border-radius:var(--radius-control);
+}
+.workspace-rail .icon-button:hover { background:var(--hover); color:var(--text); }
+.workspace-rail .icon-button[aria-current="page"] {
+  background:var(--sg-glass-state,var(--selected)); box-shadow:var(--state-shadow); color:var(--text);
+}
+.workspace-rail .workspace-rail-brand {
+  width:36px; height:36px; min-width:36px; margin:4px 0 3px;
+  color:var(--text);
+}
+.workspace-rail .workspace-rail-brand .brand-icon { width:26px; height:20px; }
+.workspace-rail-section,.workspace-rail-footer { display:grid; gap:6px; }
+.workspace-rail-section { padding-top:7px; border-top:1px solid var(--border); }
+.workspace-rail-footer { margin-top:auto; }
+.workspace-rail #notification-entry { position:relative; }
+.workspace-rail #unread-count:not(:empty) {
+  position:absolute; top:4px; inset-inline-end:4px; width:6px; height:6px;
+  border-radius:50%; background:var(--accent); overflow:hidden; color:transparent;
+}
+.sidebar-content {
+  grid-area:1/2; display:flex; flex-direction:column; min-width:0; min-height:0;
+  padding:0 10px 8px 4px;
+}
+.workspace-shell .sidebar-content .sidebar-header {
+  justify-content:space-between; padding:0 0 0 10px; margin-bottom:4px; gap:4px;
+}
+.workspace-shell .sidebar-content .sidebar-header .brand { flex:1; min-width:0; height:32px; padding:0; }
+.workspace-shell .sidebar-content .sidebar-header .brand strong {
+  font:600 16px/22px var(--font-brand); letter-spacing:-.03em;
+}
+.workspace-shell .sidebar-content #new-chat {
+  justify-content:start; gap:8px; margin:0; padding-inline:10px; border-radius:var(--radius-control);
+}
+.workspace-shell .sidebar-content .sidebar-scroll { padding-top:6px; }
+.workspace-shell .sidebar-content .history-heading { padding:10px 4px 4px 10px; }
+.workspace-shell .sidebar-content .session-button,
+.workspace-shell .sidebar-content .project-folder > summary { padding-inline:10px; }
+.workspace-shell .sidebar-content .project-group > .project-folder > summary { padding:7px 72px 7px 10px; }
+.workspace-shell .sidebar-content .project-group .project-children .session-button { padding-inline-start:36px; }
+.workspace-shell .sidebar-content .sidebar-empty { margin:5px 10px 12px; }
+.workspace-shell .topbar { padding:0 8px; }
+.workspace-shell:not(.sidebar-collapsed) .topbar { padding-inline-start:14px; }
+.workspace-shell .topbar .breadcrumb { gap:6px; }
+.workspace-shell > :is(.queue-page,.memory-page) { grid-area:1/2; }
+@media (max-width:1023px) {
+  .workspace-shell:not(.sidebar-open) .sidebar-content { display:none; }
+  .workspace-shell .sidebar-content {
+    position:fixed; z-index:40; inset:0 auto 0 var(--workspace-rail-width);
+    width:min(248px,calc(100vw - var(--workspace-rail-width) - 16px));
+    padding:0 10px 10px; background:var(--opaque-panel);
+    border-left:1px solid var(--border);
+    border-radius:0 var(--radius-panel) var(--radius-panel) 0;
+    box-shadow:var(--floating-shadow);
+  }
+  .workspace-shell.sidebar-open .workspace-rail {
+    position:relative; z-index:40; background:var(--opaque-panel);
+  }
+}
+@media (max-width:687px) {
+  body.workspace-shell { --workspace-rail-width:48px; display:grid; padding-inline-start:0; }
+  .workspace-shell .sidebar-content {
+    width:min(260px,calc(100vw - var(--workspace-rail-width) - 12px));
+  }
+  body.workspace-shell.inspector-open {
+    grid-template-columns:var(--sidebar) minmax(0,1fr);
+    grid-template-rows:minmax(0,1fr) min(38dvh,320px);
+  }
+  .workspace-shell .main-panel { grid-area:1/2; }
+  .workspace-shell.inspector-open .inspector { grid-area:2/2; }
+}
+@media (pointer:coarse) {
+  .workspace-rail .icon-button { width:40px; height:44px; min-width:40px; }
+  .workspace-rail .workspace-rail-brand { width:40px; height:44px; min-width:40px; margin:0; }
+  .workspace-shell :is(#sidebar-expand,#sidebar-collapse,#tools-toggle,#inspector-close) { width:40px; height:40px; }
+}
+@media (forced-colors:active) {
+  .workspace-rail .icon-button[aria-current="page"] { outline:1px solid Highlight; }
+}
 .queue-page[hidden],.auth-checking .queue-page { display:none; }
 .queue-page { min-width:0; min-height:0; display:flex; flex-direction:column; }
 .queue-toolbar { display:flex; justify-content:space-between; align-items:center; min-height:44px; gap:12px; padding:0 8px; }

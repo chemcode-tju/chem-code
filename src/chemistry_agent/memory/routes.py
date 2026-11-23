@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 
 from chemistry_agent.errors import AgentError
 from chemistry_agent.memory.models import (
@@ -32,13 +32,6 @@ async def authorized(request: Request, session: UUID) -> ResearchMemory:
     if row is None:
         raise AgentError("session_not_found", "会话不存在。", 404)
     return ResearchMemory(store)
-
-
-@router.get("/memory", include_in_schema=False)
-async def memory_page() -> FileResponse:
-    from pathlib import Path
-
-    return FileResponse(Path(__file__).parents[1] / "web" / "memory.html")
 
 
 @router.get("/api/sessions/{session}/memories")
