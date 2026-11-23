@@ -1,6 +1,10 @@
 import {createAnchoredPanel, effortLabel} from './agent-menu.mjs';
 import {t} from './i18n.mjs';
 
+const effortOrder = new Map([
+  '', 'disabled', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'extra', 'max', 'ultra', 'enabled',
+].map((effort, rank) => [effort, rank]));
+
 export function createModelPickerPanel(anchor, {getAgents, getSelection, agentChoice, catalog, choose, openSettings}) {
   const panel = document.createElement('section');
   panel.id = 'conversation-model-panel';
@@ -72,7 +76,8 @@ export function createModelPickerPanel(anchor, {getAgents, getSelection, agentCh
       ...rows.map(model => option(model.name || model.id, base.model === model.id, () => setModel(model), false)),
       option('跟随默认模型', !base.model, () => setModel(null)),
     );
-    const values = [...new Set(['', ...(current?.efforts || []), base.effort || ''])];
+    const values = [...new Set(['', ...(current?.efforts || []), base.effort || ''])]
+      .sort((left, right) => (effortOrder.get(left) ?? effortOrder.size) - (effortOrder.get(right) ?? effortOrder.size));
     efforts.replaceChildren(...values.map(effort => {
       const button = option(effortLabel(effort), (base.effort || '') === effort, () => apply({...base, effort}, efforts, effort));
       button.dataset.value = effort;

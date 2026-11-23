@@ -587,7 +587,7 @@ async function selectSession(id, quiet = false) {
   if(state.sessionId && !state.loading) chatPositions.set(state.sessionId,$("chat-scroll").scrollTop);
   restorePosition=true;
   saveDraft();
-  if (id !== state.sessionId) { resetContextMeter("正在读取上下文…"); progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; state.runs = []; state.outbox = []; state.chatSignature = ""; viewer.reset(); structureDocuments.reset(); calculations.reset(); }
+  if (id !== state.sessionId) { resetContextMeter("正在读取上下文…"); progressFeed.reset(id); clearRevision(); state.sessionId = null; state.turns = []; state.runs = []; state.outbox = []; state.chatSignature = ""; viewer.reset(); structureDocuments.reset(); calculations.reset(id); }
   workspaceFiles.reset();
   uploads.select(id);
   calculations.clearSelection();
@@ -1032,18 +1032,28 @@ function showLogin(message = "") {
 
 async function startWorkspace() {
   $("login-screen").hidden = true;
-  document.body.classList.remove("auth-checking");
-  syncDrawerAccessibility();
-  settingsDialog.restoreLinkedSettings();
   const entry = new URL(location.href);
   const setup = entry.searchParams.get("setup") === "compute";
   let id = entry.searchParams.get("session");
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try { if (!setup) id ||= localStorage.getItem(storageKey); } catch { /* Optional persistence. */ }
   setWorkspace(workspaceForPath(entry.pathname));
+  const opening = id ? selectSession(id, true) : null;
+  if (!opening) {
+    chatModels.newConversation();
+    void refreshHealth();
+    uploads.select(null);
+    restoreInspector(null);
+    $("conversation-title").textContent = t("新对话");
+    restoreDraft();
+    renderConversation(false);
+    updateControls();
+  }
+  document.body.classList.remove("auth-checking");
+  syncDrawerAccessibility();
+  settingsDialog.restoreLinkedSettings();
   void refreshSessions().catch(error => toast(error.message));
-  if (id) await selectSession(id, true);
-  else { chatModels.newConversation(); void refreshHealth(); uploads.select(null); restoreInspector(null); $("conversation-title").textContent = t("新对话"); restoreDraft(); renderConversation(false); updateControls(); }
+  if (opening) await opening;
   if (setup) {
     const field = $("message-input");
     if (!field.value.trim() && !state.pending) field.value = t("请检查我的计算配置，告诉我还需要提供哪些服务器、软件、赝势和队列信息。");

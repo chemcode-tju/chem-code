@@ -63,18 +63,18 @@ export function initJobMonitor() {
       ? `最近 7 天 · ${jobs.length} 项历史作业${visible.some(row => row.truncated) ? ' · 每台最多 300 项' : ''}`
       : `${jobs.length} 项作业 · ${running} 运行中 · ${pending} 排队中`;
     $('queue-errors').innerHTML = visible.filter(row => row.error).map(row =>
-      `<p class="queue-message" role="status">${esc(row.name)} · ${esc(row.error)}</p>`).join('');
+      `<p class="queue-message" role="status"><span data-no-i18n>${esc(row.name)}</span> · <span>${esc(row.error)}</span></p>`).join('');
     const focus = preserveFocus ? document.activeElement.dataset.job : null;
     const markup = visible.filter(row => !row.error).map(row => `
       <section class="queue-host">
-        <h2>${fileIcon('servers')}${esc(row.name)} <small>${row.jobs.length}</small></h2>
-        ${row.partitions?.length ? `<div class="queue-partitions" aria-label="服务器分区">${row.partitions.map(partition => `<span>${esc(partition)}</span>`).join('')}</div>` : ''}
+        <h2>${fileIcon('servers')}<span data-no-i18n>${esc(row.name)}</span> <small>${row.jobs.length}</small></h2>
+        ${row.partitions?.length ? `<div class="queue-partitions" aria-label="服务器分区">${row.partitions.map(partition => `<span data-no-i18n>${esc(partition)}</span>`).join('')}</div>` : ''}
         ${row.partition_error ? `<p class="queue-message">${esc(row.partition_error)}</p>` : ''}
         ${row.jobs.length ? `<div class="queue-row queue-labels" aria-hidden="true"><span>作业</span><span>状态</span><span>分区</span><span class="queue-elapsed">运行时间</span></div>
         ${row.jobs.map(job => `<div class="queue-job"><button type="button" class="queue-row" data-job="${esc(key(job))}" aria-controls="queue-detail" aria-expanded="${selected && key(selected) === key(job) ? 'true' : 'false'}">
-          <span title="${esc(job.name)}">${esc(job.name)}<small>#${esc(job.id)}</small></span>
+          <span data-no-i18n title="${esc(job.name)}">${esc(job.name)}<small>#${esc(job.id)}</small></span>
           <span class="queue-state" data-state="${esc(job.status)}" title="${esc(job.status)}">${esc(label(job))}</span>
-          <span class="queue-partition" title="${esc(job.partition)}">${esc(job.partition)}</span>
+          <span data-no-i18n class="queue-partition" title="${esc(job.partition)}">${esc(job.partition)}</span>
           <span class="queue-elapsed">${esc(job.elapsed)}</span>
         </button>${shortPath(job.directory,job.home) ? `<code class="queue-path" tabindex="0" aria-label="作业目录" title="${esc(job.directory)}">${esc(shortPath(job.directory,job.home))}</code>` : ''}</div>`).join('')}` : `<p class="queue-message">${history ? '最近 7 天暂无历史作业' : '队列中暂无作业'}</p>`}
       </section>`).join('');
@@ -95,7 +95,7 @@ export function initJobMonitor() {
       const {hosts} = await api('/api/job-monitor/hosts');
       if (generation !== refreshGeneration) return;
       const options = '<option value="">全部服务器</option>' + hosts.map(host =>
-        `<option value="${esc(host.id)}">${esc(host.name)}</option>`).join('');
+        `<option data-no-i18n value="${esc(host.id)}">${esc(host.name)}</option>`).join('');
       if (options !== hostSelect.dataset.options) {
         const current = hostSelect.value;
         hostSelect.innerHTML = options;
@@ -143,7 +143,8 @@ export function initJobMonitor() {
     $('job-heading').textContent = selected.name;
     $('job-heading').title = selected.name;
     const host = results.find(row => row.id === selected.host);
-    $('job-meta').textContent = [host?.name || selected.host, `#${selected.id}`, label(selected), selected.partition].join(' · ');
+    $('job-meta').innerHTML = `<span data-no-i18n>${esc(host?.name || selected.host)}</span> · #${esc(selected.id)} ·
+      <span>${esc(label(selected))}</span> · <span data-no-i18n>${esc(selected.partition)}</span>`;
   }
 
   function defaultStructure(entries) {
@@ -205,12 +206,12 @@ export function initJobMonitor() {
     $('job-files').insertAdjacentHTML('beforeend',page.map(entry => {
         const name = esc(entry.name);
         if (entry.directory) {
-          return `<div class="queue-file"><button type="button" class="queue-file-name" data-folder="${name}" title="${name}">${fileIcon('folder')}<span>${name}</span></button></div>`;
+          return `<div class="queue-file"><button type="button" class="queue-file-name" data-no-i18n data-folder="${name}" title="${name}">${fileIcon('folder')}<span>${name}</span></button></div>`;
         }
         const available = canPreview(entry) && entry.size !== 0;
         const title = available ? '查看结构' : entry.size > converterLimit ? '该格式超过单文件转换上限' : '文件为空';
-        const preview = isStructureName(entry.name) ? `<button type="button" class="icon-button" data-preview="${name}" title="${title}" aria-label="${title}：${name}" ${available ? '' : 'disabled'}>${fileIcon('eye')}</button>` : '';
-        return `<div class="queue-file"><button type="button" class="queue-file-name" data-file="${name}" title="${name}">${fileIcon('document')}<span>${name}</span></button>${entry.size == null ? '' : `<span class="file-size">${sizeLabel(entry.size)}</span>`}${preview}</div>`;
+        const preview = isStructureName(entry.name) ? `<button type="button" class="icon-button" data-preview="${name}" title="${title}" aria-label="${title}" aria-description="${name}" ${available ? '' : 'disabled'}>${fileIcon('eye')}</button>` : '';
+        return `<div class="queue-file"><button type="button" class="queue-file-name" data-no-i18n data-file="${name}" title="${name}">${fileIcon('document')}<span>${name}</span></button>${entry.size == null ? '' : `<span class="file-size">${sizeLabel(entry.size)}</span>`}${preview}</div>`;
     }).join(''));
     fileStatus(folderEntries.length ? '' : '此目录为空');
     if (next == null) return;
@@ -313,7 +314,7 @@ export function initJobMonitor() {
     const prefix = directory ? directory + '/' : '';
     const automatic = companionNames === undefined;
     $('job-viewer').hidden=false;
-    $('job-viewer-name').textContent = lastFrame ? name + ' · 最新完整帧' : name;
+    $('job-viewer-name').innerHTML = `<span data-no-i18n>${esc(name)}</span>${lastFrame ? ' · <span>最新完整帧</span>' : ''}`;
     $('job-viewer-latest').hidden = !isDump(name);
     $('job-viewer-latest').textContent = lastFrame ? '完整轨迹' : '最新帧';
     $('job-viewer-latest').onclick = () => openPreview(name, undefined, !lastFrame);
@@ -325,7 +326,7 @@ export function initJobMonitor() {
       $('job-companions').hidden = !/\.(?:lammpstrj|dump)$/i.test(name) || !options.length;
       companionNames = [];
       $('job-companion-options').innerHTML = options.map(entry =>
-        `<label><input type="checkbox" value="${esc(entry.name)}" ${companionNames.includes(entry.name) ? "checked" : ""}><span>${esc(entry.name)}</span></label>`).join('');
+        `<label><input type="checkbox" value="${esc(entry.name)}" ${companionNames.includes(entry.name) ? "checked" : ""}><span data-no-i18n>${esc(entry.name)}</span></label>`).join('');
     }
     viewerStatus('正在读取结构…');
     try {

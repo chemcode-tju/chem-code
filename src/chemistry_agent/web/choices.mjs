@@ -78,6 +78,12 @@ function draw() {
   if (current) highlight(rows().find(row => row.getAttribute("aria-selected") === "true") || rows()[0]);
 }
 
+function labelMenu(select) {
+  const label = select.getAttribute("aria-label") || select.title ||
+    Array.from(select.labels || [], el => el.innerText.split("\n")[0]).join(" ");
+  menu.setAttribute("aria-label", label || (document.documentElement.lang === "en" ? "Options" : "选项"));
+}
+
 function open(select) {
   close();
   if (!select.options.length) return;
@@ -86,9 +92,7 @@ function open(select) {
   const observer = new MutationObserver(() => { if (current?.select === select) draw(); });
   const resize = new ResizeObserver(place);
   current = {select, observer, resize, search:"", searchTime:0};
-  const label = select.getAttribute("aria-label") || select.title ||
-    Array.from(select.labels || [], el => el.innerText.split("\n")[0]).join(" ");
-  menu.setAttribute("aria-label", label || (document.documentElement.lang === "en" ? "Options" : "选项"));
+  labelMenu(select);
   (select.closest("dialog[open]") || document.fullscreenElement || document.body).append(menu);
   if (hasPopover) menu.showPopover();
   select.setAttribute("aria-expanded", "true");
@@ -159,6 +163,7 @@ window.addEventListener("keydown", event => {
   }
 }, true);
 window.addEventListener("resize", place);
+window.addEventListener("languagechange", () => { if (current) labelMenu(current.select); });
 window.addEventListener("scroll", event => { if (current && !menu.contains(event.target)) place(); }, true);
 document.addEventListener("focusin", event => {
   if (current && event.target !== current.select && !menu.contains(event.target)) close();

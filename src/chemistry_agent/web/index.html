@@ -128,7 +128,7 @@
     <header class="queue-toolbar">
       <h1 id="queue-heading" tabindex="-1">作业监控</h1>
       <div class="queue-controls">
-        <label class="sr-only" for="queue-host">服务器</label>
+        <label class="sr-only" for="queue-host">按服务器筛选</label>
         <select id="queue-host"><option value="">全部服务器</option></select>
         <button type="button" class="icon-button" id="queue-refresh" title="刷新队列" aria-label="刷新队列"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-refresh"/></svg></button>
       </div>
@@ -145,7 +145,7 @@
       </section>
       <aside class="queue-detail" id="queue-detail" aria-labelledby="job-heading" hidden>
         <header class="queue-detail-header">
-          <div class="queue-detail-title"><h2 id="job-heading" tabindex="-1"></h2><div id="job-meta"></div></div>
+          <div class="queue-detail-title"><h2 id="job-heading" tabindex="-1" data-no-i18n></h2><div id="job-meta"></div></div>
           <button type="button" class="icon-button" id="job-close" title="关闭作业详情" aria-label="关闭作业详情"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
         </header>
         <div class="queue-folder">
@@ -313,7 +313,7 @@
     <nav id="inspector-launcher" class="inspector-launcher" aria-label="研究工具"></nav>
     <section class="inspector-scroll" id="inspector-panel-calculation" hidden role="tabpanel" aria-labelledby="inspector-tab-calculation" tabindex="0">
       <div id="plan-overview"><div id="calculation-cards" class="calculation-workspace" hidden></div>
-      <p class="inspector-empty">暂无计算方案</p></div>
+      <p class="inspector-empty" id="plan-status" role="status">暂无计算方案</p></div>
       <section id="step-screen" hidden aria-label="步骤详情">
         <nav class="step-tools" aria-label="步骤导航">
           <button type="button" id="step-back"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg>返回方案</button>

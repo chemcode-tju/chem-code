@@ -1,14 +1,18 @@
 """Backend switching, tool bridge, restart continuity and no-replay acceptance."""
 
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from chemistry_agent.agent import RunProgress
 from chemistry_agent.api import create_app
 from chemistry_agent.backends.codex import CodexBackend
 from chemistry_agent.errors import AgentError
+from chemistry_agent.runtime.live import LiveAnswer
 
 
 class FakeCodex:
@@ -94,6 +98,38 @@ def fake_codex(monkeypatch):
 
 def no_provider(request):
     pytest.fail("External Agent must not call the built-in model provider")
+
+
+async def test_codex_commentary_leaves_live_preview_once_recorded():
+    preview = LiveAnswer()
+    steps = []
+    router = SimpleNamespace(context=SimpleNamespace(codex_event=AsyncMock()))
+    backend = CodexBackend(router, None, "")
+
+    async def updates():
+        commentary = {"id": "note", "type": "agentMessage", "phase": "commentary"}
+        yield {"method": "item/started", "params": {"item": commentary}}
+        yield {"method": "item/agentMessage/delta", "params": {"delta": "Checking records."}}
+        assert preview.text == "Checking records."
+        yield {
+            "method": "item/completed",
+            "params": {"item": commentary | {"text": "Checking records."}},
+        }
+        assert preview.steps == [{"type": "commentary", "text": "Checking records."}]
+        assert preview.text == ""
+        yield {"method": "item/started", "params": {"item": {"type": "agentMessage"}}}
+        yield {"method": "item/agentMessage/delta", "params": {"delta": "Records verified."}}
+        assert preview.text == "Records verified."
+        yield {
+            "method": "turn/completed",
+            "params": {"turn": {"id": "turn", "status": "completed"}},
+        }
+
+    rpc = SimpleNamespace(events=SimpleNamespace(get=updates().__anext__))
+    answer = await backend.consume(
+        rpc, "thread", "turn", "session", "run", RunProgress(preview=preview), steps, [], []
+    )
+    assert answer == "Records verified."
 
 
 def test_local_codex_tools_resume_and_settings(settings_factory, fake_codex):

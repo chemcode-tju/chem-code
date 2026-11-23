@@ -20,6 +20,22 @@ test('notification and tool-count patterns retain all counts', () => {
   assert.equal(t('展开全部 24 个文件'), 'Show all 24 files');
 });
 
+test('job monitor labels and summaries use the selected locale', () => {
+  const labels = [
+    ['活跃作业', 'Active jobs'],
+    ['历史作业', 'Job history'],
+    ['全部服务器', 'All servers'],
+    ['14 项作业 · 14 运行中 · 0 排队中', '14 jobs · 14 running · 0 queued'],
+    ['最近 7 天 · 1 项历史作业 · 每台最多 300 项', 'Last 7 days · 1 historical job · Up to 300 per server'],
+    ['#412 · 已离开队列', '#412 · Left the queue'],
+    ['当前队列不可用。', 'The current queue is unavailable.'],
+  ];
+  setLanguage('en');
+  for (const [source, translated] of labels) assert.equal(t(source), translated);
+  setLanguage('zh-CN');
+  for (const [source] of labels) assert.equal(t(source), source);
+});
+
 test('shared controls and new workspaces use the selected locale', () => {
   setLanguage('en');
   for (const [source, output] of [['看板','Board'], ['已完成','Completed'], ['等待依赖','Waiting for dependencies'], ['程序路径','Program path'], ['完全访问','Full access'], ['科研记忆','Research memory']]) {

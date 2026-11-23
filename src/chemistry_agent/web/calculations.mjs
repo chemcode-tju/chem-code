@@ -41,6 +41,7 @@ export function renderTaskCard(item, job, recovery, sessionPath, policy={}) {
 
 export function createCalculations({ api, getSession, isBusy, toast, onConfirmed, viewer, openAttachment, chatFiles, syncReport, refreshProgress, onPlans, reviseStep }) {
   const panel = document.getElementById("calculation-cards");
+  const status = document.getElementById("plan-status");
   const knownSteps = new Map();
   function displayCount(preview,key,count) {
     const target = panel.querySelector(`[data-task="${CSS.escape(preview)}"] [data-open-step="${CSS.escape(key)}"] [data-ionic-step]`);
@@ -126,7 +127,6 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
     const savedFolds = new Set([...panel.querySelectorAll('details[open]')].map(d => `${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`));
     const approved = new Set([...panel.querySelectorAll('[data-auto-recovery]:checked')].map(el => el.dataset.autoRecovery));
     const limits = new Map([...panel.querySelectorAll("[data-retry-limit]")].map(e => [e.dataset.retryLimit,e.value]));
-    panel.hidden = !enabled;
     const plans=records?.plans || [];
     if(selectedPlanSession!==session){selectedPlanSession=session;selectedPlan=null;try{selectedPlan=sessionStorage.getItem('chemistry.selectedPlan.'+session);}catch{}}
     if(!plans.some(plan=>plan.id===selectedPlan)) selectedPlan=plans[0]?.id;
@@ -147,7 +147,9 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
     const focusedAttention = panel.contains(document.activeElement)
       && (document.activeElement.dataset.attentionItem || document.activeElement.matches('[data-plan-view="attention"]'));
     const mapViews = captureMaps(panel,{suspend:true,dispose:true});
-    panel.innerHTML = graphs + (cards && activePlan ? `<details class="legacy-calculations"><summary>其他计算记录</summary>${cards}</details>` : cards) || '<p class="empty-result">暂无计算方案</p>';
+    const markup = graphs + (cards && activePlan ? `<details class="legacy-calculations"><summary>其他计算记录</summary>${cards}</details>` : cards);
+    panel.hidden = !enabled || !markup;
+    panel.innerHTML = markup;
     mountMaps(panel,mapViews);
     drawPlanAttention(panel, attention);
     if (focusedAttention) {
@@ -203,12 +205,23 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   });
   async function refresh() {
     const id = getSession();
-    if (!enabled || !id) { records = null; session = id; onPlans?.(id,[]);render(); return; }
+    if (!enabled || !id) {
+      records = null;
+      session = id;
+      status.textContent = '暂无计算方案';
+      onPlans?.(id,[]);
+      render();
+      return;
+    }
     if (session !== id) { selected = []; drawAttachments(); }
     session = id;
-    const response = await api(`${path(id)}/artifacts`);
+    const response = await api(`${path(id)}/artifacts`).catch(error => {
+      if (id === getSession() && !records) status.textContent = '未能读取计算方案。';
+      throw error;
+    });
     if (id !== getSession()) return;
     records = response;
+    status.textContent = '暂无计算方案';
     onPlans?.(id,records.plans || []);
     void refreshProgress?.(id);
     render();
@@ -366,11 +379,27 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   return {
     refresh, drawStructures,
     drawReportFigures,
-    enabled(value) { enabled = value; if (!enabled) { detail.close(); selected = []; records = null; onPlans?.(getSession(),[]);drawAttachments(); render(); } },
+    enabled(value) {
+      enabled = value;
+      if (enabled) return;
+      detail.close();
+      selected = [];
+      records = null;
+      status.textContent = '暂无计算方案';
+      onPlans?.(getSession(),[]);
+      drawAttachments();
+      render();
+    },
     selection() { return [...selected]; },
     selectedIds() { return selected.map((item) => item.id); },
     clearSelection() { selected = []; drawAttachments(); },
-    reset() { knownSteps.clear(); detail.close(); captureMaps(panel,{suspend:true,dispose:true});panel.replaceChildren(); selected = []; records = null; session = null; onPlans?.(getSession(),[]);drawAttachments(); render(); },
+    reset(nextSession = null) {
+      knownSteps.clear(); detail.close();
+      captureMaps(panel,{suspend:true,dispose:true}); panel.replaceChildren();
+      selected = []; records = null; session = null;
+      status.textContent = nextSession ? '正在读取计算方案…' : '暂无计算方案';
+      onPlans?.(getSession(),[]); drawAttachments(); render();
+    },
     busy() { return pending; },
   };
 }

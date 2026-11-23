@@ -3,7 +3,7 @@ import {byId as $, esc} from './compute-settings-api.mjs';
 import {readConnectionCheck} from './connection-checks.mjs';
 
 export function createComputeSettings(selectTab,api) {
-  let active='',generation=0,storage;
+  let active='',generation=0,storage,snapshot;
   try {storage=window.sessionStorage;} catch {}
   const overview=async()=>{
     const run=++generation;
@@ -13,13 +13,25 @@ export function createComputeSettings(selectTab,api) {
       api('/api/hosting').catch(()=>null),api('/api/hosting/monitors').catch(()=>null),
     ]);
     if(run!==generation || active!=='automation')return;
-    $('runtime-host').textContent=runtime?.platform_host || t('无法读取运行位置');
+    snapshot={runtime,selection,health,knowledge,hosting,monitors};
+    renderOverview();
+  };
+  function renderOverview() {
+    if (!snapshot) return;
+    const {runtime,selection,health,knowledge,hosting,monitors}=snapshot;
+    const runtimeHost=$('runtime-host');
+    runtimeHost.toggleAttribute('data-no-i18n',Boolean(runtime?.platform_host));
+    runtimeHost.textContent=runtime?.platform_host || t('无法读取运行位置');
     $('runtime-monitor').textContent=t(runtime ? (runtime.monitor_running?'监控运行中':'监控未运行'):'无法读取监控状态');
     const selected=selection?.backend, instance=hosting?.agents.find(a=>a.id===selection?.instance_id);
-    const hostName=id=>hosting?.hosts.find(h=>h.id===id)?.name || id;
+    const hostName=id=>{
+      const name=hosting?.hosts.find(h=>h.id===id)?.name || id;
+      const localPrefix='本机 · ';
+      return id==='local' && name.startsWith(localPrefix) ? `${t('本机')} · ${name.slice(localPrefix.length)}` : name;
+    };
     const agentLabel=instance ? `${hostName(instance.host_id)} · ${instance.name} · ${selection.model || t('跟随默认模型')}`
       : selected==='builtin' ? `Chem Agent · ${t(health?.model_configured?'已配置':'未配置')}` : t('无法读取 Agent 配置');
-    const monitorLabel=monitors?.monitors.length ? monitors.monitors.map(m=>`${hostName(m.host)} · ${m.jobs} ${t('项作业')}${m.handoffs?' · '+t('交接中'):''}${m.errors.length?' · '+t('连接待恢复'):''}`).join(' / ')
+    const monitorLabel=monitors?.monitors.length ? monitors.monitors.map(m=>`${hostName(m.host)} · ${t(`${m.jobs} 项作业`)}${m.handoffs?' · '+t('交接中'):''}${m.errors.length?' · '+t('连接待恢复'):''}`).join(' / ')
       : t('暂无监控作业');
     const nodeLabel=runtime ? t(`已启用 ${runtime.environments.filter(row=>row.enabled).length} 个节点`) : t('无法读取服务器');
     const check=knowledge?.enabled && readConnectionCheck(storage,'openviking',JSON.stringify([knowledge.endpoint,knowledge.root_uri,knowledge.has_api_key]));
@@ -33,10 +45,10 @@ export function createComputeSettings(selectTab,api) {
     ].map(([name,detail,target,icon])=>`<li class="overview-item"><svg class="icon overview-icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${icon}"/></svg>
       <div class="overview-description"><strong>${esc(t(name))}</strong><small data-no-i18n>${esc(detail)}</small></div>
       ${target?`<button type="button" class="quiet-button overview-action" aria-label="${esc(t('打开设置')+' · '+t(name))}" data-generic-setting="${target}">${esc(t('设置'))}<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></button>`:''}</li>`).join('');
-  };
+  }
   $('compute-steps').onclick=event=>{
     const button=event.target.closest('[data-generic-setting]');if(button)selectTab(button.dataset.genericSetting);
   };
-  window.addEventListener('languagechange',()=>{if(active==='automation')void overview();});
+  window.addEventListener('languagechange',()=>{if(active==='automation')renderOverview();});
   return {async activate(panel) {active=panel;generation++;if(panel==='automation')await overview();}};
 }

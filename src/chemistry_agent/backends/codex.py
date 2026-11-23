@@ -411,6 +411,8 @@ class CodexBackend:
                     answer = item.get("text", answer)
                     if item.get("phase") == "commentary":
                         steps.append({"type": "commentary", "text": answer})
+                        if progress.preview:
+                            progress.preview.set_text("")
                 elif kind in {"commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall"}:
                     identifier = item["id"]
                     existing = next((s for s in steps if s.get("call_id") == identifier), None)

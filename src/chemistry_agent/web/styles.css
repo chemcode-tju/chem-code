@@ -873,7 +873,7 @@ body.inspector-open { grid-template-columns:var(--sidebar) minmax(0,1fr) var(--i
 /* Calculation artifacts stay outside compressed model history. */
 .calculation-workspace { margin: 20px 0 32px; padding: 18px; border: 1px solid var(--border); border-radius: 16px; background: var(--subtle); }
 .calculation-workspace h2 { font-size: 15px; }
-.calculation-workspace button, .structure-upload-row button, .structure-chip button { cursor: pointer; border: 1px solid var(--strong-border); border-radius: 8px; padding: 7px 10px; background: var(--surface); color: var(--accent); }
+.calculation-workspace button:where(:not(.primary,.toolbar-button)), .structure-upload-row button, .structure-chip button { cursor: pointer; border: 1px solid var(--strong-border); border-radius: 8px; padding: 7px 10px; background: var(--surface); color: var(--accent); }
 .calculation-workspace a { color: var(--accent); font-size: var(--font-size-secondary); }
 .structure-item, .calculation-card-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
 .structure-item span { flex: 1; min-width: 140px; font-size: 13px; }
