@@ -153,7 +153,9 @@ class ResearchMemory:
             updated_at=row["updated_at"],
         )
 
-    async def search(self, session: str | MemoryScope, args: MemorySearch) -> dict:
+    async def search(
+        self, session: str | MemoryScope, args: MemorySearch, *, asset_filters: dict | None = None
+    ) -> dict:
         query_terms = sorted(tokens(args.query))[:80]
         facets = [term for term in query_terms if re.fullmatch(r"[a-z]{1,2}[0-9]{3}", term)]
         async with self.store.lock:
@@ -173,6 +175,16 @@ class ResearchMemory:
             if args.kind:
                 sql += "AND json_extract(m.document,'$.kind')=? "
                 params.append(args.kind)
+            if asset_filters is not None:
+                sql += "AND m.source_key LIKE 'asset:%' "
+                for name, path in (
+                    ("kind", "kind"),
+                    ("formula", "facts.formula"),
+                    ("functional", "facts.functional"),
+                ):
+                    if asset_filters.get(name) is not None:
+                        sql += "AND json_extract(m.document,?) = ? COLLATE NOCASE "
+                        params.extend((f"$.evidence.manifest.{path}", asset_filters[name]))
             if args.query.strip() and not query_terms:
                 return {"items": [], "scope": args.scope, "truncated": False}
             if query_terms:

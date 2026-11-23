@@ -4,6 +4,7 @@ import asyncio
 
 from pydantic import BaseModel
 
+from chemistry_agent.knowledge.assets import ASSET_TOOLS
 from chemistry_agent.knowledge.config import KnowledgeQuery, KnowledgeRead, KnowledgeWrite
 from chemistry_agent.knowledge.plugins import SkillQuery, SkillRead
 from chemistry_agent.memory.scope import resolve_scope
@@ -62,6 +63,12 @@ def knowledge_tools(get_service, workspace_for_session=None) -> list[Tool]:
         )
         return await asyncio.to_thread(service.plugins.materialize, args.skill, workspace)
 
+    def asset_handler(method):
+        async def invoke(args, context):
+            return await getattr(get_service().assets, method)(await scope(context), args)
+
+        return invoke
+
     return [
         Tool(
             "knowledge_search",
@@ -106,5 +113,9 @@ def knowledge_tools(get_service, workspace_for_session=None) -> list[Tool]:
             SkillMaterialize,
             materialize,
             True,
+        ),
+        *(
+            Tool(name, description, model, asset_handler(method), True)
+            for name, (model, description, method) in ASSET_TOOLS.items()
         ),
     ]

@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.errors import AgentError
+from chemistry_agent.knowledge.assets import ASSET_TOOLS
 from chemistry_agent.knowledge.config import KnowledgeQuery, KnowledgeRead, KnowledgeWrite
 from chemistry_agent.knowledge.plugins import SkillQuery, SkillRead
 from chemistry_agent.memory.models import MemoryRead, MemorySave, MemorySearch
@@ -34,6 +35,7 @@ INPUTS = {
     "memory_search": MemorySearch,
     "memory_read": MemoryRead,
     "memory_save": MemorySave,
+    **{name: entry[0] for name, entry in ASSET_TOOLS.items()},
 }
 
 
@@ -41,6 +43,8 @@ async def invoke(service, scope: MemoryScope, name: str, arguments: dict) -> dic
     if name not in INPUTS:
         raise AgentError("tool_not_found", "知识工具不存在。", 404)
     args = INPUTS[name].model_validate(arguments)
+    if name in ASSET_TOOLS:
+        return await getattr(service.assets, ASSET_TOOLS[name][2])(scope, args)
     if name == "knowledge_search":
         return await service.search(scope, args)
     if name == "knowledge_read":
@@ -89,7 +93,9 @@ async def endpoint(request: Request, project_id: UUID | None = None):
             "tools": [
                 {
                     "name": name,
-                    "description": name.replace("_", " ")
+                    "description": ASSET_TOOLS[name][1]
+                    if name in ASSET_TOOLS
+                    else name.replace("_", " ")
                     + ": shared project knowledge; read evidence before reuse.",
                     "inputSchema": model.model_json_schema(),
                 }

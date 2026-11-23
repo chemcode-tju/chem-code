@@ -137,6 +137,7 @@ def create_app(
                         store,
                         settings.platform_path,
                         settings.database_path.parent / "agent-workspaces",
+                        allowed_hosts=settings.allowed_ssh_hosts,
                     )
                     await app.state.knowledge.sync.initialize()
                     app.state.workspace_files = WorkspaceFiles(

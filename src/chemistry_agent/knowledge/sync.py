@@ -41,7 +41,8 @@ class KnowledgeSync:
                 """SELECT m.*, p.digest AS synced_digest
                 FROM research_memories m LEFT JOIN knowledge_projection p
                 ON p.memory_id=m.id AND p.destination=?
-                WHERE p.digest IS NULL OR p.digest != m.digest || ':' || m.forgotten
+                WHERE m.source_key NOT LIKE 'asset:%'
+                  AND (p.digest IS NULL OR p.digest != m.digest || ':' || m.forgotten)
                 LIMIT 50""",
                 (destination,),
             ) as cursor:
