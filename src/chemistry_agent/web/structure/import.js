@@ -94,7 +94,7 @@
     try {await store.get(0);}catch(error){store.dispose();throw error;}
     return {name,store,note:`NEB 路径 · ${files.length} 个实际像 · 非时间轨迹`};
   }
-  async function open(input, {format = 'auto',sequence=false,name:sequenceName='NEB 路径'} = {}) {
+  async function open(input, {format = 'auto',sequence=false,name:sequenceName='NEB 路径',companions:remoteCompanions} = {}) {
     const files=input && typeof input.slice==='function' && typeof input.name==='string' ? [input] : Array.from(input||[]);
     if(sequence)return openSequence(files,sequenceName);
     if(!files.length || files.length>32)throw Error('请选择 1–32 个结构及配套文件');
@@ -124,7 +124,10 @@
     const name=localName(file.name,selectedFormat==='local'?'auto':selectedFormat);
     if(name)return {name:file.name,store:await StructureTrajectory.local(file,name),note:''};
     const companions=await companionsText(other);
-    if(['gromacs','lammps-dump-text'].includes(selectedFormat))return {name:file.name,...await StructureMD.open(file,selectedFormat,companions)};
+    if(['gromacs','lammps-dump-text'].includes(selectedFormat)) {
+      const metadata=remoteCompanions ? remoteCompanions.then(items=>[...companions,...items]) : companions;
+      return {name:file.name,...await StructureMD.open(file,selectedFormat,metadata)};
+    }
     if(file.size>32*1024*1024)throw Error('此格式单文件转换上限为 32 MiB。');
     let metadata=null,typeMap='';
     if(selectedFormat==='lammps-data') {

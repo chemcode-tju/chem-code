@@ -5,13 +5,14 @@ import {userQuestions} from './user-questions.mjs';
 import {visibleReference, activity, activityOpen, activitySteps, answerBox, answerFooter, liveAnswerFooter, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
-import { initSettingsDialog } from "./settings-dialog.mjs";
+import { agentSettingsHref, initSettingsDialog } from "./settings-dialog.mjs";
 import {initWorkspaceControls} from './workspace-controls.mjs';
 import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, createStructureDocuments, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
 import { createCalculations } from "./calculations.mjs?v=20261102-general-plans";
 import {initJobMonitor} from "./job-monitor.mjs";
+import {initJobBoard} from "./job-board.mjs";
 import { createNotifications } from "./notifications.mjs";
 import { createChatModelPicker } from "./chat-models.mjs";
 import { t } from "./i18n.mjs";
@@ -34,6 +35,12 @@ const splitWorkspace = matchMedia("(min-width:688px)");
 const compactNavigation = matchMedia("(min-width:688px) and (max-width:1023px)");
 const setDockMaximized = initWorkspaceControls({closeInspector:()=>setInspectorOpen(false), onMaximized:syncDrawerAccessibility});
 const jobMonitor = initJobMonitor();
+const jobBoard = initJobBoard();
+const workspaces = {
+  chat: {path:"/", entry:"chat-workspace-entry", panel:"chat-panel", heading:"conversation-title"},
+  monitor: {path:"/monitor", entry:"job-monitor-entry", panel:"queue-page", heading:"queue-heading"},
+  board: {path:"/monitor/board", entry:"job-board-entry", panel:"job-board-page", heading:"job-board-heading"},
+};
 let activeWorkspace = "chat";
 let restoreChatInspector = false;
 initAnswerControls({root:document.body,answer:i=>state.turns[i]?.answer,toast});
@@ -135,8 +142,10 @@ function toast(message) {
 
 function rememberSession(id) {
   $("memory-entry").href = id ? `/memory?session=${encodeURIComponent(id)}` : "/memory";
-  $("job-monitor-entry").href = id ? `/monitor?session=${encodeURIComponent(id)}` : "/monitor";
-  $("chat-workspace-entry").href = id ? `/?session=${encodeURIComponent(id)}` : "/";
+  $("agent-settings-entry").href = $("model-status").href = agentSettingsHref(id);
+  for (const {path, entry} of Object.values(workspaces)) {
+    $(entry).href = id ? `${path}?session=${encodeURIComponent(id)}` : path;
+  }
   const storageKey = state.auth.user ? `chemistry.session.${state.auth.user.id}` : "chemistry.session";
   try {
     if (id) localStorage.setItem(storageKey, id);
@@ -164,29 +173,36 @@ function syncDrawerAccessibility() {
 
 function setWorkspace(name, {navigate = false, focus = false} = {}) {
   if (name === activeWorkspace) return;
-  if (name === "monitor" && (state.auth.enabled || $("job-monitor-entry").hidden && navigate)) return;
-  if (name === "monitor") {
+  const workspace = workspaces[name];
+  const entry = $(workspace.entry);
+  const chat = name === "chat";
+  if (!chat && (state.auth.enabled || (entry.hidden && navigate))) return;
+  if (!chat && activeWorkspace === "chat") {
     restoreChatInspector = document.body.classList.contains("inspector-open");
     setDrawer("sidebar", false);
     setInspectorOpen(false, {focus:false,persist:false});
   }
   activeWorkspace = name;
-  const monitor = name === "monitor";
-  const entry = $(monitor ? "job-monitor-entry" : "chat-workspace-entry");
-  document.body.classList.toggle("monitor-workspace", monitor);
-  $("chat-panel").hidden = monitor;
-  $("queue-page").hidden = !monitor;
-  $(monitor ? "chat-workspace-entry" : "job-monitor-entry").removeAttribute("aria-current");
+  document.body.classList.toggle("monitor-workspace", !chat);
+  for (const [key, view] of Object.entries(workspaces)) {
+    $(view.panel).hidden = name !== key;
+    $(view.entry).removeAttribute("aria-current");
+  }
   entry.setAttribute("aria-current", "page");
-  jobMonitor.show(monitor);
-  if (!monitor && restoreChatInspector) setInspectorOpen(true, {focus:false,persist:false});
+  jobMonitor.show(name === "monitor");
+  jobBoard.show(name === "board");
+  if (chat && restoreChatInspector) setInspectorOpen(true, {focus:false,persist:false});
   syncDrawerAccessibility();
   if (navigate) history.pushState(null, "", entry.href);
-  if (focus) $(monitor ? "queue-heading" : "conversation-title").focus({preventScroll:true});
+  if (focus) $(workspace.heading).focus({preventScroll:true});
 }
 
-for (const [id, name] of [["chat-workspace-entry", "chat"], ["job-monitor-entry", "monitor"]]) {
-  $(id).addEventListener("click", event => {
+function workspaceForPath(path) {
+  return Object.keys(workspaces).find(name => workspaces[name].path === path) || "chat";
+}
+
+for (const [name, {entry}] of Object.entries(workspaces)) {
+  $(entry).addEventListener("click", event => {
     if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     setWorkspace(name, {navigate:true,focus:true});
@@ -194,7 +210,7 @@ for (const [id, name] of [["chat-workspace-entry", "chat"], ["job-monitor-entry"
 }
 window.addEventListener("popstate", () => {
   if (!history.state?.workspaceSettings) {
-    setWorkspace(location.pathname === "/monitor" ? "monitor" : "chat");
+    setWorkspace(workspaceForPath(location.pathname));
   }
 });
 
@@ -222,7 +238,7 @@ function restoreInspector(id, fresh = false) {
   setInspectorOpen(saved?.open === true, {focus:false, persist:false});
 }
 function setInspectorOpen(open, { focus = true, persist = true } = {}) {
-  if (activeWorkspace === "monitor" && open) { restoreChatInspector = true; return; }
+  if (activeWorkspace !== "chat" && open) { restoreChatInspector = true; return; }
   const wasFocused = $("inspector").contains(document.activeElement);
   if (open) {
     inspectorTabs.loadActive();
@@ -311,6 +327,7 @@ async function refreshHealth() {
       return button;
     }));
     $("job-monitor-entry").hidden = !state.health.queue_monitor_enabled;
+    $("job-board-entry").hidden = !state.health.queue_monitor_enabled;
     calculations.enabled(Boolean(state.health.automation_enabled));
     notifications.enabled(Boolean(state.health.automation_enabled));
     chatModels?.render();
@@ -974,7 +991,7 @@ async function startWorkspace() {
     url.searchParams.delete("setup"); history.replaceState(null,"",url);
     field.focus();
   }
-  if (entry.pathname === "/monitor") setWorkspace("monitor");
+  setWorkspace(workspaceForPath(entry.pathname));
 }
 
 async function initialize() {

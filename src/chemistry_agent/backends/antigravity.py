@@ -14,6 +14,7 @@ from chemistry_agent.backends.antigravity_home import AntigravityHomes
 from chemistry_agent.backends.mcp_bridge import PlatformMCPBridge
 from chemistry_agent.backends.runtime import delivery_attempt
 from chemistry_agent.errors import AgentError
+from chemistry_agent.platform.task_agents import current_task_agent
 from chemistry_agent.provider import ToolCall
 from chemistry_agent.runtime.checkpoint import current_checkpoint
 from chemistry_agent.schemas import ToolExecution
@@ -286,7 +287,14 @@ class AntigravityBackend:
         arguments = ["acp"]
         if config.permission_mode == "full":
             arguments.append("--dangerously-skip-permissions")
-        async with PlatformMCPBridge(self.registry.schemas(), execute) as bridge:
+        task = current_task_agent.get()
+        bridge_name = f"chem_task_{session_id.replace('-', '')[:12]}" if task else "chem_platform"
+        async with PlatformMCPBridge(self.registry.schemas(), execute, name=bridge_name) as bridge:
+            # Scoped MCP tools enforce task ownership. The submission tool still
+            # asks once for the exact job through the platform approval broker.
+            managed_tools = (
+                {f"mcp_{bridge.name}_{tool['name']}" for tool in bridge.tools} if task else set()
+            )
             async with self.transport(
                 executable, arguments, workspace, session_id, thread_id
             ) as rpc:
@@ -348,6 +356,7 @@ class AntigravityBackend:
                         progress,
                         steps,
                         save_checkpoint,
+                        managed_tools=managed_tools,
                     )
                     await self.router.update_thread(session_id, turn_state="completed")
                     return {
@@ -378,6 +387,8 @@ class AntigravityBackend:
         progress,
         steps: list,
         checkpoint,
+        *,
+        managed_tools: set[str] | None = None,
     ) -> str:
         answer = ""
         native: dict[str, dict] = {}
@@ -416,12 +427,14 @@ class AntigravityBackend:
                 continue
             await self.router.context.acp_event(session, thread, event)
             if method == "session/request_permission":
+                recorded_tool = native.get(params.get("toolCall", {}).get("toolCallId"), {})
                 details = {
-                    **native.get(params.get("toolCall", {}).get("toolCallId"), {}),
+                    **recorded_tool,
                     **params.get("toolCall", {}),
                 }
                 try:
-                    approved = permission == "full" or await self.router.approvals.ask(
+                    managed = managed_tools and recorded_tool.get("name") in managed_tools
+                    approved = permission == "full" or managed or await self.router.approvals.ask(
                         session,
                         run,
                         {"title": "Antigravity 请求批准", "method": method, "details": details},

@@ -143,6 +143,12 @@ class BackendRouter:
             await self.store.db.execute(
                 "UPDATE backend_deliveries SET state='uncertain' WHERE state='started'"
             )
+            await self.store.db.execute(
+                "UPDATE agent_events SET status='pending',phase='model',available_at=0 "
+                "WHERE status='uncertain' AND EXISTS (SELECT 1 FROM backend_deliveries d "
+                "JOIN task_agent_sessions t USING(session_id) "
+                "WHERE d.id='EventCheckpoint:'||agent_events.id AND d.state='completed')"
+            )
             await self.context.initialize()
             # Existing research sessions must not change consumer when the default changes.
             await self.store.db.execute(
@@ -262,6 +268,12 @@ class BackendRouter:
 
     async def select(self, session: str, choice: SessionSelection, provider) -> dict:
         """Change idle sessions atomically; a new backend receives the platform transcript."""
+        async with self.store.lock:
+            task = await self.store._one(
+                "SELECT session_id FROM task_agent_sessions WHERE session_id=?", (session,)
+            )
+        if task:
+            raise AgentError("task_session_managed", "任务线程使用方案锁定的配置。", 409)
         if choice.backend == "builtin" and choice.permission == "auto_review":
             raise AgentError("permission_unsupported", "Chem Agent 暂不支持自动审批。", 422)
         owner, model_config = provider.configuration()

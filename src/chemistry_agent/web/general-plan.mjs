@@ -42,7 +42,7 @@ export function graphLayers(nodes) {
   if(visited!==nodes.length) throw invalid();
   return layers;
 }
-export function renderGeneralPlan(plan) {
+export function renderGeneralPlan(plan, presets = []) {
   const view = workflowView(plan);
   const titles=Object.fromEntries(plan.nodes.map(n=>[n.id,n.title]));
   const compute = view.nodes.filter(node => ['vasp','job','task'].includes(node.kind));
@@ -50,6 +50,9 @@ export function renderGeneralPlan(plan) {
   const layers = graphLayers(view.nodes).map(layer => layer.map(node => ({
     id:node.id, title:node.title, groupPath:node.group_path, dependencies:node.depends_on, auxiliary:!['vasp','job','task'].includes(node.kind),
     kind:node.kind, jobSummary:childJobSummary(plan,view.children.get(node.id)),
+    agentSelection:node.kind==='task' && !plan.read_only ? {
+      assigned:plan.task_agents?.[node.id], editable:plan.status==='draft', options:presets,
+    } : null,
     searchText:(view.children.get(node.id) || []).map(child=>[child.id,child.title,plan.runtime[child.id]?.job?.scheduler_job_id].filter(Boolean).join(' ')).join(' '),
     description:node.depends_on.length?'依赖：'+node.depends_on.map(id=>titles[id]).join('、'):'',
     boardState:plan.status==='draft'?'draft':plan.runtime[node.id].status==='running' && plan.runtime[node.id].job?.paused?'paused':plan.runtime[node.id].status,
@@ -59,7 +62,7 @@ export function renderGeneralPlan(plan) {
     ? `<button type="button" class="icon-button toolbar-button" data-revise-plan="${esc(plan.id)}" title="提出修改" aria-label="提出修改"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-pencil"/></svg></button><button type="button" class="primary" data-confirm-plan="${esc(plan.id)}" title="确认并执行" aria-label="确认并执行"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-check"/></svg><span>确认并执行</span></button>`
     : ['running','paused'].includes(plan.status)
       ? `<button type="button" class="icon-button toolbar-button" data-control-plan="${esc(plan.id)}" data-plan-action="${plan.status==='running'?'pause':'resume'}" title="${plan.status==='running'?'暂停后续步骤':'继续执行'}" aria-label="${plan.status==='running'?'暂停后续步骤':'继续执行'}"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${plan.status==='running'?'pause':'play'}"/></svg></button>` : '';
-  const graph = planMap(layers,plan.id,'data-general-step',plan.title,`<div class="plan-run-controls" title="${esc(planStatus(plan.status))} · ${completed}/${compute.length} 项计算">${controls}</div>`);
+  const graph = planMap(layers,plan.id,'data-general-step',plan.title,`<div class="plan-run-controls" title="${esc(planStatus(plan.status))} · ${completed}/${compute.length} 项计算">${controls}</div>`,!plan.read_only);
   return `<article class="calculation-preview general-plan plan-surface" data-task="${esc(plan.id)}" data-general-plan="${esc(plan.id)}">${graph}</article>`;
 }
 export function generalRows(plan,node) {

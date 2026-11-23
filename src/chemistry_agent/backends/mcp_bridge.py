@@ -17,8 +17,10 @@ class PlatformMCPBridge:
     """Bind every call to a host-owned session/run; never accept identity from the Agent."""
 
     def __init__(
-        self, schemas: list[dict], execute: Callable[[str, dict], Awaitable[dict]]
+        self, schemas: list[dict], execute: Callable[[str, dict], Awaitable[dict]],
+        *, name: str = "chem_platform",
     ) -> None:
+        self.name = name
         self.tools = [
             dict(
                 name=s["function"]["name"],
@@ -43,7 +45,7 @@ class PlatformMCPBridge:
 
     def descriptor(self) -> dict:
         return {
-            "name": "chem_platform",
+            "name": self.name,
             "command": sys.executable,
             "args": ["-m", "chemistry_agent.backends.mcp_bridge"],
             "env": [

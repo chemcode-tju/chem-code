@@ -1,6 +1,6 @@
 import {escapeHtml as esc} from './core.mjs';
 import {fileIcon} from './file-actions.mjs';
-import {fileMessage, renderFilePreview} from './file-preview.mjs';
+import {fileMessage, renderFilePreview, showSlowDirectoryRead} from './file-preview.mjs';
 import {createStructureBridge, getFileBlob, isStructureName, isStreamableStructure} from './structure-links.mjs';
 
 export function initJobMonitor() {
@@ -180,7 +180,10 @@ export function initJobMonitor() {
     $('job-path').textContent = shortPath(folderPath(), selected.home) || '目录不可用';
     folderEntries = [];
     $('job-files').replaceChildren();
-    fileStatus('正在读取目录…');
+    fileStatus('');
+    const cancelNotice = showSlowDirectoryRead(() => {
+      if (request === reading) fileStatus('正在读取目录…');
+    });
     try {
       const job=selected;
       const {entries,next_offset} = await api(fileURL(job,'directory',path));
@@ -191,6 +194,8 @@ export function initJobMonitor() {
       if (name) void openPreview(name);
     } catch(error) {
       if (request === reading) fileStatus(error.message);
+    } finally {
+      cancelNotice();
     }
   }
 
@@ -330,14 +335,16 @@ export function initJobMonitor() {
         throw Error('配套文件最多 31 个，合计不超过 32 MiB。');
       }
       const path=prefix+name;
-      const companions=automatic && isDump(name)
-        ? api(jobURL(job,'metadata',path),{signal}).then(data=>data.companions).catch(()=>[])
+      const trajectory=isStreamableStructure(name) && !lastFrame
+        ? {name,url:fileURL(job,'trajectory',path)} : null;
+      const companionUrl=automatic && isDump(name) ? fileURL(job,'companions',path) : null;
+      if (trajectory && companionUrl) trajectory.companionsUrl=companionUrl;
+      const companions=companionUrl && !trajectory
+        ? api(companionUrl,{signal}).then(data=>data.companions).catch(()=>[])
         : Promise.all(companionNames.map(async filename=>{
           const blob=await getFileBlob(fileURL(job,'content',prefix+filename),{signal});
           return {name:filename,text:await blob.text()};
         }));
-      const trajectory=isStreamableStructure(name) && !lastFrame
-        ? {name,url:fileURL(job,'trajectory',path)} : null;
       const href=lastFrame ? jobURL(job,'latest-frame',path) : fileURL(job,'content',path);
       const files=await companions;
       if (!signal.aborted) await viewer.open(name,()=>getFileBlob(href,{signal}),{

@@ -7,8 +7,29 @@ from pydantic import BaseModel
 
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.backends.service import BackendSettings, BackendUpdate, SessionSelection
+from chemistry_agent.errors import AgentError
+from chemistry_agent.hosting.routes import instance_models
+from chemistry_agent.platform.task_agents import PresetInput, presets, save_preset
 
 router = APIRouter(prefix="/api/agents", tags=["agent backends"])
+
+
+@router.get("/presets")
+async def list_presets(request: Request) -> dict:
+    local_service(request)
+    return {"items": await presets(request.app.state.store)}
+
+
+@router.put("/presets/{identifier}")
+async def put_preset(identifier: UUID, body: PresetInput, request: Request) -> dict:
+    local_service(request)
+    backends = request.app.state.agent_backends
+    catalog = None
+    if body.enabled:
+        catalog = await instance_models(backends, body.instance_id, request.app.state.provider)
+        if catalog.get("backend") != body.backend or not catalog.get("authenticated"):
+            raise AgentError("task_preset_unavailable", "请先连接该 Agent 实例并完成登录。", 409)
+    return await save_preset(backends, str(identifier), body, catalog)
 
 
 @router.get("/settings")
@@ -76,8 +97,6 @@ async def catalog(backend: str, request: Request) -> dict:
     if backend == "antigravity":
         return await backends.antigravity.probe(await backends.settings())
     if backend != "builtin":
-        from chemistry_agent.errors import AgentError
-
         raise AgentError("agent_backend_unavailable", "此 Agent 适配器尚未安装。", 404)
     provider = request.app.state.provider
     return await provider.list_models() | {"configured": await provider.ready()}

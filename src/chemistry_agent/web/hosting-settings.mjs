@@ -32,7 +32,12 @@ export function createHostingSettings(api) {
     controls().forEach(control=>{control.disabled=busy;});
     translateUI();
   }
-  async function load() {data=await api('/api/hosting');if(!data.hosts.some(h=>h.id===host&&h.enabled))host='local';render();}
+  async function load() {
+    data = await api('/api/hosting');
+    if (!data.hosts.some(h => h.id === host && h.enabled)) host = 'local';
+    render();
+    return data;
+  }
   async function act(operation, success='已保存') {
     if(busy)return;busy=true;notify(t('正在处理…'));
     controls().forEach(control=>{control.disabled=true;});

@@ -12,6 +12,7 @@ html select[aria-expanded=true] { border-color:var(--strong-border); }
 html select:disabled { cursor:default; }
 html .chat-model-picker select,html .map-board .map-subtools select { background-color:transparent; border-color:transparent; font-size:13px; }
 html .chat-model-picker select { field-sizing:content; padding-inline-start:4px; }
+html .task-agent-bar select { padding:4px 21px 4px 5px; background-position:right 4px center; font-size:var(--font-size-secondary,13px); }
 .choice-menu {
   z-index:1000;
   inset:auto; position:fixed; margin:0; padding:var(--menu-padding); overflow:auto; overscroll-behavior:contain;

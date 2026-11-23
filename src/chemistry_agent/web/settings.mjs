@@ -6,7 +6,17 @@ import { createComputeSettings } from "./compute-settings.mjs";
 import { createKnowledgeSettings } from "./knowledge-settings.mjs";
 import { createEnvironmentSettings } from "./environment-settings.mjs";
 import { createMcpSettings } from "./mcp-settings.mjs";
+import { createTaskAgentSettings } from "./task-agent-settings.mjs";
+import { agentSettingsHref } from "./settings-dialog.mjs";
 const $ = (id) => document.getElementById(id);
+const pageParams = new URLSearchParams(location.search);
+const agentPage = location.pathname === "/agents";
+const session = pageParams.get("session");
+const sessionQuery = session ? "?" + new URLSearchParams({session}) : "";
+const workspaceHref = "/" + sessionQuery;
+document.querySelector(".agent-back-link").href = workspaceHref;
+document.querySelector(".settings-agent-link").href = agentSettingsHref(session, pageParams.get("host"));
+if (agentPage) $("agent-server-settings").href = "/settings" + sessionQuery + "#servers";
 let polling;
 let busy = false;
 let savedSettings = null;
@@ -18,27 +28,27 @@ let accounts = [];
 
 // Only the same-origin workspace may host the settings controls and their messages.
 let embedded = false;
-if (parent !== window && new URLSearchParams(location.search).get("embed") === "1") {
+if (!agentPage && parent !== window && pageParams.get("embed") === "1") {
   try { embedded = parent.location.origin === location.origin; } catch { /* Foreign host. */ }
 }
 document.documentElement.classList.toggle("embedded-settings", embedded);
 const compactLayout = (embedded ? parent : window).matchMedia("(max-width:767px)");
 function syncNavigationLayout() {
-  document.documentElement.classList.toggle("compact-settings", compactLayout.matches);
+  document.documentElement.classList.toggle("compact-settings", !agentPage && compactLayout.matches);
   document.querySelector(".settings-sidebar nav").setAttribute("aria-orientation", compactLayout.matches ? "horizontal" : "vertical");
 }
 syncNavigationLayout();
 compactLayout.addEventListener("change", syncNavigationLayout);
 function closeSettings() {
   if (embedded) parent.postMessage({type:"chem:close-settings"}, location.origin);
-  else location.assign("/");
+  else location.assign(workspaceHref);
 }
 document.querySelector(".close-settings").addEventListener("click", (event) => {
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault(); closeSettings();
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
+  if (!agentPage && event.key === "Escape" && !document.querySelector("dialog[open]")) {
     event.preventDefault(); closeSettings();
   }
 });
@@ -46,8 +56,12 @@ document.addEventListener("keydown", (event) => {
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json" } });
   const data = await response.json().catch(() => null);
-  if (response.status === 401) { (embedded ? parent : window).location.assign("/"); throw new Error("请先登录研究空间。"); }
-  if (!response.ok) throw new Error(data?.error?.message || "设置未保存，请检查输入格式。也请确认远程服务使用 HTTPS。");
+  if (response.status === 401) { (embedded ? parent : window).location.assign(workspaceHref); throw new Error("请先登录研究空间。"); }
+  if (!response.ok) {
+    const error = new Error(data?.error?.message || "设置未保存，请检查输入格式。也请确认远程服务使用 HTTPS。");
+    error.code = data?.error?.code;
+    throw error;
+  }
   return data;
 }
 
@@ -259,13 +273,15 @@ $("settings-logout").addEventListener("click", () => action(async () => {
 const computeSettings = createComputeSettings(focusSettingsTab,api);
 const agentSettings = createAgentSettings(api,{saveBuiltin:save});
 const hostingSettings = createHostingSettings(api);
+const taskAgentSettings = createTaskAgentSettings(api);
 const knowledgeSettings = createKnowledgeSettings(api);
 const environmentSettings = createEnvironmentSettings(api);
 createMcpSettings(api);
 function showSettingsPanel() {
   const aliases = { account: "general", "model-form": "agent", model: "agent" };
   const hash = embedded ? new URLSearchParams(location.search).get("tab") : location.hash.slice(1);
-  const selected = aliases[hash] || (tabs.some(tab => tab.dataset.tab === hash) ? hash : "general");
+  const selected = agentPage || hash === "agent" ? "agent" :
+    aliases[hash] || (tabs.some(tab => tab.dataset.tab === hash) ? hash : "general");
   document.querySelectorAll("[data-panel]").forEach((panel) => { panel.hidden = panel.dataset.panel !== selected; });
   document.querySelectorAll("[data-tab]").forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === selected));
@@ -273,17 +289,26 @@ function showSettingsPanel() {
   });
   $("notice").hidden = selected !== "agent";
   document.querySelector("main").scrollTop = 0;
-  if (compactLayout.matches) document.querySelector('[data-tab][aria-selected="true"]').scrollIntoView({block:"nearest", inline:"nearest"});
+  if (!agentPage && compactLayout.matches) document.querySelector('[data-tab][aria-selected="true"]')?.scrollIntoView({block:"nearest", inline:"nearest"});
   if (embedded) parent.postMessage({type:"chem:settings-tab", tab:selected}, location.origin);
   computeSettings.activate(selected);
   void knowledgeSettings.activate(selected);
   void environmentSettings.activate(selected);
-  if (selected === "agent") void agentSettings.load();
-  if (selected === "agent") void hostingSettings.load().catch(error=>notice(error.message,true));
   if (selected === "agent" && !modelLoaded) {
     modelLoaded = true;
     action(async () => {
-      try { displaySettings(await api("/api/model/settings")); await refreshLogin(); await refreshModels(); }
+      try {
+        void hostingSettings.load().then((hosting) => {
+          document.documentElement.classList.add("local-agent-settings");
+          void agentSettings.load();
+          void taskAgentSettings.load(hosting);
+        }).catch(error => {
+          if (error.code !== "automation_local_only") notice(error.message, true);
+        });
+        displaySettings(await api("/api/model/settings"));
+        await refreshLogin();
+        await refreshModels();
+      }
       catch (error) { modelLoaded = false; throw error; }
     });
   }

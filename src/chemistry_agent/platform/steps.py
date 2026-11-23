@@ -8,6 +8,7 @@ from pydantic import Field
 from chemistry_agent.automation.models import StrictModel
 from chemistry_agent.errors import AgentError
 from chemistry_agent.platform.contracts import OperationContext
+from chemistry_agent.platform.task_agents import current_task_agent
 from chemistry_agent.store import utc_now
 
 
@@ -32,6 +33,12 @@ async def report_step(plans, args: StepReport, context: OperationContext) -> dic
         node = next((n for n in plan["nodes"] if n["id"] == args.node_id), None)
         if not node or node["kind"] != "task":
             raise AgentError("step_owner_conflict", "此操作只记录 Agent 负责的研究步骤。", 409)
+        if args.node_id in plan.get("task_agents", {}):
+            task = current_task_agent.get()
+            if not task or (task.parent_id, task.plan_id, task.node_id) != (
+                session, identifier, args.node_id,
+            ):
+                raise AgentError("step_owner_conflict", "请由已分配的任务线程报告此步骤。", 409)
         if plan["status"] in {"draft", "paused", "stopping", "stopped"}:
             raise AgentError("plan_not_active", "请先确认或恢复方案。", 409)
         state = plan["runtime"][args.node_id]
@@ -45,14 +52,37 @@ async def report_step(plans, args: StepReport, context: OperationContext) -> dic
         jobs = state.get("jobs", [])
         if not set(accepted) <= set(jobs):
             raise AgentError("step_job_unknown", "结果引用了不属于此研究步骤的作业。", 422)
+        records = []
         if args.status in {"completed", "failed"}:
-            for job_id in jobs:
-                if not plans.slurm.load(session, job_id).get("terminal"):
-                    raise AgentError(
-                        "step_jobs_active", "关联作业尚未结束，请先结束或取消这些作业。", 409
-                    )
+            terminal = {"completed", "failed", "blocked", "stopped", "cancelled"}
+            if any(
+                child.get("parent_task") == args.node_id
+                and plan["runtime"][child["id"]]["status"] not in terminal
+                for child in plan["nodes"]
+            ):
+                raise AgentError("step_jobs_active", "关联作业尚未结束。", 409)
+            records = [plans.slurm.load(session, job_id) for job_id in jobs]
+            if any(not record.get("terminal") for record in records):
+                raise AgentError(
+                    "step_jobs_active", "关联作业尚未结束，请先结束或取消这些作业。", 409
+                )
         if args.status == "completed" and jobs and not accepted:
             raise AgentError("step_evidence_missing", "请明确本步骤最终使用了哪些作业的结果。", 422)
+        if args.status == "completed":
+            gated = [
+                record for record in records
+                if record.get("settings", {}).get("neb_force_target") is not None
+            ]
+            selected = [record for record in gated if record["id"] in accepted]
+            if gated and (
+                not selected
+                or any(record.get("science", {}).get("status") != "passed" for record in selected)
+            ):
+                raise AgentError(
+                    "neb_acceptance_required",
+                    "请选择已通过投影力阈值的 NEB 作业。下游继续等待。",
+                    409,
+                )
         for artifact_id in args.artifact_ids:
             plans.chat.load(session, "artifacts", str(artifact_id))
         report = args.model_dump(mode="json") | {"run_id": context.run_id, "at": utc_now()}

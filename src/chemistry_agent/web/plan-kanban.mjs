@@ -1,5 +1,6 @@
 import {escapeHtml as esc} from './core.mjs';
 import {taskLabel} from './plan-layout.mjs';
+import {taskAgentBar} from './task-agent-control.mjs';
 
 const columns = [
   ['todo','待执行'], ['active','进行中'], ['attention','需处理'], ['done','已完成'],
@@ -23,9 +24,9 @@ export function planKanban(nodes, attribute) {
       <h3><i aria-hidden="true"></i>${label}<span data-column-count>${members.length}</span></h3>
       <ul>${members.map(node=>{
         const title=taskLabel(node), group=node.groupPath?.join(' / ');
-        return `<li data-board-node="${esc(node.id)}"><button type="button" class="kanban-card" ${attribute}="${esc(node.id)}" title="${esc([title,group,node.status].filter(Boolean).join(' · '))}">
+        return `<li data-board-node="${esc(node.id)}" ${node.agentSelection?'class="task-agent-card"':''}><button type="button" class="kanban-card" ${attribute}="${esc(node.id)}" title="${esc([title,group,node.status].filter(Boolean).join(' · '))}">
           <strong data-no-i18n>${esc(title)}</strong>${group?`<span class="kanban-group" data-no-i18n>${esc(group)}</span>`:''}
-          <span class="kanban-status">${esc(node.status)}</span></button></li>`;
+          <span class="kanban-status">${esc(node.status)}</span></button>${taskAgentBar(node)}</li>`;
       }).join('')}</ul></section>`;
   }).join('')}</div>`;
 }

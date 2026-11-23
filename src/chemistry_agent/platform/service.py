@@ -98,7 +98,7 @@ class ComputationPlatform:
                         "AND status='running' LIMIT 1",
                         key,
                     )
-            if running or key in self.plans.dispatcher.tasks:
+            if running or self.plans.dispatcher.tasks_for(*key):
                 raise AgentError("delivery_busy", "事件正在处理，请在本轮结束后切换。", 409)
             plan = self.records.load(key[0], "plans", key[1])
             plan["delivery_adapter"] = args.adapter

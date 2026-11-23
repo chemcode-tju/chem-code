@@ -137,6 +137,8 @@ Invoke-RestMethod http://127.0.0.1:8765/chat `
 - `.env.example` 包含全部配置；`.env`、虚拟环境、数据库均被 Git 忽略。Key 只在服务端使用，不写入业务数据库或响应。
 - 默认使用 `deepseek-flash`，可通过 `DEEPSEEK_MODEL` 修改。默认关闭 thinking；打开 `DEEPSEEK_THINKING=true` 后会在内部保留并回传 DeepSeek 工具调用协议要求的 `reasoning_content`，公共接口不返回该字段。
 - `CHEMISTRY_DATABASE_PATH` 默认为本目录下 `data/agent.sqlite3`；相对路径始终相对此目录解析。SQLite 保存已完成对话和每次运行的状态。
+- `CHEMISTRY_SLURM_HISTORY_HOSTS=cluster-b` 为指定的已登记服务器启用作业看板历史留存。计算平台启动时回填 Slurm 可查记录，运行期间每 6 小时同步，遇到查询失败时 15 分钟后重试。作业记录按服务器、Slurm 账户、作业编号和提交时间去重，未成功覆盖的日期显示为不可查。
+- `CHEMISTRY_SLURM_HISTORY_PATH` 可指定长期保存位置，默认使用平台数据目录中的 `slurm-history.sqlite3`。
 - 模型每轮最多调用 6 轮工具，之后必须总结；单次模型请求默认超时 60 秒，整次运行默认超时 180 秒。错误和截断响应不会混入后续对话，不会自动重试计费请求。
 - 以 token 预算替代旧的 120,000 JSON 字符限制；长历史会自动摘要。Token 用量累计已收到用量报告的模型响应及摘要请求；网络断开等情况下未收到的用量无法统计。
 - 第一版使用单进程运行。同一会话同时发起两次任务时返回 409；不同会话可并发。重启后将上次未完成的运行标为 `interrupted`，已完成对话可继续。暂不支持运行中断点恢复或后台任务队列。

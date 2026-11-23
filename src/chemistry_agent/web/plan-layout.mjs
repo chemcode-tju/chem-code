@@ -77,7 +77,7 @@ export const FOLDER_HEIGHT = 36;
 
 // One rank per dependency depth; the longest continuation stays on the same row.
 // Group metadata remains available for filtering, never introduces container nodes.
-export function layoutGraph(graph, folded, moves = new Map(), scope = null, direction = 'LR') {
+export function layoutGraph(graph, folded, moves = new Map(), scope = null, direction = 'LR', card = CARD) {
   const candidates = graph.vertices.filter(node => inSection(node, scope));
   const ids = new Set(candidates.map(node => node.id));
   const visible = reachableVertices(candidates.map(node => ({
@@ -105,10 +105,10 @@ export function layoutGraph(graph, folded, moves = new Map(), scope = null, dire
   let row = 0, right = 0, bottom = 0;
   while (stack.length) {
     const id = stack.pop(), move = moves.get(id), children = trees.get(id) || [];
-    const x = Math.max(64, 64 + (direction==='TB'?row:ranks.get(id)) * CARD.column + (move?.x || 0));
-    const y = Math.max(80, 80 + (direction==='TB'?ranks.get(id):row) * CARD.row + (move?.y || 0));
+    const x = Math.max(64, 64 + (direction==='TB'?row:ranks.get(id)) * card.column + (move?.x || 0));
+    const y = Math.max(80, 80 + (direction==='TB'?ranks.get(id):row) * card.row + (move?.y || 0));
     points.set(id, {x,y});
-    right = Math.max(right, x + CARD.width); bottom = Math.max(bottom, y + CARD.height);
+    right = Math.max(right, x + card.width); bottom = Math.max(bottom, y + card.height);
     if (children.length) stack.push(...[...children].reverse());
     else row++;
   }
@@ -130,16 +130,16 @@ function roundedPath(points, radius = 12) {
   return path+` L${end.x} ${end.y}`;
 }
 
-export function edgePath(a,b,route = null) {
+export function edgePath(a,b,route = null,card = CARD) {
   if(route?.points)return roundedPath(route.points);
   if (route?.direction==='TB') {
-    const start={x:a.x+CARD.width/2,y:a.y+CARD.height},end={x:b.x+CARD.width/2,y:b.y};
+    const start={x:a.x+card.width/2,y:a.y+card.height},end={x:b.x+card.width/2,y:b.y};
     if (Number.isFinite(route.viaX)) return roundedPath([start,{x:start.x,y:start.y+18},
       {x:route.viaX,y:start.y+18},{x:route.viaX,y:end.y-32},{x:end.x,y:end.y-32},end]);
     const mid=(start.y+end.y)/2;
     return roundedPath([start,{x:start.x,y:mid},{x:end.x,y:mid},end]);
   }
-  const start={x:a.x+CARD.width,y:a.y+CARD.height/2}, end={x:b.x,y:b.y+CARD.height/2};
+  const start={x:a.x+card.width,y:a.y+card.height/2}, end={x:b.x,y:b.y+card.height/2};
   if (Number.isFinite(route?.viaY) || end.x-start.x<32) {
     const viaY=route?.viaY ?? Math.min(a.y,b.y)-32;
     return roundedPath([start,{x:start.x+24,y:start.y},{x:start.x+24,y:viaY},
@@ -151,15 +151,15 @@ export function edgePath(a,b,route = null) {
 
 // Route from actual card positions, not the original grid rank. A dragged card
 // can be farther than one row without needing a detour around the entire graph.
-export function edgeRoute(source, target, layout) {
+export function edgeRoute(source, target, layout, card = CARD) {
   const a=layout.points.get(source),b=layout.points.get(target);
   if(!a || !b)return null;
   const vertical=layout.direction==='TB';
-  const start=vertical?{x:a.x+CARD.width/2,y:a.y+CARD.height}:{x:a.x+CARD.width,y:a.y+CARD.height/2};
-  const end=vertical?{x:b.x+CARD.width/2,y:b.y}:{x:b.x,y:b.y+CARD.height/2};
+  const start=vertical?{x:a.x+card.width/2,y:a.y+card.height}:{x:a.x+card.width,y:a.y+card.height/2};
+  const end=vertical?{x:b.x+card.width/2,y:b.y}:{x:b.x,y:b.y+card.height/2};
   const obstacles=[...layout.points].map(([id,p])=>{
     const pad=id===source || id===target?0:8;
-    return {left:p.x-pad,right:p.x+CARD.width+pad,top:p.y-pad,bottom:p.y+CARD.height+pad};
+    return {left:p.x-pad,right:p.x+card.width+pad,top:p.y-pad,bottom:p.y+card.height+pad};
   });
   const clear=points=>points.every((p,i)=>!i || obstacles.every(r=>{
     const q=points[i-1];
@@ -171,7 +171,7 @@ export function edgeRoute(source, target, layout) {
     :[start,{x:mid,y:start.y},{x:mid,y:end.y},end];
   const forward=vertical?end.y-start.y:end.x-start.x;
   if(forward>=32 && clear(direct))return vertical?{direction:'TB'}:null;
-  const corridors=new Set([...layout.points.values()].flatMap(p=>vertical?[p.x-24,p.x+CARD.width+24]:[p.y-32,p.y+CARD.height+32]));
+  const corridors=new Set([...layout.points.values()].flatMap(p=>vertical?[p.x-24,p.x+card.width+24]:[p.y-32,p.y+card.height+32]));
   const candidates=[...corridors].filter(value=>value>=8).map(value=>({value,points:vertical?
     [start,{x:start.x,y:start.y+18},{x:value,y:start.y+18},{x:value,y:end.y-32},{x:end.x,y:end.y-32},end]:
     [start,{x:start.x+24,y:start.y},{x:start.x+24,y:value},{x:end.x-24,y:value},{x:end.x-24,y:end.y},end]}));
@@ -186,9 +186,9 @@ export function edgeRoute(source, target, layout) {
 
 // Leave a free drop untouched. If it would cover another card, pick the nearest
 // clear position from the obstacle boundaries, rather than pushing the whole lane.
-export function clearDrop(points,id) {
+export function clearDrop(points,id,card = CARD) {
   const desired=points.get(id), others=[...points].filter(([key])=>key!==id).map(([,p])=>p);
-  const w=CARD.width+6,h=CARD.height+6;
+  const w=card.width+6,h=card.height+6;
   if(!others.some(p=>Math.abs(p.x-desired.x)<w && Math.abs(p.y-desired.y)<h)) return desired;
   const xs=new Set([desired.x,64]);
   for(const p of others) {if(p.x-w>=64) xs.add(p.x-w);xs.add(p.x+w);}

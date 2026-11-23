@@ -3,6 +3,11 @@ import {fileIcon} from './file-actions.mjs';
 import {t} from './i18n.mjs';
 import {showFileText} from './file-preview-text.mjs';
 
+export function showSlowDirectoryRead(show) {
+  const timer = setTimeout(show, 500);
+  return () => clearTimeout(timer);
+}
+
 const mediaKinds = {
   pdf:'pdf', avif:'img', bmp:'img', gif:'img', ico:'img', jpeg:'img', jpg:'img', png:'img', webp:'img',
   mp3:'audio', wav:'audio', m4a:'audio', flac:'audio', oga:'audio', ogg:'audio',

@@ -3,6 +3,7 @@ import {planFigures} from './result-figures.mjs';
 import {createStepDetail} from "./step-detail.mjs?v=20261102-general-plans";
 import {workflowPlan} from "./workflow-plan.mjs";
 import {renderGeneralPlan} from './general-plan.mjs';
+import {drawPlanAttention} from './plan-attention.mjs';
 import { escapeHtml as esc } from './core.mjs';
 import { structureButton, getFileBlob, isStructureName } from './structure-links.mjs';
 import {fileIcon,updateStructureCount} from './file-actions.mjs';
@@ -49,12 +50,38 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
     knownSteps.set(id+'/'+key,{count,checked:Date.now()});
     displayCount(id,key,count);
   }
-  const detail = createStepDetail({api,reviseStep,rememberCount});
+  const detail = createStepDetail({api,reviseStep,rememberCount,onAttentionChange:refreshAttention});
   const attachments = document.getElementById("structure-attachments");
   let selectedPlan = null, selectedPlanSession = null;
   panel.addEventListener('change', event=>{if(event.target.matches('[data-plan-select]')){selectedPlan=event.target.value;try{sessionStorage.setItem('chemistry.selectedPlan.'+session,selectedPlan);}catch{}detail.close();render();}});
   let enabled = false, session = null, selected = [], records = null, pending = false;
   const path = (id) => `/api/automation/chat/${encodeURIComponent(id)}`;
+  let attention = {url:'',items:null,error:''}, attentionRequest;
+
+  function attentionUrl() {
+    const plan = records?.plans?.find(item => item.id === selectedPlan);
+    return session && plan && !plan.read_only ? `${path(session)}/workflows/${plan.id}/attention` : '';
+  }
+  async function refreshAttention() {
+    const url = attentionUrl();
+    if (!enabled || !url || attentionRequest?.url === url || document.hidden
+      || !panel.closest('[role="tabpanel"]')?.getClientRects().length) return;
+    const request = {url};
+    attentionRequest = request;
+    try {
+      const data = await api(url);
+      if (attentionRequest !== request || url !== attentionUrl() || session !== getSession()) return;
+      attention = {url,items:data.items,error:''};
+    } catch (error) {
+      if (attentionRequest !== request || url !== attentionUrl() || session !== getSession()) return;
+      attention.error = error.message;
+    } finally {
+      if (attentionRequest === request) attentionRequest = null;
+    }
+    drawPlanAttention(panel, attention);
+    detail.updateAttention(selectedPlan, attention.items || []);
+  }
+  setInterval(refreshAttention, 4000);
 
   function drawAttachments() {
     attachments.innerHTML = selected.map((item) => `<span class="structure-chip">${structureButton('artifact',item.id,`${item.name}.extxyz`,`${item.name} · ${item.formula}`)} <button type="button" data-remove-structure="${esc(item.id)}" aria-label="移除结构附件"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button></span>`).join("");
@@ -92,7 +119,7 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   let deferredRender=false;
   panel.addEventListener('mapidle',()=>{if(deferredRender) requestAnimationFrame(()=>{if(deferredRender) render();});});
   function render() {
-    if(panel.querySelector('[data-gesture],.map-pop:not([hidden])')) {deferredRender=true;return;}
+    if(panel.querySelector('[data-gesture],.map-pop:not([hidden]),[data-task-agent]:focus')) {deferredRender=true;return;}
     deferredRender=false;
     drawReportFigures();
     drawStructures();
@@ -105,8 +132,10 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
     if(!plans.some(plan=>plan.id===selectedPlan)) selectedPlan=plans[0]?.id;
     for(const plan of plans) detail.updateGeneral(plan);
     const activePlan=plans.find(plan=>plan.id===selectedPlan);
+    const url = attentionUrl();
+    if (attention.url !== url) attention = {url,items:null,error:''};
     const picker=plans.length>1?`<div class="plan-selector"><select data-plan-select aria-label="选择方案">${plans.map(plan=>`<option data-no-i18n value="${esc(plan.id)}" ${plan.id===selectedPlan?'selected':''}>${esc(plan.title)}</option>`).join('')}</select></div>`:'';
-    const graphs=activePlan?picker+renderGeneralPlan(activePlan):'';
+    const graphs=activePlan?picker+renderGeneralPlan(activePlan,records?.task_agent_presets):'';
     panel.classList.toggle('has-plan-surface', Boolean(activePlan));
     const cards = (records?.previews || []).filter(item=>!item.plan_id).map(item => {
       const ref = records.submissions[item.preview_id]?.job;
@@ -115,15 +144,51 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
       return renderTaskCard(item, job, records.recovery?.[ref?.id], path(session),records.policies?.[ref?.id] || {});
     }).join('');
     const panelTop = panel.parentElement.parentElement.scrollTop;
+    const focusedAttention = panel.contains(document.activeElement)
+      && (document.activeElement.dataset.attentionItem || document.activeElement.matches('[data-plan-view="attention"]'));
     const mapViews = captureMaps(panel,{suspend:true,dispose:true});
     panel.innerHTML = graphs + (cards && activePlan ? `<details class="legacy-calculations"><summary>其他计算记录</summary>${cards}</details>` : cards) || '<p class="empty-result">暂无计算方案</p>';
     mountMaps(panel,mapViews);
+    drawPlanAttention(panel, attention);
+    if (focusedAttention) {
+      const row = typeof focusedAttention === 'string'
+        && panel.querySelector(`[data-attention-item="${CSS.escape(focusedAttention)}"]`);
+      (row || panel.querySelector('[data-plan-view="attention"]'))?.focus({preventScroll:true});
+    }
+    void refreshAttention();
     panel.parentElement.parentElement.scrollTop = panelTop;
     for (const [id,value] of knownSteps) displayCount(...id.split('/'),value.count);
     for (const e of panel.querySelectorAll("[data-retry-limit]")) if (limits.has(e.dataset.retryLimit)) e.value = limits.get(e.dataset.retryLimit);
     for (const d of panel.querySelectorAll('details')) d.open = savedFolds.has(`${d.closest('[data-task]')?.dataset.task}:${d.dataset.fold}`);
     for (const el of panel.querySelectorAll('[data-auto-recovery]')) el.checked = approved.has(el.dataset.autoRecovery);
   }
+
+  panel.addEventListener('focusout', event=>{
+    if(event.target.matches('[data-task-agent]') && deferredRender) requestAnimationFrame(render);
+  });
+  panel.addEventListener('change', async event=>{
+    const select=event.target.closest('[data-task-agent]');
+    if(!select || pending) return;
+    const id=getSession(), node=select.dataset.taskAgent;
+    const plan=records.plans.find(item=>item.id===select.closest('[data-general-plan]').dataset.generalPlan);
+    pending=true;
+    select.disabled=true;
+    try {
+      const [presetId, version] = select.value.split(':');
+      await api(`${path(id)}/workflows/${plan.id}/steps/${encodeURIComponent(node)}/agent`, {
+        method:'PUT',body:JSON.stringify({expected_revision:plan.revision,preset_id:presetId || null,preset_version:version ? Number(version) : null}),
+      });
+      if(id===getSession()) {
+        const view=select.closest('.plan-kanban,.map-world')?.classList.contains('plan-kanban')?'plan-kanban':'map-world';
+        await refresh();
+        panel.querySelector(`.${view} [data-task-agent="${CSS.escape(node)}"]`)?.focus({preventScroll:true});
+      }
+    } catch(error) {
+      select.value=select.dataset.assignment;
+      toast(error.message);
+      if(id===getSession()) await refresh().catch(()=>{});
+    } finally {pending=false;select.disabled=false;}
+  });
 
   function openStructure(kind, id, name) {
     if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) return;
@@ -156,10 +221,18 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
   async function onAction(event) {
     const target = event.target.closest("button");
     if (!target || target.dataset.openKind) return;
-    if (target.closest('.map-board') && !target.matches('.map-node,.kanban-card,[data-confirm-plan],[data-control-plan],[data-revise-plan]')) return;
-    if(target.dataset.generalStep) {
-      const plan=records.plans.find(p=>p.id===target.closest('[data-general-plan]').dataset.generalPlan);
-      detail.openGeneral(plan,plan.nodes.find(n=>n.id===target.dataset.generalStep),path(session)); return;
+    if (target.dataset.planView === 'attention') {void refreshAttention();return;}
+    if (target.closest('.map-board') && !target.matches('.map-node,.kanban-card,[data-confirm-plan],[data-control-plan],[data-revise-plan],[data-attention-item]')) return;
+    if(target.dataset.generalStep || target.dataset.attentionItem) {
+      const plan=records?.plans.find(p=>p.id===target.closest('[data-general-plan]').dataset.generalPlan);
+      const items=attention.items || [];
+      const item=items.find(row=>(row.approval_id || row.job_id)===target.dataset.attentionItem);
+      const node=plan?.nodes.find(n=>n.id===(item?.node_id || target.dataset.generalStep));
+      if(node) {
+        detail.openGeneral(plan,node,path(session),items,item);
+        if (attention.items === null) void refreshAttention();
+      }
+      return;
     }
     if(target.dataset.revisePlan) {
       const plan=records.plans.find(p=>p.id===target.dataset.revisePlan);
@@ -269,8 +342,10 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
       if (id !== getSession() || !records) return;
       const graphData=await api(`${path(id)}/workflows`);
       if(id!==getSession() || !records) return;
-      const graphChanged=JSON.stringify(records.plans)!==JSON.stringify(graphData.plans);
+      const graphChanged=JSON.stringify(records.plans)!==JSON.stringify(graphData.plans)
+        || JSON.stringify(records.task_agent_presets)!==JSON.stringify(graphData.task_agent_presets);
       records.plans=graphData.plans;
+      records.task_agent_presets=graphData.task_agent_presets;
       onPlans?.(id,records.plans || []);
       const changes = Object.entries(data.jobs).some(([id, job]) => {
         const previous = records.live_jobs?.[id];

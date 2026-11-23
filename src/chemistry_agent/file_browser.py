@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from chemistry_agent import trajectory_index
 from chemistry_agent.attachments import owned_attachment
 from chemistry_agent.automation.local_ssh import enabled_aliases
-from chemistry_agent.automation.queue_remote import JOB_ID
+from chemistry_agent.automation.queue_remote import DUMP_SUFFIXES, JOB_ID, dump_companions
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.ssh_profiles import load_profile, profile_path, shell_profiles
 from chemistry_agent.environments.registry import Environments
@@ -1127,6 +1127,35 @@ async def preview(
     if any(ord(char) < 32 and char not in "\t\r\n" for char in text):
         return result
     return result | {"kind": "text", "text": text, "truncated": truncated}
+
+
+@router.get("/companions")
+async def companions(
+    request: Request,
+    source: str = Query(max_length=200),
+    session: UUID | None = None,
+    root: str = Query(default="", max_length=4096),
+    path: str = Query(max_length=4096),
+) -> dict:
+    relative = checked_path(path)
+    if relative.suffix.lower() not in DUMP_SUFFIXES:
+        raise AgentError("browser_trajectory_type", "请选择 LAMMPS 文本轨迹。", 415)
+    if source.startswith("job:"):
+        job = JobLocation.from_request(request, source.removeprefix("job:"))
+        return await job_file_operation(
+            request, job.host, job.payload() | {"action": "queue_metadata", "path": str(relative)}
+        )
+    async with resolved_filesystem(request, source, session, root) as (backend, base):
+        if isinstance(backend, RemoteFilesystem):
+            target = await backend.target(base, relative)
+            return await backend.queue_request(
+                {"action": "browser_metadata", "directory": str(target.parent), "path": target.name}
+            )
+        target = await asyncio.to_thread(backend.target, base, relative)
+        try:
+            return {"companions": await asyncio.to_thread(dump_companions, target)}
+        except ValueError as exc:
+            raise AgentError("browser_trajectory_type", str(exc), 415) from exc
 
 
 @router.get("/trajectory")

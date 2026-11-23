@@ -236,6 +236,8 @@ class SlurmJobs:
                 self.save(session, record)
             if record.get("scheduler_job_id") or record["status"] in {"quota_wait", "rejected"}:
                 return record
+            if record["status"] == "uncertain":
+                return await self._reconcile(session, record)
             await self.upload(record, directory)
             record["status"] = "uncertain"
             self.save(session, record)
@@ -244,6 +246,24 @@ class SlurmJobs:
             if record["status"] == "quota_wait":
                 record.setdefault("quota_wait_since", utc_now())
             self.save(session, record)
+            return record
+
+    async def _reconcile(self, session: str, record: dict) -> dict:
+        """An uncertain submit can only be resolved by observing the original receipt."""
+        result = await self.remote(record, "status")
+        if result.get("status") != "not_submitted":
+            record.update(result)
+        record["checked_at"] = utc_now()
+        if record.get("terminal"):
+            record.setdefault("completed_at", utc_now())
+        self.save(session, record)
+        return record
+
+    async def reconcile_submission(self, session: str, identifier: str) -> dict:
+        async with self.locks.setdefault(identifier, asyncio.Lock()):
+            record = self.load(session, identifier)
+            if record["status"] == "uncertain" and not record.get("scheduler_job_id"):
+                return await self._reconcile(session, record)
             return record
 
     def release_slot(self, record: dict) -> str | None:
@@ -287,6 +307,8 @@ class SlurmJobs:
             record = self.load(session, identifier)
             if record.get("terminal"):
                 return record
+            if record["status"] == "uncertain" and not record.get("scheduler_job_id"):
+                return await self._reconcile(session, record)
             result = await self.placement.inspect(session, record)
             if result is None:
                 result = await self.remote(record, "status")

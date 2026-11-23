@@ -4,7 +4,7 @@
 .workspace-rail { display:flex; align-items:center; flex-direction:column; padding:5px 0; gap:6px; }
 .workspace-rail .icon-button { width:34px; height:34px; min-width:34px; color:var(--muted); border-radius:var(--radius-control); }
 .workspace-rail [aria-current="page"],.workspace-rail .icon-button:hover { background:var(--selected); color:var(--text); }
-.workspace-rail-section { padding-top:7px; border-top:1px solid var(--border); }
+.workspace-rail-section { display:grid; gap:6px; padding-top:7px; border-top:1px solid var(--border); }
 .workspace-rail-settings { margin-top:auto; }
 .workspace-shell:not(.monitor-workspace) .workspace-rail-settings { display:none; }
 .workspace-shell.sidebar-collapsed .sidebar { display:flex; align-items:center; padding-inline:0; }

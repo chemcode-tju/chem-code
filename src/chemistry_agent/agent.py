@@ -54,6 +54,8 @@ model 和 analysis 是可选的本地代码节点；建模也可以直接在自�
 可用 plan_id、step_id 关联方案。submitted_at 取 Slurm SubmitTime，不使用估计值。
 登记不会重复提交。提交回执不明时先对账调度器；接管失败不代表原作业没交上去。
 新计算默认接入侧栏：普通 VASP/LAMMPS 自动读取；NEB 在 adopt/job 中写 results="neb"。
+新提交的 NEB 在 job.neb_force_target 中写入已确认的投影 Fmax 阈值（eV/Å）。
+力阈值需由具体方案给出，不猜测。最终快照与阈值未通过时，下游等待。
 自定义布局写 display.json（structures: path,label；series: label,x_label,y_label,unit,points），
 或 results 指定索引路径；准备脚本时一起生成，完整快照原子写入。无需额外登记、解释或轮询。
 任务结束用 calculation_job_files 读取原始输出，检查实际结果，再用 calculation_step_report

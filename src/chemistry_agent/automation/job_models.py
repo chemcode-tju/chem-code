@@ -4,7 +4,13 @@ from pathlib import PurePosixPath
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from chemistry_agent.automation.models import Resources, StrictModel
 from chemistry_agent.automation.result_defaults import display_source
@@ -89,9 +95,28 @@ class JobSettings(DisplayOptions):
     retrieve: list[str] = Field(default_factory=list, description="Output paths/globs to retrieve")
     required_outputs: list[str] = Field(default_factory=list)
     scheduler_commands: str = Field(default="", max_length=20000)
+    neb_force_target: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="Approved NEB projected Fmax limit in eV/Å. Use with results='neb' or "
+        "'neb:glob'. Scheduler success alone does not pass this gate.",
+    )
+
+    @model_serializer(mode="wrap")
+    def serialize_settings(self, serialize: SerializerFunctionWrapHandler) -> dict:
+        data = serialize(self)
+        if data.get("neb_force_target") is None:
+            data.pop("neb_force_target", None)
+        return data
 
     @model_validator(mode="after")
     def paths(self):
+        if (
+            self.neb_force_target is not None
+            and display_source(self.results)["adapter"] != "json_paths"
+        ):
+            raise ValueError("NEB 力阈值需配合 results=neb 或 neb:glob。")
         if not self.adopted and (not self.script.strip() or self.resources is None):
             raise ValueError("新提交的任务需要 script 和 resources；已有作业使用接管工具登记。")
         if "archive" in PurePosixPath(self.workdir).parts or "\x00" in self.workdir:

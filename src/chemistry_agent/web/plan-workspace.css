@@ -73,6 +73,24 @@
 .map-board .plan-view-switch button {border:0;background:transparent;border-radius:6px;padding:5px 10px;min-height:30px;font-size:14px;color:var(--muted);cursor:pointer;white-space:nowrap;}
 .map-board .plan-view-switch button[aria-pressed=true] {background:var(--raised);color:var(--text);font-weight:600;}
 .map-board .plan-view-switch button:hover {color:var(--text);}
+.plan-view-switch [data-attention-count]:not(:empty) {margin-inline-start:3px;font-variant-numeric:tabular-nums;}
+.plan-attention {min-height:0;flex:1;overflow:auto;padding:8px 12px 12px;}
+.plan-attention ul {margin:0;padding:0;list-style:none;}
+.plan-attention li+li {border-top:1px solid var(--border);}
+.map-board .plan-attention-row {display:flex;align-items:center;justify-content:space-between;gap:6px 12px;flex-wrap:wrap;width:100%;text-align:left;border:0;border-radius:var(--radius-control);background:transparent;padding:10px;cursor:pointer;}
+.map-board .plan-attention-row:hover {background:var(--hover);}
+.plan-attention-row > span:first-child {min-width:0;overflow-wrap:anywhere;}
+.plan-attention-row :is(strong,small) {display:block;}
+.plan-attention-row small,.plan-attention-label,.plan-attention-note {font-size:var(--font-size-secondary,13px);color:var(--muted);}
+.plan-attention-row small:empty {display:none;}
+#step-attention:not([hidden]),.step-attention-item {display:grid;gap:8px;}
+#step-attention:not([hidden]) {margin-block:8px 14px;}
+.step-attention-item {padding:10px 12px;background:var(--raised);border:1px solid var(--border);border-radius:var(--radius-panel);justify-items:start;}
+.step-attention-item :is(h3,p),#step-attention-feedback {margin:0;}
+.step-attention-item h3 {font:600 14px/1.45 var(--font-ui);}
+.step-attention-item pre {white-space:pre-wrap;overflow-wrap:anywhere;}
+.step-attention-meta {color:var(--muted);font-size:var(--font-size-secondary,13px);overflow-wrap:anywhere;}
+#step-attention-feedback:not([hidden]) {margin-block:0 12px;}
 .plan-kanban {display:flex;gap:16px;overflow:auto;overscroll-behavior:contain;padding:16px;height:min(var(--map-height,clamp(320px,52dvh,560px)),max(240px,calc(100dvh - 96px)));min-height:0;background:var(--sidebar-fill);align-items:flex-start;}
 .kanban-column {flex:1 0 224px;min-width:0;}
 .kanban-column h3 {display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:14px;font-weight:600;line-height:24px;}
@@ -90,6 +108,21 @@
 .kanban-status {overflow-wrap:anywhere;}
 .kanban-column[data-column=attention] .kanban-status {color:var(--danger);}
 .map-board .kanban-card:hover {border-color:var(--strong-border);background:var(--hover);}
+.map-board .task-agent-card .kanban-card {border-bottom-left-radius:0;border-bottom-right-radius:0;}
+.task-agent-bar {display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 10px;min-width:0;min-height:30px;color:var(--muted);font-size:var(--font-size-secondary,13px);}
+.task-agent-bar > span:first-child {flex:none;}
+.task-agent-bar :is(select,.task-agent-value) {min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font:inherit;}
+.task-agent-bar select {width:auto;}
+.task-agent-bar select:focus-visible {outline:2px solid var(--accent);}
+.task-agent-card > .task-agent-bar {border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius-panel,12px) var(--radius-panel,12px);background:var(--raised);}
+.map-position > .task-agent-bar {position:absolute;inset:auto 1px 1px;border-top:1px solid var(--border);}
+.map-position:has(> .task-agent-bar) .map-node {padding-bottom:34px;}
+.map-position:has(> .task-agent-bar) [data-branch] {bottom:33px;}
+#step-task-thread :is(pre,code) {white-space:pre-wrap;overflow-wrap:anywhere;}
+#step-task-thread [data-task-thread-state] {margin-left:auto;color:var(--muted);font-size:var(--font-size-secondary,13px);}
+#step-task-thread time,.task-thread-id {color:var(--muted);font-size:var(--font-size-secondary,13px);}
+.task-thread-approval {padding:10px 0;border-bottom:1px solid var(--border);}
+.task-approval-script {max-height:240px;overflow:auto;}
 .map-board :is(.kanban-card,.plan-view-switch button,.plan-kanban):focus-visible {outline:2px solid var(--accent);outline-offset:-2px;}
 .map-dialog .plan-kanban {flex:1;height:auto;}
 .map-board [hidden] {display:none!important;}

@@ -222,6 +222,8 @@ class AuthenticationMiddleware:
                 "/auth/login",
                 "/auth/logout",
             }
+            if request.method == "GET" and request.url.path == "/agents":
+                public = True  # The route redirects signed-out users to the sign-in shell.
             # Direct settings links serve the same sign-in shell as the homepage.
             if (
                 request.method in {"GET", "HEAD"}

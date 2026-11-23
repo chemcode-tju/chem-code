@@ -1,4 +1,5 @@
 import {t} from './i18n.mjs';
+import {showSlowDirectoryRead} from './file-preview.mjs';
 
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${name}"/></svg>`;
 
@@ -99,11 +100,16 @@ export function createFolderDialog(api, trigger, applyFolder) {
 
   function load(path, message = '') {
     return run(async active => {
-      notify('正在读取…');
-      const result = await lookup(path || '~/');
-      if (active()) {
-        render(result);
-        if (message) notify(message, true);
+      notify();
+      const cancelNotice = showSlowDirectoryRead(() => { if (active()) notify('正在读取目录…'); });
+      try {
+        const result = await lookup(path || '~/');
+        if (active()) {
+          render(result);
+          if (message) notify(message, true);
+        }
+      } finally {
+        cancelNotice();
       }
     });
   }

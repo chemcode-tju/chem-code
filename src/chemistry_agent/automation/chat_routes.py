@@ -17,7 +17,9 @@ from chemistry_agent.automation.plan_models import PlanConfirmation, PlanControl
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.step_edit import StepEdit, edit_policy, edit_step
 from chemistry_agent.errors import AgentError
+from chemistry_agent.platform.attention import pending_actions, reconcile_job
 from chemistry_agent.platform.results import ResultInspect, ResultRegister
+from chemistry_agent.platform.task_agents import AssignmentInput, assign, presets, task_session
 from chemistry_agent.tools import ToolContext
 
 router = APIRouter(prefix="/api/automation/chat", tags=["chat calculations"])
@@ -27,7 +29,7 @@ async def session_chat(request: Request, session_id: UUID) -> CalculationChat:
     local_service(request)
     if not request.app.state.settings.automation_enabled:
         raise AgentError("automation_disabled", "请先启用计算平台。", 503)
-    await request.app.state.store.get_session(str(session_id), request.state.user_id)
+    await request.app.state.store.require_session(str(session_id), request.state.user_id)
     return request.app.state.calculation_chat
 
 
@@ -45,6 +47,7 @@ async def artifacts(session_id: UUID, request: Request) -> dict:
     snapshots = monitor.events.snapshots(identifier) if monitor else {}
     return {
         "plans": request.app.state.platform.plans.records(identifier),
+        "task_agent_presets": await presets(request.app.state.store),
         "analyses": chat.list_records(identifier, "analyses"),
         "live_jobs": snapshots,
         "monitor": monitor.events.inbox(identifier, limit=1)["monitor"] if monitor else {},
@@ -231,7 +234,10 @@ async def session_events(session_id: UUID, request: Request) -> dict:
 @router.get("/{session_id}/workflows")
 async def workflow_plans(session_id: UUID, request: Request) -> dict:
     chat = await session_chat(request, session_id)
-    return {"plans": chat.plans.records(str(session_id))}
+    return {
+        "plans": chat.plans.records(str(session_id)),
+        "task_agent_presets": await presets(request.app.state.store),
+    }
 
 
 @router.get("/{session_id}/workflows/{plan_id}/artifacts/{node_id}/{filename:path}")
@@ -318,6 +324,70 @@ async def update_step_text(
 ) -> dict:
     chat = await session_chat(request, session_id)
     return await edit_step(chat.plans, str(session_id), str(plan_id), node_id, body)
+
+
+@router.put("/{session_id}/workflows/{plan_id}/steps/{node_id}/agent")
+async def set_task_agent(
+    session_id: UUID, plan_id: UUID, node_id: str, body: AssignmentInput, request: Request
+) -> dict:
+    chat = await session_chat(request, session_id)
+    return await assign(
+        chat.plans, request.app.state.agent_backends, str(session_id), str(plan_id), node_id, body,
+    )
+
+
+@router.get("/{session_id}/workflows/{plan_id}/steps/{node_id}/thread")
+async def task_thread(session_id: UUID, plan_id: UUID, node_id: str, request: Request) -> dict:
+    chat = await session_chat(request, session_id)
+    session, plan_id = str(session_id), str(plan_id)
+    plan = chat.load(session, "plans", plan_id)
+    if node_id not in plan.get("task_agents", {}):
+        raise AgentError("task_agent_missing", "此步骤没有分配执行预设。", 404)
+    store = request.app.state.store
+    identifier = task_session(session, plan_id, node_id)
+    async with store.lock:
+        row = await store._one(
+            "SELECT s.active_run_id,b.external_thread_id,b.turn_state "
+            "FROM task_agent_sessions t JOIN sessions s ON s.id=t.session_id "
+            "JOIN agent_bindings b ON b.session_id=t.session_id WHERE t.session_id=?",
+            (identifier,),
+        )
+        events = await (await store.db.execute(
+            "SELECT id,status,error FROM agent_events WHERE session_id=? AND plan_id=? AND ("
+            "json_extract(payload,'$.task_node_id')=? OR EXISTS (SELECT 1 FROM "
+            "json_each(payload,'$.events') WHERE COALESCE(json_extract(value,'$.parent_task'),"
+            "json_extract(value,'$.node_id'))=?)) ORDER BY created_at DESC LIMIT 10",
+            (session, plan_id, node_id, node_id),
+        )).fetchall()
+        runs = await (await store.db.execute(
+            "SELECT id,status,started_at,finished_at,error_code,substr(answer,1,800) AS answer "
+            "FROM runs WHERE session_id=? ORDER BY started_at DESC,id LIMIT 20",
+            (identifier,),
+        )).fetchall()
+    data = {"events": [dict(item) for item in events]}
+    if row is None:
+        return data | {"id": None, "runs": [], "approvals": []}
+    return data | dict(row) | {
+        "id": identifier,
+        "runs": [dict(run) for run in runs],
+        "approvals": await request.app.state.agent_backends.approvals.list_pending(identifier),
+    }
+
+
+@router.get("/{session_id}/workflows/{plan_id}/attention")
+async def workflow_attention(session_id: UUID, plan_id: UUID, request: Request) -> dict:
+    chat = await session_chat(request, session_id)
+    session = str(session_id)
+    plan = chat.load(session, "plans", str(plan_id))
+    return {"items": await pending_actions(chat.plans, session, plan)}
+
+
+@router.post("/{session_id}/workflows/{plan_id}/steps/{node_id}/jobs/{job_id}/reconcile")
+async def reconcile_workflow_job(
+    session_id: UUID, plan_id: UUID, node_id: str, job_id: UUID, request: Request
+) -> dict:
+    chat = await session_chat(request, session_id)
+    return await reconcile_job(chat.plans, str(session_id), plan_id, node_id, job_id)
 
 
 @router.post("/{session_id}/results")

@@ -140,11 +140,12 @@ const StructureBrowserTrajectory = (() => {
       text() {return file.slice(0, file.size).text();},
     };
     return {name, async initialize() {
-      const response = await request(0, 64 * 1024);
+      const bootstrap = /\.(?:lammpstrj|dump)$/i.test(name) ? blockSize : 64 * 1024;
+      const response = await request(0, bootstrap, {priority:'high'});
       snapshot = response.headers.get('X-Trajectory-Snapshot');
       file.size = Number(response.headers.get('X-Trajectory-Size'));
-      // A small bootstrap keeps the first frame responsive. Promote the
-      // prefix into its aligned block in the background after initialization.
+      // Text dumps commonly need most of the first block for one frame.
+      // Promote aligned prefixes directly so the scanner reuses those bytes.
       prefix = await response.blob();
       if (prefix.size === Math.min(blockSize, file.size)) {
         cached.set(0, prefix);

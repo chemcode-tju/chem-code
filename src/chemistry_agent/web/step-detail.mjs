@@ -11,13 +11,17 @@ import {kindName, taskLabel} from './plan-layout.mjs';
 import {t} from './i18n.mjs';
 import {createConvergenceCard} from './convergence-card.mjs';
 import {createRegisteredResults,resultTimestamp} from './registered-results.mjs';
+import {createTaskThread} from './task-thread.mjs';
+import {attentionLabel,stepAttention} from './plan-attention.mjs';
 
 const fileNames = ['POSCAR', 'CONTCAR', 'XDATCAR'];
 const availableFiles=info=>[...new Set([...fileNames,...Object.keys(info?.files || {})])].filter(name=>info?.files?.[name]);
 
-export function createStepDetail({api,rememberCount}) {
+export function createStepDetail({api,rememberCount,onAttentionChange}) {
   const $ = id => document.getElementById(id);
   const screen = $('step-screen'), frame = $('step-viewer-frame');
+  const taskThread = createTaskThread($('step-task-thread'), api, onAttentionChange);
+  const pendingStep = $('step-attention'), feedback = $('step-attention-feedback');
   let current = null, activeFile = '', info = null, activeSnapshot = null, focusStep = null;
   const editors=new Map();
   let selectedParameter='',viewerPosition=null;
@@ -167,6 +171,10 @@ export function createStepDetail({api,rememberCount}) {
   document.addEventListener('fullscreenchange',syncFull);
   dialog.addEventListener('cancel',event=>{event.preventDefault();if(fromFull) close();else expandDetail(false);});
   function resetContent() {
+    taskThread.update(null, null);
+    pendingStep.hidden=feedback.hidden=true;
+    pendingStep.replaceChildren();
+    feedback.textContent='';
     results.reset();registeredSelection=null;
     convergence.reset();
     editors.clear();selectedParameter='';$('step-purpose').replaceChildren();
@@ -369,7 +377,26 @@ export function createStepDetail({api,rememberCount}) {
     refresh();
   }
   $('step-back').onclick=close;
-  $('step-refresh').onclick=()=>refresh(true);
+  $('step-refresh').onclick=()=>{refresh(true);void taskThread.refresh();};
+  pendingStep.addEventListener('click', async event => {
+    const button = event.target.closest('[data-reconcile-job]');
+    const view = current;
+    if (!button || !view) return;
+    button.disabled = true;
+    feedback.hidden = false;
+    feedback.textContent = t('正在核对原提交…');
+    try {
+      const record = await api(`${view.base}/jobs/${encodeURIComponent(button.dataset.reconcileJob)}/reconcile`, {method:'POST'});
+      if (current !== view) return;
+      feedback.textContent = record.scheduler_job_id
+        ? `${t('已关联原作业')} #${record.scheduler_job_id}`
+        : t('尚未确认原作业，继续等待调度记录。');
+      void refresh();
+      void onAttentionChange?.();
+    } catch (error) {
+      if (current === view) feedback.textContent = error.message;
+    } finally { button.disabled = false; }
+  });
   $('step-structures').addEventListener('toggle',()=>{
     if(!current || !$('step-structures').open || activeFile || registeredSelection) return;
     if(registeredFiles.length){results.selectImage(registeredFiles.find(item=>item.selected)?.index ?? registeredFiles[0].index,false);return;}
@@ -377,12 +404,22 @@ export function createStepDetail({api,rememberCount}) {
   });
   $('step-files').onclick=event=>{const image=event.target.closest('[data-result-image]');if(image){results.selectImage(Number(image.dataset.resultImage),false);return;}if(event.target.dataset.stepFile)selectFile(event.target.dataset.stepFile);};
   setInterval(()=>{if(current && (!info?.terminal || current.failed || info?.investigations?.some(row=>!row.terminal)) && !document.hidden && screen.getClientRects().length)refresh();},20000);
+  function drawGeneralStatus(plan,node) {
+    const items = current.attention || [];
+    const issue = items.find(item => item.node_id === node.id);
+    const state = plan.runtime[node.id].status;
+    if (issue) status(attentionLabel(issue), issue.kind === 'science' ? 'blocked' : state);
+    else if (state === 'pending' && items.some(item => item.kind === 'science' && node.depends_on.includes(item.node_id))) {
+      status(t('等待上游 NEB 验收'),state);
+    } else status(nodeStatus(plan,node),state);
+  }
   function drawGeneral(plan,node) {
     const state=plan.runtime[node.id];
+    taskThread.update(current.base, plan.task_agents?.[node.id]);
     $('step-parent').hidden=true;
     const path=$('step-group-path');
     path.innerHTML=`<span data-no-i18n>${esc((node.group_path || []).join(' › '))}</span>`;path.hidden=!path.textContent;
-    status(nodeStatus(plan,node),state.status);
+    drawGeneralStatus(plan,node);
     const editing={...info?.editing};
     if(!['pending','blocked','ready','waiting'].includes(state.status) || state.generic_job_id || state.job_id || state.jobs?.length)editing.purpose=editing.files=false;
     const parameters=info?.parameters || node.job?.files || node.text_files || {};
@@ -399,12 +436,24 @@ export function createStepDetail({api,rememberCount}) {
     $('step-error').textContent=state.error || state.sync_error || '';
     current.plan=plan;
   }
-  function openGeneral(plan,node,sessionPath) {
+  function updateAttention(planId, items) {
+    if (!current?.general || current.id !== planId) return;
+    current.attention = items;
+    drawGeneralStatus(current.plan,current.plan.nodes.find(node => node.id === current.key));
+    const markup = stepAttention(items.filter(item => item.node_id === current.key));
+    pendingStep.hidden = !markup;
+    if (pendingStep.dataset.content !== markup || (markup && !pendingStep.firstChild)) {
+      pendingStep.innerHTML=markup;
+      pendingStep.dataset.content=markup;
+    }
+  }
+  function openGeneral(plan,node,sessionPath,items = [],focusItem = null) {
     enter();
     current={id:plan.id,key:node.id,general:true,genericJob:['job','task'].includes(node.kind),revision:plan.revision,title:node.title,sessionPath,
       failed:plan.runtime[node.id].status==='failed',nsw:node.effective?.incar?.NSW,
-      related:id=>{const p=current.plan,n=p.nodes.find(n=>n.id===id);if(n) openGeneral(p,n,sessionPath);},
-      base:`${sessionPath}/workflows/${plan.id}/steps/${node.id}`};
+      related:id=>{const p=current.plan,n=p.nodes.find(n=>n.id===id);if(n) openGeneral(p,n,sessionPath,current.attention);},
+      base:`${sessionPath}/workflows/${plan.id}/steps/${encodeURIComponent(node.id)}`};
+    if (focusItem?.kind === 'science') current.selectedJob = focusItem.job_id;
     const view=workflowView(plan), siblings=view.children.get(view.owners.get(node.id)) || view.nodes;
     const sequence=view.owners.get(node.id)===node.id?graphLayers(view.nodes).flat():siblings;
     heading(taskLabel(node),kindName(node.kind),node.id,sequence.findIndex(n=>n.id===node.id),sequence.length,plan.title,node.purpose);
@@ -415,6 +464,13 @@ export function createStepDetail({api,rememberCount}) {
     relations((visible || node).depends_on.map(id=>index.get(id)).filter(Boolean),(visible?view.nodes:plan.nodes).filter(n=>n.depends_on.includes(node.id)));
     drawGeneral(plan,node);
     $('step-back').focus({preventScroll:true});
+    updateAttention(plan.id, items);
+    if (focusItem?.kind === 'approval') taskThread.reveal(focusItem.approval_id);
+    else if (focusItem) {
+      const issue = pendingStep.querySelector(`[data-step-attention-id="${CSS.escape(focusItem.job_id)}"]`);
+      issue?.scrollIntoView({block:'nearest'});
+      issue?.querySelector('button,summary')?.focus({preventScroll:true});
+    }
     $('step-energies').hidden=!['vasp','job','task'].includes(node.kind); $('step-progress').hidden=$('step-energies').hidden;$('step-refresh').hidden=false;
     $('step-structures').hidden=node.kind==='analysis';
     $('step-config').open=false; $('step-structures').open=node.kind==='model';
@@ -422,7 +478,7 @@ export function createStepDetail({api,rememberCount}) {
     $('step-energies').open=node.kind==='vasp' || !!(runtime.generic_job_id || runtime.jobs?.length);
     info={files:{},points:[]}; drawFiles(); refresh();
   }
-  return {open,close,openGeneral,updateGeneral(plan) {
+  return {open,close,openGeneral,updateAttention,updateGeneral(plan) {
     if(!current?.general || current.id!==plan.id) return;
     if(plan.revision<current.revision)return;
     const node=plan.nodes.find(n=>n.id===current.key);

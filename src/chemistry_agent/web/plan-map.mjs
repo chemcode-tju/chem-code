@@ -4,13 +4,14 @@ import {bindMapGestures} from './map-gestures.mjs';
 import {createNavigator} from './map-navigator.mjs';
 import {t} from './i18n.mjs';
 import {planKanban} from './plan-kanban.mjs';
+import {taskAgentBar} from './task-agent-control.mjs';
 
 const icon = id => `<svg aria-hidden="true"><use href="/assets/ui-icons.svg#i-${id}"/></svg>`;
 const tool = (attr,label,content) => `<button type="button" ${attr} aria-label="${label}" title="${label}">${content}</button>`;
 const shortcut = (keys,label) => `<span><kbd>${keys}</kbd> <span>${label}</span></span>`;
 const serial = value => esc(JSON.stringify(value));
 
-export function planMap(layers, key, attribute, title = '', controls = '') {
+export function planMap(layers, key, attribute, title = '', controls = '', showAttention = false) {
   const nodes = layers.flat();
   if (!nodes.length) return '';
   const cards = nodes.map(n => {
@@ -21,10 +22,10 @@ export function planMap(layers, key, attribute, title = '', controls = '') {
     ${caption?`<span class="map-card-caption" data-no-i18n title="${esc(caption)}">${esc(caption)}</span>`:''}
     <button type="button" class="map-node" ${attribute}="${esc(n.id)}" data-kind="${esc(kind)}" data-state="${esc(n.state)}" aria-label="${esc([label,n.status].filter(Boolean).join(' · '))}" title="${esc([kindName(kind),caption,label,n.status,n.description,n.jobSummary].filter(Boolean).join(' · '))}" tabindex="-1">
       <strong data-no-i18n>${esc(split<0?label:label.slice(split+3))}</strong><small class="map-card-status"><i aria-hidden="true"></i>${esc(n.status)}${attribute==='data-open-step'?'<span data-ionic-step></span>':''}</small>
-    </button><button type="button" data-reset-card aria-label="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
+    </button>${taskAgentBar(n)}<button type="button" data-reset-card aria-label="恢复这张卡片原位" hidden>${icon('reset')}<span>归位</span></button><button type="button" data-branch="${esc(n.id)}" tabindex="-1" hidden></button></div>`;
   }).join('');
   return `<div class="plan-map" data-map="${esc(key)}"><div class="map-board" role="region" aria-label="方案画布">
-    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button></div><div class="map-identity"><span data-map-count title="已展开 / 总步骤"></span></div>${controls}<div class="map-actions">
+    <div class="map-tools"><div class="plan-view-switch" role="group" aria-label="方案视图"><button type="button" data-plan-view="kanban" aria-pressed="false">看板</button><button type="button" data-plan-view="canvas" aria-pressed="true">画布</button>${showAttention ? '<button type="button" data-plan-view="attention" aria-pressed="false">待处理 <span data-attention-count></span></button>' : ''}</div><div class="map-identity"><span data-map-count title="已展开 / 总步骤"></span></div>${controls}<div class="map-actions">
       ${tool('data-command="options" aria-expanded="false"','画布选项',icon('more-vertical'))}
     </div></div>
     <div class="map-pop" data-pop="options" hidden>
@@ -35,6 +36,7 @@ export function planMap(layers, key, attribute, title = '', controls = '') {
       <button type="button" data-command="overview">分支概览</button><button type="button" data-command="unfold">展开全部节点</button>
       <button type="button" data-command="arrange">恢复自动布局</button><label class="map-nav-option"><input type="checkbox" data-show-nav> 缩略图</label></div>
     ${planKanban(nodes,attribute)}
+    ${showAttention ? '<section class="plan-attention" data-plan-attention aria-label="待处理事项" hidden></section>' : ''}
     <div class="map-window" tabindex="0" aria-label="计算依赖图"><div class="map-size"><div class="map-world"><svg class="map-edges" aria-hidden="true"></svg>${cards}</div></div></div>
     <button type="button" class="map-navigator" title="缩略图导航" aria-label="缩略图导航"><svg preserveAspectRatio="none" aria-hidden="true"><path/><rect/></svg></button>
     <div class="map-foot"><button type="button" data-command="keys" aria-expanded="false" title="画布快捷键">${icon('keys')}<span>快捷键</span></button><div class="map-zoom">${tool('data-zoom="-1"','缩小方案',icon('minus'))}${tool('data-zoom="0"','还原缩放','100%')}${tool('data-zoom="1"','放大方案',icon('plus'))}${tool('data-command="fit"','适应画布',icon('fit'))}${tool('data-command="arrange"','恢复自动布局',icon('reset'))}</div></div>
@@ -56,7 +58,8 @@ function mount(map, previous) {
   const saved=previousView.layoutVersion===6?previousView:{};
   const board=$('.map-board'), view=$('.map-window'), world=$('.map-world'), size=$('.map-size'), svg=$('.map-edges');
   const kanban=$('.plan-kanban');
-  let viewMode=saved.viewMode==='canvas'?'canvas':'kanban';
+  const attention=$('[data-plan-attention]');
+  let viewMode=attention && saved.viewMode==='attention'?'attention':saved.viewMode==='canvas'?'canvas':'kanban';
   let boardRows=saved.boardRows!==false;
   kanban.dataset.rows=boardRows?'two':'one';
   $('[data-board-rows]').checked=boardRows;
@@ -64,7 +67,8 @@ function mount(map, previous) {
   let canvasCamera={left:saved.left,top:saved.top};
   let boardScroll={left:saved.boardLeft || 0,top:saved.boardTop || 0};
   const grip=$('.map-grip');
-  world.style.setProperty('--node-w',CARD.width+'px');world.style.setProperty('--node-h',CARD.height+'px');
+  const card=world.querySelector('.task-agent-bar') ? {...CARD,height:114,row:170} : CARD;
+  world.style.setProperty('--node-w',card.width+'px');world.style.setProperty('--node-h',card.height+'px');
   const nodes=[...world.querySelectorAll('[data-vertex]')].map(el=>({id:el.dataset.vertex,title:el.dataset.label,searchText:el.dataset.search,
     parents:JSON.parse(el.dataset.parents),groupPath:JSON.parse(el.dataset.groupPath),caption:el.querySelector('.map-card-caption'),reset:el.querySelector('[data-reset-card]'),auxiliary:el.hasAttribute('data-aux'),el,button:el.querySelector('.map-node'),toggle:el.querySelector('[data-branch]')}));
   const byId=new Map(nodes.map(n=>[n.id,n])), onlyAux=nodes.every(n=>n.auxiliary);
@@ -76,7 +80,7 @@ function mount(map, previous) {
   const orientation=()=>direction || 'TB';
   let originX=0, originY=0;
   const camera=()=>({left:view.scrollLeft-originX,top:view.scrollTop-originY});
-  const nav=createNavigator($('.map-navigator'),view,()=>({layout,scale,...camera(),...CARD}),panTo);
+  const nav=createNavigator($('.map-navigator'),view,()=>({layout,scale,...camera(),...card}),panTo);
   let scale=bound(Number(saved.scale)||1,.005,3), height=saved.height || 0, pop='', raf=0, interacted=false;
   function initMode() {
     if (!graphs.has(all)) graphs.set(all,buildGraph(nodes,all));
@@ -145,10 +149,10 @@ function mount(map, previous) {
     else edge.path.removeAttribute('marker-end');
   }
   function edgeD(edge) {
-    return edgePath(layout.points.get(edge.source),layout.points.get(edge.target),edgeRoute(edge.source,edge.target,layout));
+    return edgePath(layout.points.get(edge.source),layout.points.get(edge.target),edgeRoute(edge.source,edge.target,layout,card),card);
   }
   function draw() {
-    mark(null); layout=layoutGraph(graph,folds,moves,null,orientation());
+    mark(null); layout=layoutGraph(graph,folds,moves,null,orientation(),card);
     const first=layout.points.keys().next().value;
     if (!layout.points.has(active)) active=first;
     board.dataset.direction=orientation();
@@ -202,15 +206,17 @@ function mount(map, previous) {
     }
     kanban.style.setProperty('--board-columns',Math.ceil([...kanban.querySelectorAll('.kanban-column')].filter(column=>!column.hidden).length/2));
     if(viewMode==='kanban') $('[data-map-count]').textContent=t(total+' 步');
-    $('[data-command="options"]').hidden=false;
+    $('[data-command="options"]').hidden=viewMode==='attention';
   }
   function showView(mode) {
     if(viewMode==='canvas') canvasCamera=camera();
     if(viewMode==='kanban' && !kanban.hidden) boardScroll={left:kanban.scrollLeft,top:kanban.scrollTop};
     closePop();viewMode=mode;
     board.dataset.view=mode;
-    board.setAttribute('aria-label',mode==='kanban'?'方案看板':'方案画布');
+    board.setAttribute('aria-label',t({kanban:'方案看板',canvas:'方案画布',attention:'待处理事项'}[mode]));
     kanban.hidden=mode!=='kanban';view.hidden=mode!=='canvas';
+    if(attention)attention.hidden=mode!=='attention';
+    $('.map-identity').hidden=mode==='attention';
     $('.map-foot').hidden=mode!=='canvas';
     $('.map-grip').hidden=mode!=='canvas';
     for(const button of board.querySelectorAll('[data-plan-view]')) button.setAttribute('aria-pressed',String(button.dataset.planView===mode));
@@ -223,7 +229,7 @@ function mount(map, previous) {
     if(mode==='canvas') {
       const first=layout.points.get(active) || layout.points.values().next().value;
       panTo(canvasCamera.left ?? (first.x+CARD.width/2)*scale-view.clientWidth/2,canvasCamera.top ?? Math.max(0,first.y*scale-40));
-    } else {kanban.scrollLeft=boardScroll.left;kanban.scrollTop=boardScroll.top;}
+    } else if(mode==='kanban') {kanban.scrollLeft=boardScroll.left;kanban.scrollTop=boardScroll.top;}
     // A refresh immediately after a view switch must not restore the previous view.
     persist();save();
   }
@@ -238,7 +244,7 @@ function mount(map, previous) {
   function center(id) {
     const p=layout.points.get(id);
     if(!p) return;
-    const h=CARD.height;
+    const h=card.height;
     panTo((p.x+CARD.width/2)*scale-view.clientWidth/2,(p.y+h/2)*scale-view.clientHeight/2);
   }
   function zoom(value,x=view.clientWidth/2,y=view.clientHeight/2) {
@@ -355,14 +361,14 @@ function mount(map, previous) {
     if(Math.abs(offset.x)<.01 && Math.abs(offset.y)<.01) moves.delete(id);else moves.set(id,offset);
     layout.points.set(id,p);el.style.left=p.x+'px';el.style.top=p.y+'px';
     for(const edge of incident.get(id) || []) edge.path.setAttribute('d',edgeD(edge));
-    if(p.x+CARD.width+24>layout.width || p.y+CARD.height+20>layout.height) {
-      layout.width=Math.max(layout.width,p.x+CARD.width+24);layout.height=Math.max(layout.height,p.y+CARD.height+20);setSize();
+    if(p.x+card.width+24>layout.width || p.y+card.height+20>layout.height) {
+      layout.width=Math.max(layout.width,p.x+card.width+24);layout.height=Math.max(layout.height,p.y+card.height+20);setSize();
     }
   }
   bindMapGestures({board,view,grip,resize,zoomBy,camera,panTo,getScale:()=>scale,save,
     startNode:id=>({...layout.points.get(id),offset:moves.get(id)||{x:0,y:0}}),
     select:id=>choose(id,true),move,endNode:(id,start)=>{
-      const clear=clearDrop(layout.points,id);
+      const clear=clearDrop(layout.points,id,card);
       move(id,start,clear.x-start.x,clear.y-start.y);
       draw();save();
     }});
@@ -370,6 +376,7 @@ function mount(map, previous) {
   function restore(s) {
     if(!s || !map.getClientRects().length) return;
     if(viewMode==='kanban') {kanban.scrollLeft=s.boardLeft || 0;kanban.scrollTop=s.boardTop || 0;return;}
+    if(viewMode!=='canvas') return;
     if(s.active && layout.points.has(s.active)) choose(s.active,s.focused);
     const first=layout.points.get(active) || layout.points.values().next().value;
     panTo(s.left ?? (first.x+CARD.width/2)*scale-view.clientWidth/2,s.top ?? Math.max(0,first.y*scale-40));

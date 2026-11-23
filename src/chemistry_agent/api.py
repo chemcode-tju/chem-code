@@ -4,13 +4,14 @@ import logging
 from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 from weakref import WeakValueDictionary
 
 import httpx
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
@@ -27,6 +28,7 @@ from chemistry_agent.attachments import router as attachments_router
 from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthManager
 from chemistry_agent.automation.chat import CalculationChat
 from chemistry_agent.automation.chat_routes import router as calculation_chat_router
+from chemistry_agent.automation.job_history import JobHistory
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
@@ -203,11 +205,15 @@ def create_app(
                         )
                     await app.state.chat_queue.recover(app)
                     app.state.browser_connections = BrowserConnections(settings.platform_path)
+                    app.state.job_history = JobHistory(calculation_chat.plans.slurm)
+                    if calculation_enabled:
+                        app.state.job_history.start()
                     if settings.research_memory_enabled:
                         app.state.knowledge.sync.start()
                     try:
                         yield
                     finally:
+                        await app.state.job_history.close()
                         await app.state.browser_connections.close()
                         await app.state.chat_queue.close()
                         await app.state.agent_backends.context.close()
@@ -317,6 +323,7 @@ def create_app(
         return FileResponse(WEB_DIRECTORY / "index.html")
 
     @app.get("/monitor", include_in_schema=False)
+    @app.get("/monitor/board", include_in_schema=False)
     async def job_monitor(request: Request):
         local_service(request)
         return FileResponse(WEB_DIRECTORY / "index.html")
@@ -324,6 +331,19 @@ def create_app(
     @app.get("/structures", include_in_schema=False)
     async def structure_viewer():
         return FileResponse(WEB_DIRECTORY / "structure" / "index.html")
+
+    @app.get("/agents", include_in_schema=False)
+    async def agent_settings_page(request: Request):
+        if settings.auth_enabled and request.state.user_id is None:
+            parameters = urlencode(
+                [
+                    (key, request.query_params[key])
+                    for key in ("session", "host")
+                    if key in request.query_params
+                ]
+            )
+            return RedirectResponse(f"/settings{'?' + parameters if parameters else ''}#agent")
+        return FileResponse(WEB_DIRECTORY / "settings.html")
 
     @app.get("/health", tags=["service"])
     async def health(request: Request, session_id: UUID | None = None):

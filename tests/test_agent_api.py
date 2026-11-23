@@ -51,6 +51,7 @@ def test_starts_without_key_and_local_tools_work(settings_factory):
             "memory_search", "memory_read", "memory_save", "memory_compare", "workspace_publish",
             "knowledge_search", "knowledge_read", "knowledge_write",
             "skill_list", "skill_read", "skill_materialize",
+            "asset_import", "asset_search", "asset_inspect", "asset_checkout",
         }
         result = client.post(
             "/tools/molecular_properties/invoke",

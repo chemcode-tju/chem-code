@@ -6,6 +6,7 @@ from chemistry_agent.automation.wait_ledger import WaitLedger
 from chemistry_agent.automation.wait_models import WaitControl, WaitRegister
 from chemistry_agent.errors import AgentError
 from chemistry_agent.platform.contracts import OperationContext as ToolContext
+from chemistry_agent.platform.task_agents import current_task_agent
 
 
 class WaitOperations:
@@ -18,7 +19,20 @@ class WaitOperations:
             plan = plans.chat.load(context.session_id, "plans", str(args.plan_id))
             if plan["status"] in {"stopped", "stopping"}:
                 raise AgentError("plan_stopped", "方案已停止，不能注册自动续跑。", 409)
-            return await WaitLedger(plans.store).register(context.session_id, plan, args)
+            task = current_task_agent.get()
+            if task:
+                jobs = {n["id"] for n in plan["nodes"] if n.get("parent_task") == task.node_id}
+                if not args.condition.nodes() <= jobs:
+                    raise AgentError("task_wait_scope", "任务 Agent 只能等待本步骤的子作业。", 403)
+            elif any(
+                n["id"] in args.condition.nodes()
+                and (n.get("parent_task") or n["id"]) in plan.get("task_agents", {})
+                for n in plan["nodes"]
+            ):
+                raise AgentError("task_wait_scope", "已分配步骤的等待由任务线程登记。", 409)
+            return await WaitLedger(plans.store).register(
+                context.session_id, plan, args, task_node=task.node_id if task else None
+            )
 
     async def control(self, args: WaitControl, context: ToolContext) -> dict:
         plans = self.plans

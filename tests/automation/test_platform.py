@@ -382,6 +382,7 @@ async def test_job_completion_wakes_selected_backend_once(cluster, monkeypatch, 
         await tick(plans, context, plan['id'])
         current = await tick(plans, context, plan['id'])
         assert current['status'] == 'completed'
+        await asyncio.gather(*plans.dispatcher.tasks_for(session, plan['id']))
         await plans.dispatcher.deliver_now(session, plan['id'], 'chat')
         await plans.dispatcher.deliver_now(session, plan['id'], 'chat')
         assert len(delivered) == 1

@@ -9,35 +9,69 @@ from chemistry_agent.automation.plan_authority import auto_queue, auto_request, 
 from chemistry_agent.automation.wait_ledger import EventCheckpoint, WaitLedger
 from chemistry_agent.errors import AgentError
 from chemistry_agent.platform.contracts import Delivery, DeliveryAdapter, job_event_target
+from chemistry_agent.platform.task_agents import (
+    TaskAgentScope,
+    current_task_agent,
+    delivery_target,
+    ensure_session,
+)
 from chemistry_agent.runtime.checkpoint import current_checkpoint
 
 logger = logging.getLogger(__name__)
+MAX_BACKGROUND_RUNS = 4
 
 
 class SessionDispatcher:
     def __init__(self, plans) -> None:
         self.plans = plans
         self.adapters: dict[str, DeliveryAdapter] = {}
-        self.tasks: dict[tuple[str, str], asyncio.Task] = {}
+        self.tasks: dict[tuple[str, str, str | None], asyncio.Task] = {}
+        self.offer_lock = asyncio.Lock()
         self.worker: asyncio.Task | None = None
 
     def register(self, name: str, adapter: DeliveryAdapter) -> None:
         self.adapters[name] = adapter
 
+    def tasks_for(self, session: str, plan_id: str) -> set[asyncio.Task]:
+        return {
+            task for (owner, plan, _), task in self.tasks.items()
+            if (owner, plan) == (session, plan_id)
+        }
+
     async def offer(self, session: str, plan: dict) -> None:
-        adapter = self.adapters.get(plan.get("delivery_adapter", "chat"))
-        key = (session, plan["id"])
+        adapter_name = plan.get("delivery_adapter", "chat")
+        adapter = self.adapters.get(adapter_name)
+        plan_id = plan["id"]
         if (
             not self.plans.store
             or not adapter
             or not adapter.available()
             or plan["status"] in {"draft", "paused", "stopping", "stopped"}
-            or key in self.tasks
         ):
             return
-        if await WaitLedger(self.plans.store).pending(session, plan) is None:
-            return
-        task = asyncio.create_task(self.deliver_now(*key, plan.get("delivery_adapter", "chat")))
+        ledger = WaitLedger(self.plans.store)
+        async with self.offer_lock:
+            targets = {
+                node for owner, pid, node in self.tasks if (owner, pid) == (session, plan_id)
+            }
+            plan_slots = 1 + len(plan.get("task_agents", {})) - len(targets)
+            available_slots = min(MAX_BACKGROUND_RUNS - len(self.tasks), plan_slots)
+            # Bound selection even when a busy target frees its slot immediately.
+            for _ in range(available_slots):
+                event = await ledger.pending(session, plan, exclude_targets=frozenset(targets))
+                if event is None:
+                    break
+                target = delivery_target(plan, json.loads(event["payload"]))
+                targets.add(target)
+                self.start_delivery((session, plan_id, target), adapter_name, event["id"])
+
+    def start_delivery(
+        self, key: tuple[str, str, str | None], adapter_name: str, event_id: str
+    ) -> None:
+        session, plan_id, _ = key
+        task = asyncio.create_task(
+            self.deliver_now(session, plan_id, adapter_name, event_id=event_id)
+        )
         self.tasks[key] = task
 
         def finished(task: asyncio.Task) -> None:
@@ -52,46 +86,62 @@ class SessionDispatcher:
 
         task.add_done_callback(finished)
 
-    async def deliver_now(self, session: str, plan_id: str, adapter_name: str) -> None:
+    async def deliver_now(
+        self, session: str, plan_id: str, adapter_name: str, *, event_id: str | None = None
+    ) -> None:
         plans, event, run_id, delivery = self.plans, None, None, None
         ledger = WaitLedger(plans.store)
         adapter = self.adapters.get(adapter_name)
         if not adapter or not adapter.available():
             return
         tokens = []
+        execution_session = session
+        scope = None
         try:
             async with plans.lock(session, plan_id):
                 plan = plans.chat.load(session, "plans", plan_id)
-                if plan["status"] in {"draft", "paused", "stopping", "stopped"}:
+                if (
+                    plan["status"] in {"draft", "paused", "stopping", "stopped"}
+                    or (session, plan_id) in plans.stop_requests
+                ):
                     return
                 if plan.get("delivery_adapter", "chat") != adapter_name:
                     return
                 await ledger.observe(session, plan)
-                event = await ledger.pending(session, plan)
+                event = await ledger.pending(session, plan, event_id=event_id)
                 if event is None:
                     return
+                payload = json.loads(event["payload"])
                 async with plans.store.lock:
                     owner = await plans.store._one(
                         "SELECT owner_id FROM sessions WHERE id=?", (session,)
                     )
+                node = delivery_target(plan, payload)
+                if node:
+                    execution_session = await ensure_session(
+                        plans.agent, session, plan, node, owner["owner_id"]
+                    )
+                    scope = TaskAgentScope(session, plan_id, node, execution_session)
                 try:
                     run_id, history = await plans.store.begin_run(
-                        session, owner["owner_id"], event_id=event["id"]
+                        execution_session, owner["owner_id"], event_id=event["id"],
+                        event_session_id=session if scope else None,
                     )
                 except AgentError as exc:
                     if exc.code in {"session_busy", "event_already_claimed"}:
                         return
                     raise
                 delivery = Delivery(
-                    session,
+                    execution_session,
                     plan,
                     event,
-                    json.loads(event["payload"]),
+                    payload,
                     run_id,
                     history,
                     owner["owner_id"],
                 )
             tokens = [
+                (current_task_agent, current_task_agent.set(scope)),
                 (job_event_target, job_event_target.set((session, plan_id))),
                 (auto_queue, auto_queue.set(plan.get("auto_queue"))),
                 (auto_request, auto_request.set("job-event:" + event["id"])),
@@ -104,7 +154,7 @@ class SessionDispatcher:
             async with asyncio.timeout(plans.chat.service.settings.run_timeout_seconds):
                 result = await adapter.handle(delivery)
             await plans.store.complete_run(
-                session,
+                execution_session,
                 run_id,
                 result.messages or [{"role": "assistant", "content": result.answer}],
                 result.answer,
@@ -127,17 +177,17 @@ class SessionDispatcher:
                     db,
                     session,
                     plan_id,
-                    None,
+                    scope.node_id if scope else None,
                     "interpretation",
                     "completed",
-                    result.answer,
+                    "任务 Agent 回合已结束。" if scope else result.answer,
                     {"run_id": run_id, "adapter": adapter_name},
                     f"job-event:{run_id}",
                 )
         except (Exception, asyncio.CancelledError) as exc:
             if run_id:
                 await plans.store.fail_run(
-                    session,
+                    execution_session,
                     run_id,
                     getattr(
                         exc,
@@ -152,6 +202,7 @@ class SessionDispatcher:
                     error_message=getattr(exc, "message", None),
                     cancelled=isinstance(exc, asyncio.CancelledError),
                 )
+            if event:
                 await ledger.failure(event["id"], exc)
             raise
         finally:

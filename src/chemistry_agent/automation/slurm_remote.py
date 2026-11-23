@@ -60,6 +60,8 @@ def recover(root: Path, receipt: dict) -> dict:
     name = receipt["name"]
     ids = set()
     listing = run(["squeue", "-h", "-u", receipt["user"], "-n", name, "-o", "%i|%j"])
+    if listing.returncode:
+        return receipt
     for line in listing.stdout.splitlines():
         parts = line.strip().split("|")
         if (
@@ -83,6 +85,8 @@ def recover(root: Path, receipt: dict) -> dict:
             "--format=JobID%100,JobName%80",
         ]
     )
+    if accounting.returncode:
+        return receipt
     for line in accounting.stdout.splitlines():
         parts = line.strip().split("|")
         if (
@@ -151,7 +155,11 @@ def status(root: Path) -> dict:
         return {"status": "not_submitted"}
     receipt = json.loads(path.read_text())
     if receipt["status"] == "uncertain":
-        receipt = recover(root, receipt)
+        with (root / "_chem_submit.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            receipt = json.loads(path.read_text())
+            if receipt["status"] == "uncertain":
+                receipt = recover(root, receipt)
     if not receipt.get("scheduler_job_id"):
         return receipt
     job_id = receipt["scheduler_job_id"]
@@ -166,7 +174,8 @@ def status(root: Path) -> dict:
         ["sacct", "--array", "-X", "-n", "-P", "-j", job_id, "--format=JobID%100,State,ExitCode"]
     )
     tasks = []
-    for line in accounting.stdout.splitlines():
+    lines = accounting.stdout.splitlines() if accounting.returncode == 0 else []
+    for line in lines:
         fields = [field.strip() for field in line.strip().split("|")]
         if len(fields) < 3 or "." in fields[0] or not fields[1].strip():
             continue

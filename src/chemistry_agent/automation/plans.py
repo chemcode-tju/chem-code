@@ -41,9 +41,11 @@ from chemistry_agent.automation.plan_models import (
 from chemistry_agent.automation.plan_repair import diagnose, eligible, replace_node
 from chemistry_agent.automation.plan_stop import PlanStop, job_ids
 from chemistry_agent.automation.reporting import job_evidence, summarize_result
+from chemistry_agent.automation.result_defaults import display_source
 from chemistry_agent.automation.slurm_jobs import SlurmJobs
 from chemistry_agent.errors import AgentError
 from chemistry_agent.memory.capture import safely_capture_plan
+from chemistry_agent.platform.slurm_bridge import SlurmBridge
 from chemistry_agent.tools import Tool, ToolContext
 
 logger = logging.getLogger(__name__)
@@ -83,10 +85,10 @@ class CalculationPlans:
 
         self.dispatcher = SessionDispatcher(self)
         self.dispatcher.register("chat", ChatAgentAdapter(self))
-        self.event_tasks = self.dispatcher.tasks
         self.locks: dict[str, asyncio.Lock] = {}
         self.task: asyncio.Task | None = None
         self.summary_task: asyncio.Task | None = None
+        self.slurm_bridge: SlurmBridge | None = None
         self.projected: set[tuple[str, str, int, bool]] = set()
         self.store = None
         self.agent = self.provider = None
@@ -213,6 +215,11 @@ class CalculationPlans:
                     else {}
                 ),
                 "nodes": nodes,
+                **({"task_agents": {
+                    node["id"]: old["task_agents"][node["id"]]
+                    for node in nodes
+                    if node["kind"] == "task" and node["id"] in old["task_agents"]
+                }} if old and old.get("task_agents") else {}),
                 "snapshots": snapshots,
                 "changed_nodes": changed,
                 "removed_nodes": removed,
@@ -439,10 +446,11 @@ class CalculationPlans:
         session, identifier = context.session_id, str(args.plan_id)
         self.require_current_backend(self.chat.load(session, "plans", identifier))
         self.stop_requests.add((session, identifier))
-        event_task = self.event_tasks.get((session, identifier))
-        if event_task:
-            event_task.cancel()
-            await asyncio.gather(event_task, return_exceptions=True)
+        event_tasks = self.dispatcher.tasks_for(session, identifier)
+        for task in event_tasks:
+            task.cancel()
+        if event_tasks:
+            await asyncio.gather(*event_tasks, return_exceptions=True)
         async with self.lock(session, identifier):
             self.stop_requests.discard((session, identifier))
             plan = self.chat.load(session, "plans", identifier)
@@ -534,10 +542,9 @@ class CalculationPlans:
             if action == "rediagnose":
                 if not plan.get("auto_queue") or plan["status"] not in {"failed", "running"}:
                     raise AgentError("plan_state_conflict", "仅可重新诊断自动方案的失败节点。", 409)
-                if (session, identifier) in self.repair_tasks or (
-                    session,
-                    identifier,
-                ) in self.event_tasks:
+                if (session, identifier) in self.repair_tasks or self.dispatcher.tasks_for(
+                    session, identifier
+                ):
                     raise AgentError("session_busy", "已有故障诊断正在运行。", 409)
                 for event in plan.get("job_events", {}).values():
                     if (
@@ -561,14 +568,11 @@ class CalculationPlans:
         # Cancellation cleanup needs the plan lock too. Persist pause first, then
         # stop the in-flight interpreter outside the lock; scheduler jobs continue.
         if action == "pause":
-            tasks = {
-                task
-                for task in (
-                    self.event_tasks.get((session, identifier)),
-                    self.repair_tasks.get((session, identifier)),
-                )
-                if task and task is not asyncio.current_task()
-            }
+            tasks = self.dispatcher.tasks_for(session, identifier)
+            repair = self.repair_tasks.get((session, identifier))
+            if repair:
+                tasks.add(repair)
+            tasks.discard(asyncio.current_task())
             for task in tasks:
                 task.cancel()
             if tasks:
@@ -778,12 +782,62 @@ class CalculationPlans:
                 + ", ".join(files["missing_outputs"]),
                 422,
             )
+        if record["settings"].get("neb_force_target") is not None:
+            science = await self.check_neb(record)
+            record["science"] = science
+            self.slurm.save(session, record)
+            state["job"]["science"] = science
+            state["outputs"]["result"]["science"] = science
+            if science["status"] != "passed":
+                raise AgentError(
+                    "neb_" + science["status"],
+                    "NEB 投影力未达到验收阈值。"
+                    if science["status"] == "unconverged"
+                    else "NEB 最终路径证据不完整，无法验收。",
+                    422,
+                )
         state.update(status="completed")
+
+    async def check_neb(self, record: dict) -> dict:
+        """Use the approved force target and the completed job's path snapshots."""
+        from chemistry_agent.platform.results import ResultSource
+
+        settings = record["settings"]
+        target = settings["neb_force_target"]
+        source = ResultSource.model_validate(
+            display_source(settings["results"]) | {"force_target": target}
+        )
+        science = {"kind": "neb", "status": "needs_review", "target": target}
+        try:
+            data = await self.slurm.remote(
+                record, "result_snapshot", source=source.model_dump(mode="json"), file=None
+            )
+        except (FileNotFoundError, ValueError):
+            return science
+        except AgentError as exc:
+            if exc.status_code >= 500:
+                raise
+            return science
+        snapshots = data.get("snapshots", [])
+        if data.get("kind") != "neb" or not snapshots or data.get("skipped"):
+            return science
+        latest = snapshots[-1]
+        force = latest.get("force")
+        if len(latest.get("images", [])) < 3 or force is None:
+            return science
+        return science | {
+            "status": "unconverged" if force > target else "passed",
+            "force": force,
+            "step": latest["step"],
+            "source": latest["source"],
+        }
 
     @staticmethod
     def step_status(state: dict) -> str:
         if state["status"] == "running" and state.get("job"):
             return task_state(state["job"])[0]
+        if state["status"] == "failed" and state.get("job", {}).get("science"):
+            return state["job"]["science"]["status"]
         return state["status"]
 
     def record_steps(self, session: str, plan: dict, nodes: list[dict]) -> None:
@@ -855,6 +909,8 @@ class CalculationPlans:
                     before = (state["status"], self.step_status(state))
                     try:
                         if state.get("generic_job_id") and state["status"] == "running":
+                            if self.slurm_bridge and state.get("polled_at"):
+                                await self.slurm_bridge.expedite_inspection(state)
                             await self.inspect_job(session, plan, node, state)
                         if state["status"] in TERMINAL or plan["status"] == "paused":
                             continue
@@ -935,7 +991,9 @@ class CalculationPlans:
                     if (session, identifier) in self.stop_requests:
                         return
                     state = plan["runtime"][node["id"]]
-                    reason = f" · {state['error']}" if state.get("error") else ""
+                    owner_node = node.get("parent_task") or node["id"]
+                    assigned = owner_node in plan.get("task_agents", {})
+                    reason = f" · {state['error']}" if state.get("error") and not assigned else ""
                     rows.append(f"- {node['title']}：{labels[state['status']]}{reason}")
                 summaries = [
                     json.dumps(
@@ -1031,12 +1089,19 @@ class CalculationPlans:
 
     def start(self, store, agent=None, provider=None) -> None:
         self.store, self.agent, self.provider = store, agent, provider
+        settings = self.chat.service.settings
+        if settings.slurm_bridge_url:
+            self.slurm_bridge = SlurmBridge(settings, store)
+            self.slurm_bridge.start()
         self.task = asyncio.create_task(self.watch())
         self.dispatcher.start()
         if provider is not None and store is not None:
             self.summary_task = asyncio.create_task(self.watch_summaries())
 
     async def close(self) -> None:
+        if self.slurm_bridge:
+            await self.slurm_bridge.close()
+            self.slurm_bridge = None
         if self.task:
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -1056,10 +1121,21 @@ class CalculationPlans:
         from chemistry_agent.platform.artifacts import ArtifactRead, ArtifactRegister
         from chemistry_agent.platform.results import ResultInspect, ResultRegister
         from chemistry_agent.platform.steps import StepReport
+        from chemistry_agent.platform.task_agents import TaskSubmission, submit_task_job
+
+        async def submit(args: TaskSubmission, context: ToolContext) -> dict:
+            return await submit_task_job(self, args, context)
 
         return [
             *job_tools(self),
             *wait_tools(self),
+            Tool(
+                "calculation_task_submit",
+                "Task Agent only. Queue one managed Slurm job for this step. "
+                "Reuse the same key and inputs for the same submission. After approval and "
+                "registration, end the turn while Slurm runs. Explicit new attempts use new keys.",
+                TaskSubmission, submit, True,
+            ),
             Tool(
                 "calculation_result_register",
                 "Advanced sidebar mapping only. Jobs auto-register results; prefer their "
@@ -1082,7 +1158,8 @@ class CalculationPlans:
                 "calculation_step_report",
                 "Report an agent-owned task conclusion with expected_revision, result, reason "
                 "and accepted_jobs. One task can own many adopted jobs and failed attempts. "
-                "Does not change scheduler outcomes. Finish/cancel active linked jobs first.",
+                "Does not change scheduler outcomes. Finish/cancel active linked jobs first. "
+                "For gated NEB work, adopt a job whose scientific gate has passed.",
                 StepReport,
                 self.platform.handler("plan.report"),
                 True,
@@ -1136,7 +1213,7 @@ class CalculationPlans:
                 "files accepts {node OR job_id OR file_id, path, target, source}; files are staged "
                 "at target and described in file_inputs.json. File references imply dependencies. "
                 "For job nodes use srun/mpirun in script as needed, never sbatch a detached child. "
-                "Job completion wakes the agent with tools in the original conversation. "
+                "Job completion wakes the assigned task agent or the original conversation. "
                 "Dependencies include all input references. Branches execute concurrently after "
                 "authorization (auto mode or panel confirmation). Revisions require plan_id and "
                 "expected_revision; confirmed plans are immutable. Use this for new multi-step "

@@ -124,7 +124,7 @@ class RemoteNative:
         self.stack.push_async_callback(self.close_forward, remote_socket)
         code = "import os,json,socket,sys\n" + inspect.getsource(main) + "\nmain()\n"
         return {
-            "name": "chem_platform",
+            "name": bridge.name,
             "command": self.python,
             "args": ["-u", "-c", code],
             "env": [

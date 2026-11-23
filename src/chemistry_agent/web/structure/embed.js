@@ -5,6 +5,14 @@
   document.documentElement.classList.add('embedded-viewer');
   let activeRequest=null,activeGeneration=null,operation=0,trajectoryRequest;
   const reply=(type,fields={})=>parentWindow.postMessage({type,...fields},origin);
+  async function readCompanions(url, signal) {
+    const endpoint = new URL(url, origin);
+    if (endpoint.origin !== origin || endpoint.pathname !== '/api/file-browser/companions') return [];
+    const response = await fetch(endpoint,{signal,credentials:'same-origin',redirect:'error'});
+    if (!response.ok) return [];
+    const {companions} = await response.json();
+    return Array.isArray(companions) ? companions : [];
+  }
   window.addEventListener('structure-frame-change',event=>{
     if(activeGeneration!==null && event.detail.generation===activeGeneration)
       reply('chem:viewer-position',{requestId:activeRequest,...event.detail});
@@ -25,17 +33,20 @@
         const {file,trajectory}=message;
         trajectoryRequest?.abort();
         activeRequest=requestId;activeGeneration=null;
-        let files;
+        let files, companions;
         if (trajectory) {
           trajectoryRequest = new AbortController();
           files = [StructureBrowserTrajectory.open(trajectory, trajectoryRequest.signal),
             ...(message.companions || []).filter(item=>item instanceof File)];
+          if (trajectory.companionsUrl) {
+            companions = readCompanions(trajectory.companionsUrl,trajectoryRequest.signal).catch(()=>[]);
+          }
         } else {
           if(!(file instanceof File))throw Error('请选择结构文件。');
           files=message.sequence?message.files:[file,...(message.companions || []).filter(item=>item instanceof File)];
           if(!Array.isArray(files)||!files.length||files.some(item=>!(item instanceof File)))throw Error('路径结构文件无效');
         }
-        const opened=await openStructure(files,'auto',selection,{sequence:message.sequence===true,name:message.name});
+        const opened=await openStructure(files,'auto',selection,{sequence:message.sequence===true,name:message.name,companions});
         if(!opened || ticket!==operation)return;
         if(opened.error)throw Error(opened.error);
         activeGeneration=opened.generation;

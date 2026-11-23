@@ -43,9 +43,15 @@ def test_workspace_preserves_attachments_structures_models_and_routes(settings_f
         html = client.get("/").text
         assert client.get("/settings").text == html
         assert 'id="structure-upload"' not in html and 'id="sidebar-add"' not in html
+        assert 'id="agent-settings-entry" href="/agents"' in html
         settings_sheet = client.get("/settings?embed=1").text
-        assert 'id="tab-agent"' in settings_sheet
+        assert 'class="settings-agent-link" href="/agents"' in settings_sheet
         assert 'id="workspace-settings"' not in settings_sheet
+        agents_page = client.get("/agents")
+        assert agents_page.status_code == 200
+        assert 'id="task-agent-settings"' in agents_page.text
+        assert 'id="agent-instances-heading"' in agents_page.text
+        assert 'id="workspace-settings"' not in agents_page.text
         assert client.get("/assets/calculations.mjs").headers["cache-control"] == "no-cache"
         for identifier in (
             "project-list",

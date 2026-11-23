@@ -1,5 +1,16 @@
 // A normal settings URL remains usable as a separate page. Opening it from the
 // workspace keeps the current chat, draft and scroll position in the document.
+export function agentSettingsHref(session, host) {
+  const params = new URLSearchParams();
+  if (session) params.set('session', session);
+  if (host && host !== 'local') params.set('host', host);
+  return '/agents' + (params.size ? '?' + params : '');
+}
+
+function legacyAgentSettings(link) {
+  return ['#agent', '#model', '#model-form'].includes(link.hash);
+}
+
 export function initSettingsDialog({onOpen, onClose}) {
   const dialog = document.getElementById("workspace-settings");
   let frame;
@@ -10,8 +21,10 @@ export function initSettingsDialog({onOpen, onClose}) {
     frame = document.createElement("iframe");
     frame.title = document.documentElement.lang === "en" ? "Settings" : "设置";
     const options = new URLSearchParams({embed:"1", tab:location.hash.slice(1) || "general"});
-    const host = new URLSearchParams(location.search).get("host");
-    if (host) options.set("host", host);
+    const source = new URLSearchParams(location.search);
+    for (const key of ["session", "host"]) {
+      if (source.has(key)) options.set(key, source.get(key));
+    }
     frame.src = "/settings?" + options;
     dialog.replaceChildren(frame);
     dialog.showModal();
@@ -26,11 +39,23 @@ export function initSettingsDialog({onOpen, onClose}) {
         event.shiftKey || event.altKey || (link.target && link.target !== "_self")) return;
     if (link.origin !== location.origin || link.pathname !== "/settings") return;
     event.preventDefault();
-    history.pushState({workspaceSettings:true}, "", link.pathname + link.search + link.hash);
+    const target = new URL(link.href);
+    const session = new URLSearchParams(location.search).get("session");
+    if (session && !target.searchParams.has("session")) target.searchParams.set("session", session);
+    if (legacyAgentSettings(target)) {
+      location.assign(agentSettingsHref(target.searchParams.get("session"), target.searchParams.get("host")));
+      return;
+    }
+    history.pushState({workspaceSettings:true}, "", target);
     show();
   });
   function restoreLinkedSettings() {
     if (location.pathname !== "/settings") return;
+    const target = new URL(location.href);
+    if (legacyAgentSettings(target)) {
+      location.replace(agentSettingsHref(target.searchParams.get('session'), target.searchParams.get('host')));
+      return;
+    }
     // A copied link gets its own workspace history entry, just like a sidebar click.
     if (!history.state?.workspaceSettings) {
       const url = location.href;

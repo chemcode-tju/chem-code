@@ -52,6 +52,10 @@ class ChatQueue:
                 (session, request.state.user_id),
             ):
                 raise AgentError("session_not_found", "会话不存在。", 404)
+            if await self.store._one(
+                "SELECT 1 FROM task_agent_sessions WHERE session_id=?", (session,)
+            ):
+                raise AgentError("task_session_managed", "任务线程由方案事件接续。", 409)
             existing = await self.store._one(
                 "SELECT * FROM chat_requests WHERE id=?", (identifier,)
             )

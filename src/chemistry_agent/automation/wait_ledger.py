@@ -7,6 +7,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from chemistry_agent.automation.wait_models import WaitCondition, WaitRegister
 from chemistry_agent.errors import AgentError
+from chemistry_agent.platform.task_agents import delivery_target, task_target
 
 
 async def init_wait_schema(db) -> None:
@@ -28,6 +29,9 @@ async def init_wait_schema(db) -> None:
         CREATE INDEX IF NOT EXISTS agent_events_pending
             ON agent_events(session_id,plan_id,status,available_at);
     """)
+    async with db.execute("PRAGMA table_info(agent_waits)") as cursor:
+        if "task_node_id" not in {row["name"] for row in await cursor.fetchall()}:
+            await db.execute("ALTER TABLE agent_waits ADD COLUMN task_node_id TEXT")
 
 
 def evidence(plan: dict, node_id: str) -> dict:
@@ -89,11 +93,14 @@ class WaitLedger:
     def __init__(self, store) -> None:
         self.store = store
 
-    async def register(self, session: str, plan: dict, args: WaitRegister) -> dict:
+    async def register(
+        self, session: str, plan: dict, args: WaitRegister, *, task_node: str | None = None
+    ) -> dict:
         missing = args.condition.nodes() - plan["runtime"].keys()
         if missing:
             raise AgentError("wait_node_missing", f"方案中不存在节点：{sorted(missing)}", 422)
-        identifier = str(uuid5(NAMESPACE_URL, f"wait:{session}:{plan['id']}:{args.key}"))
+        key = f"{task_node}:{args.key}" if task_node else args.key
+        identifier = str(uuid5(NAMESPACE_URL, f"wait:{session}:{plan['id']}:{key}"))
         spec = args.model_dump_json()
         async with self.store.transaction():
             old = await self.store._one("SELECT * FROM agent_waits WHERE id=?", (identifier,))
@@ -103,9 +110,10 @@ class WaitLedger:
                 )
             if not old:
                 await self.store.db.execute(
-                    "INSERT INTO agent_waits(id,session_id,plan_id,spec,status,created_at) "
-                    "VALUES(?,?,?,?,?,?)",
-                    (identifier, session, plan["id"], spec, "waiting", time.time()),
+                    "INSERT INTO agent_waits"
+                    "(id,session_id,plan_id,spec,status,created_at,task_node_id) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (identifier, session, plan["id"], spec, "waiting", time.time(), task_node),
                 )
         return {"wait_id": identifier, "status": old["status"] if old else "waiting"}
 
@@ -161,6 +169,10 @@ class WaitLedger:
         """Atomically freeze a match and its inbox event; never reevaluate matched waits."""
         if plan["status"] in {"draft", "paused", "stopping", "stopped"}:
             return
+        assigned_nodes = {
+            item["id"] for item in plan["nodes"]
+            if (item.get("parent_task") or item["id"]) in plan.get("task_agents", {})
+        }
         async with self.store.transaction():
             cursor = await self.store.db.execute(
                 "SELECT * FROM agent_waits WHERE session_id=? AND plan_id=?",
@@ -169,6 +181,10 @@ class WaitLedger:
             covered = set()
             for row in await cursor.fetchall():
                 args = WaitRegister.model_validate_json(row["spec"])
+                if not row["task_node_id"] and args.condition.nodes() & assigned_nodes:
+                    # A pre-assignment wait belongs to the coordinator. It must not
+                    # consume any event now owned by an independent task thread.
+                    continue
                 if args.replace_default:
                     covered.update(args.condition.nodes())
                 if row["status"] not in {"waiting", "matched"}:
@@ -195,6 +211,7 @@ class WaitLedger:
                     ],
                     "wait_id": row["id"],
                     "file_observations": observed,
+                    **({"task_node_id": row["task_node_id"]} if row["task_node_id"] else {}),
                 }
                 await self._insert(row["id"], session, plan, payload)
                 await self.store.db.execute(
@@ -239,7 +256,14 @@ class WaitLedger:
             (identifier, session, plan["id"], json.dumps(payload, ensure_ascii=False), time.time()),
         )
 
-    async def pending(self, session: str, plan: dict) -> dict | None:
+    async def pending(
+        self,
+        session: str,
+        plan: dict,
+        *,
+        exclude_targets: frozenset[str | None] = frozenset(),
+        event_id: str | None = None,
+    ) -> dict | None:
         async with self.store.transaction():
             # Runs and events share a DB; a committed answer must never cause another turn.
             await self.store.db.execute(
@@ -257,6 +281,8 @@ class WaitLedger:
             )
             candidates = await cursor.fetchall()
             for index, row in enumerate(candidates):
+                if event_id is not None and row["id"] != event_id:
+                    continue
                 item = dict(row)
                 payload = json.loads(item["payload"])
                 if not payload.get("wait_id") and not item["checkpoint"]:
@@ -274,10 +300,15 @@ class WaitLedger:
                         "UPDATE agent_events SET status='superseded' WHERE id=?", (row["id"],)
                     )
                     continue
+                target = delivery_target(plan, payload)
+                if target in exclude_targets:
+                    continue
                 if not payload.get("wait_id") and not item["run_id"]:
                     for sibling in candidates[index + 1 :]:
                         other = json.loads(sibling["payload"])
                         if other.get("wait_id") or sibling["run_id"]:
+                            continue
+                        if any(task_target(plan, e) != target for e in other["events"]):
                             continue
                         if any(not current_event(e, plan) for e in other["events"]):
                             continue
@@ -412,7 +443,7 @@ class EventCheckpoint:
 
         await self.store.db.execute(
             "UPDATE sessions SET updated_at=? WHERE id="
-            "(SELECT session_id FROM agent_events WHERE id=?)",
+            "(SELECT r.session_id FROM agent_events e JOIN runs r ON r.id=e.run_id WHERE e.id=?)",
             (utc_now(), self.identifier),
         )
 

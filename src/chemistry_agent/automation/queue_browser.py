@@ -1,6 +1,7 @@
 """Read-only browser access to the current cluster account's Slurm jobs."""
 
 import base64
+from typing import Literal
 
 from fastapi import APIRouter, Path, Query, Request, Response
 
@@ -27,6 +28,16 @@ async def hosts(request: Request) -> dict:
 @router.get("/{host}/jobs")
 async def jobs(host: str, request: Request, history: bool = False) -> dict:
     return await slurm(request).request(host, {"action": "queue_history" if history else "queue"})
+
+
+@router.get("/{host}/dashboard")
+async def dashboard(
+    host: str,
+    request: Request,
+    period: Literal["today", "week", "month", "half-year", "year", "all"] = "year",
+) -> dict:
+    slurm(request)
+    return await request.app.state.job_history.dashboard(host, period)
 
 
 @router.get("/{host}/jobs/{job_id}/metadata")

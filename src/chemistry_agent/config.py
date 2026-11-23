@@ -42,6 +42,20 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "data" / "aiida",
         validation_alias=AliasChoices("CHEMISTRY_PLATFORM_PATH", "CHEMISTRY_AIIDA_PATH"),
     )
+    slurm_history_hosts: str = Field(default="", validation_alias="CHEMISTRY_SLURM_HISTORY_HOSTS")
+    slurm_history_path: Path | None = Field(
+        default=None, validation_alias="CHEMISTRY_SLURM_HISTORY_PATH"
+    )
+    slurm_bridge_url: str = Field(default="", validation_alias="CHEMISTRY_SLURM_BRIDGE_URL")
+    slurm_bridge_consumer: str = Field(
+        default="", max_length=100, validation_alias="CHEMISTRY_SLURM_BRIDGE_CONSUMER"
+    )
+    slurm_bridge_token_file: Path | None = Field(
+        default=None, validation_alias="CHEMISTRY_SLURM_BRIDGE_TOKEN_FILE"
+    )
+    slurm_bridge_queue_hosts: dict[str, str] = Field(
+        default_factory=dict, validation_alias="CHEMISTRY_SLURM_BRIDGE_QUEUE_HOSTS"
+    )
 
     deepseek_api_key: SecretStr | None = None
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -111,10 +125,27 @@ class Settings(BaseSettings):
             raise ValueError("DEEPSEEK_BASE_URL must not contain credentials, query, or fragment")
         return value.rstrip("/")
 
-    @field_validator("database_path", "tokenizer_path", "platform_path")
+    @field_validator(
+        "database_path", "tokenizer_path", "platform_path", "slurm_history_path",
+        "slurm_bridge_token_file",
+    )
     @classmethod
-    def resolve_project_path(cls, value: Path) -> Path:
-        return value if value.is_absolute() else PROJECT_ROOT / value
+    def resolve_project_path(cls, value: Path | None) -> Path | None:
+        return value if value is None or value.is_absolute() else PROJECT_ROOT / value
+
+    @model_validator(mode="after")
+    def validate_bridge_endpoint(self):
+        if self.slurm_bridge_url:
+            url = urlsplit(self.slurm_bridge_url)
+            if (
+                url.scheme not in {"http", "https"}
+                or not url.hostname or url.username or url.password or url.query or url.fragment
+                or (url.scheme == "http" and url.hostname not in {"127.0.0.1", "::1", "localhost"})
+            ):
+                raise ValueError("Slurm bridge URL requires HTTPS or a local HTTP endpoint")
+            if not self.slurm_bridge_consumer.strip() or self.slurm_bridge_token_file is None:
+                raise ValueError("Slurm bridge URL requires a consumer and token file")
+        return self
 
     @model_validator(mode="after")
     def validate_context_budget(self):

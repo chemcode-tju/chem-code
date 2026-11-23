@@ -118,8 +118,12 @@ class Store:
             await init_attachment_schema(db)
             await init_title_schema(db)
             from chemistry_agent.automation.wait_ledger import init_wait_schema
+            from chemistry_agent.platform.slurm_bridge import initialize as init_slurm_bridge
+            from chemistry_agent.platform.task_agents import initialize as init_task_agents
 
             await init_wait_schema(db)
+            await init_task_agents(db)
+            await init_slurm_bridge(db)
             # End old run leases but preserve replayable request checkpoints.
             await db.execute(
                 "UPDATE runs SET status='interrupted', error_code='service_restarted', "
@@ -245,7 +249,8 @@ class Store:
             self.db.execute(
                 "SELECT id, COALESCE(summary_title,title) title, created_at, updated_at, "
                 "(summary_title IS NOT NULL AND summary_ready=0) title_pending FROM sessions "
-                "WHERE owner_id IS ? ORDER BY updated_at DESC, id LIMIT ? OFFSET ?",
+                "WHERE owner_id IS ? AND id NOT IN (SELECT session_id FROM task_agent_sessions) "
+                "ORDER BY updated_at DESC, id LIMIT ? OFFSET ?",
                 (owner_id, limit, offset),
             ) as cursor,
         ):
@@ -326,6 +331,7 @@ class Store:
         request_id: str | None = None,
         file_ids: tuple[UUID, ...] = (),
         event_id: str | None = None,
+        event_session_id: str | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         run_id = str(uuid4())
         async with self.transaction():
@@ -337,6 +343,12 @@ class Store:
                 raise AgentError("session_not_found", "会话不存在。", 404)
             if row["active_run_id"] is not None:
                 raise AgentError("session_busy", "上一条对话仍在生成回答，请等待处理完成。", 409)
+            task = await self._one(
+                "SELECT parent_id,plan_id FROM task_agent_sessions WHERE session_id=?",
+                (session_id,),
+            )
+            if task and (not event_id or task["parent_id"] != event_session_id):
+                raise AgentError("task_session_managed", "任务线程由方案事件接续。", 409)
             if event_id:
                 queued = await self._one(
                     "SELECT id FROM chat_requests WHERE session_id=? AND status='queued' LIMIT 1",
@@ -344,10 +356,13 @@ class Store:
                 )
                 if queued:
                     raise AgentError("session_busy", "先处理已经排队的用户消息。", 409)
+                event_owner = task["parent_id"] if task else session_id
                 cursor = await self.db.execute(
                     "UPDATE agent_events SET status='running',run_id=? "
-                    "WHERE id=? AND session_id=? AND status IN ('pending','retry_wait')",
-                    (run_id, event_id, session_id),
+                    "WHERE id=? AND session_id=? AND (? IS NULL OR plan_id=?) "
+                    "AND status IN ('pending','retry_wait')",
+                    (run_id, event_id, event_owner, task["plan_id"] if task else None,
+                     task["plan_id"] if task else None),
                 )
                 if cursor.rowcount != 1:
                     raise AgentError("event_already_claimed", "事件已被处理或取消。", 409)

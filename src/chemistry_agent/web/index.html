@@ -28,6 +28,7 @@
   <link rel="stylesheet" href="/assets/chat-surface.css">
   <link rel="stylesheet" href="/assets/solid-glass.css">
   <link rel="stylesheet" href="/assets/job-monitor.css">
+  <link rel="stylesheet" href="/assets/job-board.css">
 </head>
 <body class="auth-checking workspace-shell">
 
@@ -40,6 +41,7 @@
       <a id="chat-workspace-entry" class="icon-button" href="/" aria-label="对话" title="对话" aria-current="page"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chat"/></svg></a>
       <div class="workspace-rail-section">
         <a id="job-monitor-entry" class="icon-button" href="/monitor" title="作业监控" aria-label="作业监控" hidden><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-queues"/></svg></a>
+        <a id="job-board-entry" class="icon-button" href="/monitor/board" title="作业看板" aria-label="作业看板" hidden><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-speed"/></svg></a>
       </div>
       <a class="icon-button workspace-rail-settings" href="/settings" title="设置" aria-label="设置"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-settings"/></svg></a>
     </nav>
@@ -57,6 +59,7 @@
     <button class="load-more" id="load-more" hidden>加载更多对话</button>
     </div>
     <div class="sidebar-footer">
+    <a class="settings-entry" id="agent-settings-entry" href="/agents" title="Agent 与模型" aria-label="Agent 与模型"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-model"/></svg><span>Agent 与模型</span></a>
     <a class="settings-entry" id="memory-entry" href="/memory" title="科研记忆" aria-label="科研记忆"><svg class="icon"><use href="/assets/ui-icons.svg#i-memory"/></svg><span>科研记忆</span></a>
     <button class="settings-entry inbox-entry" id="notification-entry" type="button" data-dialog="notification-panel" aria-label="通知" title="通知" hidden><svg class="icon"><use href="/assets/ui-icons.svg#i-bell"/></svg><span>通知</span><small id="unread-count"></small></button>
     <a class="settings-entry" href="/settings" title="设置" aria-label="设置"><svg class="icon"><use href="/assets/ui-icons.svg#i-settings"/></svg><span>设置</span></a>
@@ -107,7 +110,7 @@
             <div class="composer-right">
               <button id="context-ring" class="icon-button toolbar-button" type="button" data-dialog="context-panel" aria-haspopup="dialog" aria-controls="context-panel" aria-expanded="false" aria-label="上下文用量" title="上下文用量"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><circle class="context-used" cx="8" cy="8" r="5.8" pathLength="100" transform="rotate(-90 8 8)"/></svg></button>
               <button type="button" id="agent-picker" class="toolbar-button composer-choice" aria-label="Agent、模型与推理强度" title="Agent、模型与推理强度" aria-haspopup="dialog" aria-controls="conversation-model-panel" aria-expanded="false"><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-model"/></svg><span class="composer-value" id="composer-model" data-no-i18n></span><span class="composer-effort" id="composer-effort" hidden></span><svg class="icon composer-chevron" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron-down"/></svg></button>
-              <a href="/settings#agent" class="icon-button toolbar-button model-status" id="model-status" title="Agent 与模型设置" aria-label="Agent 与模型设置" aria-describedby="model-label"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-alert"/></svg><span class="sr-only" id="model-label">正在连接…</span></a>
+              <a href="/agents" class="icon-button toolbar-button model-status" id="model-status" title="Agent 与模型设置" aria-label="Agent 与模型设置" aria-describedby="model-label"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-alert"/></svg><span class="sr-only" id="model-label">正在连接…</span></a>
               <button class="icon-button toolbar-button primary send-button" id="send-button" type="submit" aria-label="发送消息" title="发送消息"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-arrow"/></svg></button>
             </div>
           </div>
@@ -171,6 +174,57 @@
   </main>
 
 
+  <main class="queue-page job-board" id="job-board-page" hidden>
+    <header class="queue-toolbar">
+      <h1 id="job-board-heading" tabindex="-1">作业看板</h1>
+      <div class="queue-controls">
+        <label class="sr-only" for="job-board-host">服务器</label>
+        <select id="job-board-host" disabled></select>
+        <button type="button" class="icon-button" id="job-board-refresh" title="刷新看板" aria-label="刷新看板"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-refresh"/></svg></button>
+      </div>
+    </header>
+    <div class="job-board-scroll">
+      <div class="job-board-sheet">
+        <div class="job-board-meta">
+          <label class="sr-only" for="job-board-range">看板时间范围</label>
+          <select id="job-board-range" disabled>
+            <option value="today">今日</option>
+            <option value="week">近 7 天</option>
+            <option value="month">近 1 个月</option>
+            <option value="half-year">近 6 个月</option>
+            <option value="year" selected>过去一年</option>
+            <option value="all">所有可查</option>
+          </select>
+          <span id="job-board-coverage" hidden></span>
+          <span id="job-board-message" role="status"></span>
+          <span id="job-board-freshness" hidden>服务器当地时间 <time id="job-board-observed"></time></span>
+        </div>
+        <div class="job-board-grid" id="job-board-grid" hidden>
+          <section class="job-board-card job-board-card-wide" aria-labelledby="job-board-submissions">
+            <h2 id="job-board-submissions">提交热力图</h2>
+            <div id="job-board-calendar"></div>
+          </section>
+          <section class="job-board-card" aria-labelledby="job-board-states">
+            <h2 id="job-board-states">作业状态</h2>
+            <div id="job-board-live"></div>
+            <div class="job-board-period">
+              <h3>结束作业</h3>
+            </div>
+            <div id="job-board-terminal" aria-live="polite"></div>
+          </section>
+          <section class="job-board-card" aria-labelledby="job-board-activity">
+            <h2 id="job-board-activity">提交时段</h2>
+            <div id="job-board-hours"></div>
+          </section>
+          <section class="job-board-card job-board-card-wide" aria-labelledby="job-board-usage">
+            <h2 id="job-board-usage">机时消耗</h2>
+            <div id="job-board-usage-data"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+
   <aside class="inspector" id="inspector" aria-label="研究工具与计算结果">
     <div id="dock-grip" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整右栏宽度" aria-valuemin="300" aria-valuenow="360"></div>
 
@@ -233,10 +287,13 @@
             <button type="button" id="step-refresh">刷新</button></div>
         </header>
         <p id="step-error" role="status"></p>
+        <section id="step-attention" aria-label="当前步骤待处理" hidden></section>
+        <p id="step-attention-feedback" role="status" hidden></p>
         <button type="button" id="step-parent" hidden></button>
         <label id="step-job-choice" hidden>执行记录 <select id="step-job-select"></select></label>
         <details id="step-dependencies" class="step-relations-fold" hidden><summary>依赖关系</summary><section id="step-relations" aria-label="依赖关系"></section></details>
         <div class="step-sections">
+          <details id="step-task-thread" hidden><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chat"/></svg>任务线程 <span data-task-thread-state></span></summary><p class="task-thread-id" data-task-thread-config data-no-i18n></p><div data-task-thread-body></div></details>
           <details id="step-registered-results" hidden open></details>
           <details id="step-config"><summary><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-document"/></svg>参数文件</summary>
             <div id="step-actual-parameters"></div>

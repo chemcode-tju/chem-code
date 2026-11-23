@@ -11,6 +11,7 @@ from rdkit.Chem import Crippen, Descriptors, Lipinski, rdFingerprintGenerator, r
 
 from chemistry_agent.errors import AgentError
 from chemistry_agent.platform.contracts import OperationContext as ToolContext
+from chemistry_agent.platform.task_agents import TASK_TOOLS, current_task_agent
 from chemistry_agent.provider import ToolCall
 from chemistry_agent.schemas import ToolExecution
 
@@ -122,7 +123,15 @@ class ToolRegistry:
         self.tools = {tool.name: tool for tool in [*tools, *(extra_tools or [])]}
 
     def schemas(self) -> list[dict[str, Any]]:
-        return [tool.schema() for tool in self.tools.values()]
+        return [tool.schema() for tool in self.tools.values() if self.visible(tool)]
+
+    @staticmethod
+    def visible(tool: Tool) -> bool:
+        if current_task_agent.get():
+            return tool.name in TASK_TOOLS or tool.name in {
+                "molecular_properties", "molecular_similarity",
+            }
+        return tool.name != "calculation_task_submit"
 
     async def execute(self, call: ToolCall, context: ToolContext | None = None) -> ToolExecution:
         arguments: Any = call.function.arguments
@@ -131,18 +140,29 @@ class ToolRegistry:
             # Python heredoc). Preserve those bytes instead of rejecting valid code.
             arguments = json.loads(arguments, strict=False)
             tool = self.tools.get(call.function.name)
-            if tool is None:
+            if tool is None or not self.visible(tool):
                 raise ValueError("未知工具，请选择已注册的工具。")
             args = tool.input_model.model_validate(arguments)
             if tool.contextual and context is None:
                 raise AgentError("chat_context_required", "请在对话中使用此工具。", 422)
             if context is not None:
                 context = replace(context, tool_call_id=call.id)
-            values = (args, context) if tool.contextual else (args,)
+            task = current_task_agent.get()
+            if task and tool.contextual:
+                if context.session_id != task.session_id:
+                    raise AgentError("task_scope", "此工具调用不属于当前任务线程。", 403)
+                if hasattr(args, "plan_id") and str(args.plan_id) != task.plan_id:
+                    raise AgentError("task_scope", "任务 Agent 只能访问当前方案。", 403)
+                if tool.name == "calculation_step_report" and args.node_id != task.node_id:
+                    raise AgentError("task_scope", "任务 Agent 只能报告本步骤。", 403)
+                if tool.name == "calculation_wait_control" and args.action != "list":
+                    raise AgentError("task_scope", "等待控制由方案面板负责。", 403)
             from chemistry_agent.backends.approvals import current_tool_approval
 
             broker = current_tool_approval.get()
-            if broker and tool.contextual and tool.name != "ask_user_question":
+            if broker and tool.contextual and tool.name != "ask_user_question" and (
+                not task or tool.name == "calculation_task_submit"
+            ):
                 approved = await broker.ask(
                     context.session_id,
                     context.run_id,
@@ -155,6 +175,9 @@ class ToolRegistry:
                     raise AgentError(
                         "tool_declined", "用户拒绝了此次工具执行，请等待新的指示。", 403
                     )
+            if task and tool.contextual:
+                context = replace(context, session_id=task.parent_id)
+            values = (args, context) if tool.contextual else (args,)
             if inspect.iscoroutinefunction(tool.handler):
                 result = await tool.handler(*values)
             else:

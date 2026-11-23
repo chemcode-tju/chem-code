@@ -125,6 +125,10 @@ class ResultOperations:
 
         from chemistry_agent.automation.result_defaults import display_source
 
+        source = display_source(hint)
+        if source["adapter"] == "json_paths":
+            record = self.plans.slurm.load(session, job_id)
+            source["force_target"] = record.get("settings", {}).get("neb_force_target")
         for target in dict.fromkeys([node_id, *([parent] if parent else [])]):
             args = ResultRegister(
                 plan_id=plan_id,
@@ -132,7 +136,7 @@ class ResultOperations:
                 job_id=job_id,
                 key="job-results",
                 title="计算结果",
-                source=display_source(hint),
+                source=source,
             )
             if not replace:
                 try:

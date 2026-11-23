@@ -43,7 +43,7 @@ export function bindMapGestures({board,view,grip,resize,zoomBy,camera,panTo,getS
   }
   view.onpointerdown=e=>{
     ignoreClick=false;
-    if(!e.isPrimary || ![0,1].includes(e.button) || (!space && e.button===0 && e.target.closest('[data-branch],[data-reset-card],[data-folder]'))) return;
+    if(!e.isPrimary || ![0,1].includes(e.button) || (!space && e.button===0 && e.target.closest('[data-branch],[data-reset-card],[data-folder],.task-agent-bar'))) return;
     const id=!space && e.button===0 && e.target.closest('[data-vertex]')?.dataset.vertex;
     if(e.button===1 || space) e.preventDefault();
     drag={pid:e.pointerId,id,start:id && startNode(id),sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,...camera(),moving:false};

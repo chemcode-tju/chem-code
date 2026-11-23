@@ -1,5 +1,7 @@
 """Standard-library operations executed on the scheduler host."""
 
+from __future__ import annotations
+
 import base64
 import json
 import os
@@ -9,11 +11,17 @@ import shlex
 import stat
 import subprocess
 import sys
+from calendar import monthrange
+from collections.abc import Iterator
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 QUEUE_ACTIONS = {
     "queue",
     "queue_history",
+    "queue_dashboard",
+    "queue_dashboard_snapshot",
     "queue_root",
     "queue_browse",
     "queue_metadata",
@@ -35,6 +43,27 @@ HISTORY_LIMIT = 300
 DUMP_SUFFIXES = {".dump", ".lammpstrj"}
 JOB_ID = r"^[0-9]+(?:[_+][0-9]+)?$"
 CHUNK = 8 * 1024 * 1024
+ACCOUNTING_EPOCH = date(1970, 1, 2)
+BOARD_MONTHS = {"month": 1, "half-year": 6, "year": 12}
+ACTIVE_GROUPS = {
+    "RUNNING": "running",
+    "COMPLETING": "running",
+    "RESIZING": "running",
+    "STAGE_OUT": "running",
+    "PENDING": "queued",
+    "CONFIGURING": "queued",
+    "REQUEUED": "queued",
+    "REQUEUE_HOLD": "queued",
+}
+
+
+class DashboardAllocation(NamedTuple):
+    status: str
+    ended: str
+    cpu_seconds: str
+    elapsed_seconds: str
+    resources: str
+    nodes: str = ""
 
 
 def queue_entries(job_id: str = "") -> list[dict]:
@@ -58,7 +87,14 @@ def queue_entries(job_id: str = "") -> list[dict]:
             raise ValueError("作业编号无效。")
         command.append(f"--jobs={job_id.split('+', 1)[0]}")
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=15, check=False)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            env=dict(os.environ, SLURM_TIME_FORMAT="standard"),
+        )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("Slurm 队列查询超时。") from exc
     if result.returncode:
@@ -137,6 +173,370 @@ def queue_history(job_id: str = "") -> list[dict]:
         if row["status"] in TERMINAL_STATES and (not job_id or job_id == row["id"]):
             jobs.append(row)
     return sorted(jobs, key=lambda row: row["ended"], reverse=True)
+
+
+def dashboard_accounting(start: str) -> dict[tuple[str, str], DashboardAllocation]:
+    """Read allocation records for the scheduler account, with no job-list row limit."""
+    owner = pwd.getpwuid(os.getuid()).pw_name
+    command = [
+        "sacct",
+        "-X",
+        "-n",
+        "-P",
+        "--local",
+        "--duplicates",
+        "-u",
+        owner,
+        "-S",
+        start,
+        "-E",
+        "now",
+        "--format=JobID%100,User,State%50,Submit,End,CPUTimeRAW,ElapsedRaw,AllocTRES%512,NodeList%512",
+    ]
+    options = {
+        "capture_output": True,
+        "text": True,
+        "timeout": 20,
+        "check": True,
+        "env": dict(os.environ, LC_ALL="C", SLURM_TIME_FORMAT="standard"),
+    }
+    try:
+        result = subprocess.run(["sacct", "--array", *command[1:]], **options)
+    except subprocess.CalledProcessError as exc:
+        # Slurm 22.05 emits individual accounted array tasks but has no --array option.
+        error = exc.stderr or ""
+        if not re.search(r"(?:unrecognized|unknown|invalid) option[^\n]*--array\b", error):
+            raise
+        result = subprocess.run(command, **options)
+    jobs = {}
+    for line in result.stdout.splitlines():
+        fields = [field.strip() for field in line.split("|")]
+        if len(fields) != 9:
+            continue
+        identifier, user, state, submitted, ended, cpu_seconds, elapsed, resources, nodes = fields
+        if user != owner or not re.fullmatch(JOB_ID, identifier):
+            continue
+        status = state.split(" ", 1)[0].rstrip("+")
+        key = identifier, submitted
+        # A resize can share the submission timestamp with the current/terminal record.
+        if key not in jobs or status != "RESIZING":
+            jobs[key] = DashboardAllocation(status, ended, cpu_seconds, elapsed, resources, nodes)
+    return jobs
+
+
+def gpu_accounting_configured() -> bool:
+    """A CPU-only allocation implies zero GPUs when GPU accounting is enabled."""
+    try:
+        result = subprocess.run(
+            ["scontrol", "show", "config"], capture_output=True, text=True, timeout=4, check=True
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    match = re.search(r"^AccountingStorageTRES[ \t]*=[ \t]*(.*)$", result.stdout, re.MULTILINE)
+    return bool(match and "gres/gpu" in (item.strip() for item in match[1].split(",")))
+
+
+def allocated_gpus(resources: str, tracked: bool) -> dict[str | None, int] | None:
+    """Keep typed counts inside the aggregate limit and preserve untyped GPUs."""
+    fields = dict(item.split("=", 1) for item in resources.split(",") if "=" in item)
+    typed = {
+        name.split(":", 1)[1]: value
+        for name, value in fields.items()
+        if name.startswith("gres/gpu:")
+    }
+    typed_valid = all(re.fullmatch(r"[0-9]+", value) for value in typed.values())
+    counts: dict[str | None, int] = {}
+    if typed_valid:
+        counts.update({model: int(value) for model, value in typed.items() if int(value)})
+    if "gres/gpu" in fields:
+        raw = fields["gres/gpu"]
+        if not re.fullmatch(r"[0-9]+", raw):
+            return None
+        total = int(raw)
+        if sum(counts.values()) > total:
+            counts.clear()
+        remaining = total - sum(counts.values())
+        if remaining:
+            counts[None] = remaining
+        return counts
+    if typed:
+        return counts if typed_valid else None
+    return {} if tracked and re.fullmatch(r"[0-9]+", fields.get("cpu", "")) else None
+
+
+def gpu_node_models() -> dict[str, str]:
+    """Return the unambiguous model of each single-model node in current Slurm config."""
+    try:
+        result = subprocess.run(
+            ["sinfo", "-N", "-h", "-o", "%N|%G"],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    models_by_node: dict[str, set[str | None]] = {}
+    pattern = r"(?:^|,)gpu:(?:([^:,()\s]+):)?[0-9]+(?=[(,]|$)"
+    for line in result.stdout.splitlines():
+        node, _, gres = line.strip().partition("|")
+        models = {(model or None) for model in re.findall(pattern, gres)}
+        models_by_node.setdefault(node, set()).update(models or {None})
+    return {
+        node: model
+        for node, models in models_by_node.items()
+        if len(models) == 1
+        for model in models
+        if model is not None
+    }
+
+
+def scheduler_time(raw: str) -> datetime | None:
+    try:
+        return datetime.strptime(raw, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+
+
+def months_before(day: date, months: int) -> date:
+    year, month = divmod(day.year * 12 + day.month - 1 - months, 12)
+    month += 1
+    return date(year, month, min(day.day, monthrange(year, month)[1]))
+
+
+def board_start(today: date, period: str) -> date | None:
+    if period == "today":
+        return today
+    if period == "week":
+        return today - timedelta(days=6)
+    if period in BOARD_MONTHS:
+        return months_before(today, BOARD_MONTHS[period]) + timedelta(days=1)
+    if period == "all":
+        return None
+    raise ValueError("作业看板的时间范围无效。")
+
+
+def accounting_retention_start(observed: datetime) -> date | None:
+    """Read the retention boundary for complete dates, when visible to the account."""
+    try:
+        result = subprocess.run(
+            ["sacctmgr", "-n", "show", "configuration"],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=True,
+            env=dict(os.environ, LC_ALL="C"),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(
+        r"^PurgeJobAfter[ \t]*=[ \t]*([0-9]+)[ \t]*(months?|days?|hours?)\b",
+        result.stdout,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if not match:
+        return None
+    amount, unit = int(match[1]), match[2].lower()
+    today = observed.date()
+    if unit.startswith("month"):
+        return months_before(today.replace(day=1), amount)
+    if unit.startswith("day"):
+        return today - timedelta(days=amount)
+    cutoff = observed.replace(minute=0, second=0, microsecond=0) - timedelta(hours=amount)
+    return cutoff.date() + timedelta(days=bool(cutoff.hour))
+
+
+def dashboard_snapshot(period: str) -> dict:
+    """Read the account's allocation facts and the calendar interval queried from Slurm."""
+    observed = datetime.now().astimezone()
+    today = observed.date()
+    requested_start = board_start(today, period)
+    retention_start = accounting_retention_start(observed)
+    if retention_start is not None:
+        query_start = max(requested_start or ACCOUNTING_EPOCH, retention_start)
+    else:
+        # A wider query establishes an observed boundary even for an empty short window.
+        query_start = ACCOUNTING_EPOCH if period == "all" else board_start(today, "year")
+    try:
+        entries = queue_entries()
+    except (OSError, RuntimeError):
+        entries = None
+    try:
+        accounting = dashboard_accounting(f"{min(query_start, today).isoformat()}T00:00:00")
+    except (OSError, subprocess.SubprocessError):
+        accounting = None
+    coverage_start = None
+    if accounting is not None:
+        first_observed = retention_start or min(
+            (
+                submitted.date()
+                for _, raw in accounting
+                if (submitted := scheduler_time(raw)) and submitted.date() <= today
+            ),
+            default=None,
+        )
+        if first_observed is not None:
+            coverage_start = max(first_observed, min(query_start, today))
+
+    active = None
+    gpu_tracked = accounting is not None and gpu_accounting_configured()
+    node_models = None
+    records = {}
+    for (identifier, submitted), job in (accounting or {}).items():
+        if not scheduler_time(submitted):
+            continue
+        model = None
+        if (
+            job.status in TERMINAL_STATES
+            and job.nodes
+            and (allocations := allocated_gpus(job.resources, gpu_tracked))
+            and len(allocations) == 1
+            and None in allocations
+        ):
+            if node_models is None:
+                node_models = gpu_node_models()
+            model = node_models.get(job.nodes)
+        records[identifier, submitted] = {
+            "id": identifier,
+            "submitted": submitted,
+            "status": job.status,
+            "ended": job.ended,
+            "cpu_seconds": job.cpu_seconds,
+            "elapsed_seconds": job.elapsed_seconds,
+            "resources": job.resources,
+            "gpu_tracked": gpu_tracked,
+            "inferred_gpu": model,
+        }
+    if entries is not None:
+        active = {"running": 0, "queued": 0, "other": 0}
+        seen = set()
+        for job in entries:
+            key = job["id"], job["submitted"]
+            if key in seen:
+                continue
+            seen.add(key)
+            active[ACTIVE_GROUPS.get(job["status"], "other")] += 1
+            if scheduler_time(job["submitted"]):
+                records.setdefault(
+                    key,
+                    {
+                        "id": job["id"],
+                        "submitted": job["submitted"],
+                        "status": job["status"],
+                        "ended": "",
+                        "cpu_seconds": "",
+                        "elapsed_seconds": "",
+                        "resources": "",
+                        "gpu_tracked": False,
+                        "inferred_gpu": None,
+                    },
+                )
+    return {
+        "account": pwd.getpwuid(os.getuid()).pw_name,
+        "observed_at": observed.isoformat(timespec="seconds"),
+        "coverage_start": coverage_start.isoformat() if coverage_start else None,
+        "active": active,
+        "accounting_available": accounting is not None,
+        "gpu_tracked": gpu_tracked,
+        "records": list(records.values()),
+    }
+
+
+def calendar_dates(start: date, end: date) -> Iterator[date]:
+    for offset in range((end - start).days + 1):
+        yield start + timedelta(days=offset)
+
+
+def dashboard_view(snapshot: dict, period: str, retained_days: set[str] | None = None) -> dict:
+    """Aggregate one window, using only successfully queried calendar days."""
+    observed = datetime.fromisoformat(snapshot["observed_at"])
+    today = observed.date()
+    live_start = snapshot["coverage_start"]
+    known_dates = set(retained_days or ())
+    if live_start:
+        known_dates.update(
+            day.isoformat() for day in calendar_dates(date.fromisoformat(live_start), today)
+        )
+    first = min((day for day in known_dates if day <= today.isoformat()), default=None)
+    start = board_start(today, period) or (date.fromisoformat(first) if first else today)
+    date_labels = [day.isoformat() for day in calendar_dates(start, today)]
+    days = {
+        label: {
+            "submitted": 0,
+            "completed": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "cpu_seconds": 0,
+            "missing_cpu": 0,
+            "gpu_seconds": 0,
+            "missing_gpu": 0,
+        }
+        for label in date_labels
+        if label in known_dates
+    }
+    hours = [0] * 24
+    gpu_available = snapshot["gpu_tracked"]
+    gpu_breakdown: dict[tuple[str | None, int, str], dict] = {}
+    for job in snapshot["records"]:
+        if (submitted := scheduler_time(job["submitted"])) and (
+            day := days.get(submitted.date().isoformat())
+        ):
+            day["submitted"] += 1
+            hours[submitted.hour] += 1
+        allocations = allocated_gpus(job["resources"], job["gpu_tracked"])
+        gpu_available |= allocations is not None
+        if job["status"] not in TERMINAL_STATES or not (ended := scheduler_time(job["ended"])):
+            continue
+        if day := days.get(ended.date().isoformat()):
+            category = {"COMPLETED": "completed", "CANCELLED": "cancelled"}.get(
+                job["status"], "failed"
+            )
+            day[category] += 1
+            if re.fullmatch(r"[0-9]+", job["cpu_seconds"]):
+                day["cpu_seconds"] += int(job["cpu_seconds"])
+            else:
+                day["missing_cpu"] += 1
+            if allocations == {} or job["elapsed_seconds"] == "0":
+                continue
+            if allocations is None or not re.fullmatch(r"[0-9]+", job["elapsed_seconds"]):
+                day["missing_gpu"] += 1
+            else:
+                elapsed = int(job["elapsed_seconds"])
+                day["gpu_seconds"] += sum(allocations.values()) * elapsed
+                for model, cards in allocations.items():
+                    source = "accounting" if model is not None else "unrecorded"
+                    if model is None and len(allocations) == 1 and job["inferred_gpu"]:
+                        model = job["inferred_gpu"]
+                        source = "node"
+                    entry = gpu_breakdown.setdefault(
+                        (model, cards, source),
+                        {
+                            "model": model,
+                            "cards": cards,
+                            "source": source,
+                            "elapsed_seconds": 0,
+                            "gpu_seconds": 0,
+                        },
+                    )
+                    entry["elapsed_seconds"] += elapsed
+                    entry["gpu_seconds"] += cards * elapsed
+
+    return {
+        "observed_at": snapshot["observed_at"],
+        "period": period,
+        "period_start": start.isoformat(),
+        "coverage_start": first,
+        "active": snapshot["active"],
+        "accounting_available": snapshot["accounting_available"] or bool(retained_days),
+        "gpu_accounting_available": gpu_available,
+        "gpu_breakdown": sorted(gpu_breakdown.values(), key=lambda row: -row["gpu_seconds"]),
+        "days": [{"date": label} | days.get(label, {"submitted": None}) for label in date_labels],
+        "submission_hours": hours,
+    }
+
+
+def queue_dashboard(period: str = "year") -> dict:
+    return dashboard_view(dashboard_snapshot(period), period)
 
 
 def queue_path(root: Path, relative: str) -> Path:
@@ -326,6 +726,10 @@ def job_root(payload: dict) -> Path:
 
 def queue_operation(payload: dict) -> dict:
     action = payload["action"]
+    if action == "queue_dashboard":
+        return queue_dashboard(payload.get("period", "year"))
+    if action == "queue_dashboard_snapshot":
+        return dashboard_snapshot(payload.get("period", "all"))
     home = str(Path.home())
     if action == "queue":
         return {"jobs": queue_entries(), "home": home} | queue_partitions()
@@ -336,17 +740,29 @@ def queue_operation(payload: dict) -> dict:
             "truncated": len(rows) > HISTORY_LIMIT,
             "home": home,
         } | queue_partitions()
+    if action == "browser_metadata":
+        root = Path(payload["directory"])
+        if root.resolve(strict=True) != root or any(
+            part.casefold() == "archive" for part in root.parts
+        ):
+            raise ValueError("无法访问此目录。")
+        path = queue_path(root, payload["path"])
+        return {"companions": dump_companions(path)}
     root = job_root(payload)
     if action == "queue_root":
         return {"directory": str(root)}
     path = queue_path(root, payload.get("path", ""))
     if action == "queue_metadata":
-        if path == root or path.suffix.lower() not in DUMP_SUFFIXES or not path.is_file():
-            raise ValueError("请选择作业目录中的 LAMMPS 文本轨迹。")
-        return {"companions": lammps_metadata(path.parent, path.name)}
+        return {"companions": dump_companions(path)}
     if action == "queue_dump_frame":
         return latest_dump_frame(path)
     raise ValueError("不支持的作业操作。")
+
+
+def dump_companions(path: Path) -> list[dict]:
+    if path.suffix.lower() not in DUMP_SUFFIXES or not path.is_file():
+        raise ValueError("请选择目录中的 LAMMPS 文本轨迹。")
+    return lammps_metadata(path.parent, path.name)
 
 
 def main() -> None:

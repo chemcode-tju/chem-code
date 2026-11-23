@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import signal
+import subprocess
 import sys
 from uuid import uuid4
 
@@ -224,11 +226,23 @@ async def test_failure_preserves_files_blocks_dependents_and_agent_repairs(clust
     assert len(done["runtime"]["compute"]["attempts"]) == 1
 
 
-async def test_accounting_outage_never_means_success(cluster):
+@pytest.mark.parametrize("partial_output", [False, True])
+async def test_accounting_outage_never_means_success(cluster, monkeypatch, partial_output):
     plans, context, tmp = cluster
     identifier = await draft(plans, context, [job(tmp)])
     await tick(plans, context, identifier)
-    (tmp / "accounting_down").touch()
+    if partial_output:
+        original = slurm_remote.run
+
+        def run(arguments):
+            result = original(arguments)
+            if arguments[0] == "sacct":
+                return subprocess.CompletedProcess(arguments, 1, result.stdout, "partial result")
+            return result
+
+        monkeypatch.setattr(slurm_remote, "run", run)
+    else:
+        (tmp / "accounting_down").touch()
     waiting = await tick(plans, context, identifier)
     assert waiting["status"] == "running"
     assert waiting["runtime"]["compute"]["job"]["scheduler_state"] == "unknown"
@@ -257,6 +271,98 @@ async def test_submit_response_lost_reconciles_without_resubmission(cluster, mon
     plan = await tick(plans, context, identifier)
     assert plan["status"] == "completed"
     assert len(json.loads((tmp / "scheduler.json").read_text())) == 1
+
+
+@pytest.mark.parametrize("accounting_fault", ["partial_error", "empty", "ambiguous"])
+async def test_remote_submit_uncertain_until_unambiguous_accounting(
+    cluster, monkeypatch, accounting_fault
+):
+    plans, context, tmp = cluster
+    original = slurm_remote.run
+    fault = accounting_fault
+    submissions = 0
+
+    def run(arguments):
+        nonlocal submissions
+        result = original(arguments)
+        if arguments[0] == "sbatch":
+            submissions += 1
+            # The scheduler accepted the job, but the remote helper never got its response.
+            raise subprocess.TimeoutExpired(arguments[0], 25)
+        if arguments[0] == "sacct" and "--name" in arguments and fault:
+            if fault == "partial_error":
+                return subprocess.CompletedProcess(
+                    arguments, 1, result.stdout, "accounting unavailable"
+                )
+            if fault == "empty":
+                return subprocess.CompletedProcess(arguments, 0, "", "")
+            name = arguments[arguments.index("--name") + 1]
+            return subprocess.CompletedProcess(arguments, 0, result.stdout + f"101|{name}|\n", "")
+        return result
+
+    monkeypatch.setattr(slurm_remote, "run", run)
+    identifier = await draft(plans, context, [job(tmp)])
+    with pytest.raises(subprocess.TimeoutExpired):
+        await tick(plans, context, identifier)
+    plans.slurm = LocalSlurm(plans.chat)
+    for _ in range(2):
+        waiting = await tick(plans, context, identifier)
+        assert "scheduler_job_id" not in waiting["runtime"]["compute"].get("job", {})
+        assert not waiting["job_events"]
+        assert submissions == 1
+    fault = None
+    for _ in range(3):
+        plan = await tick(plans, context, identifier)
+    assert plan["status"] == "completed"
+    assert submissions == 1
+    assert set(json.loads((tmp / "scheduler.json").read_text())) == {
+        plan["runtime"]["compute"]["job"]["scheduler_job_id"]
+    }
+
+
+async def test_submit_helper_recovers_after_process_is_killed(cluster):
+    _, _, tmp = cluster
+    root = tmp / "isolated-job"
+    root.mkdir()
+    (root / "_chem_submit.sh").write_text(
+        "#!/bin/bash\n#SBATCH --job-name=chem-crash-test\nprintf done > result.dat\n"
+    )
+    helper = tmp / "interrupt_submit.py"
+    helper.write_text(
+        "from threading import Event\n"
+        "from chemistry_agent.automation import slurm_remote\n\n"
+        "original_run = slurm_remote.run\n\n"
+        "def interrupt_after_acceptance(arguments: list[str]):\n"
+        "    result = original_run(arguments)\n"
+        "    if arguments[0] == 'sbatch' and result.returncode == 0:\n"
+        "        print('accepted', flush=True)\n"
+        "        Event().wait()\n"
+        "    return result\n\n"
+        "if __name__ == '__main__':\n"
+        "    slurm_remote.run = interrupt_after_acceptance\n"
+        "    slurm_remote.main()\n"
+    )
+    request = {"action": "submit", "root": str(root), "id": "crash-test", "digest": "test"}
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-B", str(helper), stdin=subprocess.PIPE, stdout=subprocess.PIPE
+    )
+    try:
+        process.stdin.write(json.dumps(request).encode())
+        await process.stdin.drain()
+        process.stdin.close()
+        assert await asyncio.wait_for(process.stdout.readline(), 5) == b"accepted\n"
+        assert json.loads((root / "_chem_receipt.json").read_text())["status"] == "uncertain"
+    finally:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+    assert process.returncode == -signal.SIGKILL
+
+    recovered = await asyncio.to_thread(slurm_remote.dispatch, request)
+    replayed = await asyncio.to_thread(slurm_remote.dispatch, request)
+    assert recovered == replayed
+    assert recovered["status"] == "submitted"
+    assert set(json.loads((tmp / "scheduler.json").read_text())) == {recovered["scheduler_job_id"]}
 
 
 async def test_quota_wait_release_consumed_once(cluster):

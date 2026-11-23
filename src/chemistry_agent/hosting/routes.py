@@ -124,12 +124,15 @@ async def pick_local_folder(body: FolderPath, request: Request) -> dict:
 @router.get("/agents/{identifier}/models")
 async def models(identifier: str, request: Request) -> dict:
     backends = service(request)
+    return await instance_models(backends, identifier, request.app.state.provider)
+
+
+async def instance_models(backends, identifier: str, provider) -> dict:
     config = await backends.settings()
     item = next((a for a in backends.hosting.agents(config) if a["id"] == identifier), None)
     if not item:
         raise AgentError("agent_instance_missing", "Agent 实例不存在。", 404)
     if item["backend"] == "builtin":
-        provider = request.app.state.provider
         return await provider.list_models() | {"configured": await provider.ready()}
     resolved = backends.hosting.resolve(
         SessionSelection(backend=item["backend"], instance_id=identifier, permission="user"), config
@@ -137,4 +140,6 @@ async def models(identifier: str, request: Request) -> dict:
     config = BackendSettings.model_validate(config.model_dump() | resolved)
     async with native_scope(backends, config, f"probe-{uuid4()}", item["backend"]):
         result = await backends.adapters[item["backend"]].probe(config)
-    return result | {"host_id": item["host_id"], "instance_id": identifier}
+    return result | {
+        "host_id": item["host_id"], "instance_id": identifier, "backend": item["backend"],
+    }

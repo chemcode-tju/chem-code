@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>设置 · Chem Code</title>
+  <link rel="icon" href="/assets/favicon.svg?v=cat-02" type="image/svg+xml">
   <script src="/assets/theme.js"></script>
   <script src="/assets/settings-boot.js"></script>
   <script type="module" src="/assets/i18n.mjs"></script>
@@ -21,17 +22,16 @@
 <body>
   <div id="settings-loading" role="status"><span id="settings-loading-label"></span><button class="secondary" id="settings-retry" type="button" hidden>重新加载</button></div>
   <div class="settings-sheet">
-  <header class="settings-header"><h1>设置</h1><a class="close-settings icon-button toolbar-button" href="/" aria-label="关闭设置" title="关闭设置"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></a></header>
+  <header class="settings-header"><h1><span class="general-settings-title">设置</span><span class="agent-page-title">Agent 与模型</span></h1><a class="agent-back-link quiet-button" href="/">返回工作区</a><a class="close-settings icon-button toolbar-button" href="/" aria-label="关闭设置" title="关闭设置"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></a></header>
   <aside class="settings-sidebar"><nav role="tablist" aria-label="设置分类" aria-orientation="vertical">
     <span class="settings-group-title">通用</span>
     <button id="tab-general" role="tab" aria-controls="general" aria-selected="true" data-tab="general"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-general"/></svg>常规</button><button id="tab-appearance" role="tab" aria-controls="appearance" aria-selected="false" tabindex="-1" data-tab="appearance"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-appearance"/></svg>外观</button>
     <span class="settings-group-title">智能体与知识</span>
-    <button id="tab-agent" role="tab" aria-controls="agent-settings" aria-selected="false" tabindex="-1" data-tab="agent"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-model"/></svg>Agent 与模型</button>
     <button id="tab-knowledge" role="tab" aria-controls="knowledge" aria-selected="false" tabindex="-1" data-tab="knowledge"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-memory"/></svg>知识与技能</button>
     <span class="settings-group-title">计算与运行环境</span>
     <button id="tab-automation" role="tab" aria-controls="automation" aria-selected="false" tabindex="-1" data-tab="automation"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-automation"/></svg>运行概览</button>
     <button id="tab-servers" role="tab" aria-controls="servers" aria-selected="false" tabindex="-1" data-tab="servers"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-servers"/></svg>服务器与环境</button>
-  </nav></aside>
+  </nav><a class="settings-agent-link" href="/agents" target="_top"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-model"/></svg>Agent 与模型</a></aside>
   <main>
     <section class="settings-panel" id="general" data-panel="general" role="tabpanel" aria-labelledby="tab-general">
       <header class="settings-panel-heading"><h2>常规</h2></header>
@@ -45,12 +45,29 @@
         <div class="settings-card settings-card-body"><h3 id="mode-label" class="settings-card-title">显示模式</h3><div class="theme-options" role="group" aria-labelledby="mode-label"><button type="button" data-mode="system" aria-pressed="false"><span class="theme-mini theme-system" aria-hidden="true"><i></i><b></b></span><span>跟随系统</span></button><button type="button" data-mode="light" aria-pressed="false"><span class="theme-mini theme-light" aria-hidden="true"><i></i><b></b></span><span>白色</span></button><button type="button" data-mode="dark" aria-pressed="false"><span class="theme-mini theme-dark" aria-hidden="true"><i></i><b></b></span><span>深夜</span></button></div></div><div class="setting-row settings-card"><label for="chat-font-size">对话字号</label><select id="chat-font-size"><option value="14">14 px</option><option value="16">16 px</option><option value="18">18 px</option><option value="20">20 px</option></select></div><p id="appearance-notice" class="hint" role="status"></p>
       </div>
     </section>
-    <section id="agent-settings" class="settings-panel" data-panel="agent" role="tabpanel" aria-labelledby="tab-agent" hidden>
-      <header class="settings-panel-heading"><h2>Agent 与模型</h2><button type="button" id="host-add-agent" class="primary" disabled>添加 Agent</button></header>
+    <section id="agent-settings" class="settings-panel" data-panel="agent" aria-label="Agent 与模型" hidden>
+      <div class="agent-settings-grid">
+      <section id="task-agent-settings" data-local-agent-settings aria-labelledby="task-presets-heading">
+        <header class="settings-panel-heading"><h2 id="task-presets-heading">执行预设</h2><button type="button" class="primary" data-add-preset>添加预设</button></header>
+        <div class="settings-card task-preset-card">
+        <div data-presets></div>
+        <form class="agent-fields" hidden>
+          <label for="preset-name">名称</label><input id="preset-name" name="name" required maxlength="80">
+          <label for="preset-instance">Agent</label><select id="preset-instance" name="instance" required></select>
+          <label for="preset-model">模型</label><select id="preset-model" name="model" required></select>
+          <label for="preset-effort">推理强度</label><select id="preset-effort" name="effort"></select>
+          <label for="preset-instructions">任务指令</label><textarea id="preset-instructions" name="instructions" rows="3" maxlength="4000"></textarea>
+          <div class="agent-card-actions"><button type="button" class="secondary" data-cancel-preset>取消</button><button type="submit" class="primary">保存</button></div>
+        </form>
+        <p role="status" aria-live="polite"></p>
+        </div>
+      </section>
+      <section class="agent-instance-section" aria-labelledby="agent-instances-heading">
+      <header class="settings-panel-heading"><h2 id="agent-instances-heading">Agent 实例</h2><button type="button" id="host-add-agent" class="secondary" data-local-agent-settings disabled>添加 Agent</button></header>
       <div class="settings-panel-body">
-        <div class="hosting-toolbar settings-card settings-card-body">
+        <div class="hosting-toolbar settings-card settings-card-body" data-local-agent-settings>
         <div class="hosting-host"><label for="agent-host">运行主机</label><select id="agent-host" data-no-i18n></select></div>
-        <div class="hosting-actions"><a class="quiet-button" href="#servers">服务器设置<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></a><button type="button" id="host-discover" class="secondary" disabled>检测 Agent</button></div>
+        <div class="hosting-actions"><a class="quiet-button" id="agent-server-settings" href="#servers">服务器设置<svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></a><button type="button" id="host-discover" class="secondary" disabled>检测 Agent</button></div>
       </div>
       <p id="hosting-notice" class="settings-status" role="status" aria-live="polite"></p>
       <form id="instance-form" class="agent-fields hosting-form" hidden>
@@ -117,7 +134,7 @@
         </form>
         <div class="agent-card-actions builtin-actions"><span class="unsaved-state" data-dirty-for="builtin" role="status" hidden>未保存</span></div>
       </details>
-      <details class="agent-row" id="codex-settings">
+      <details class="agent-row" id="codex-settings" data-local-agent-settings>
         <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span class="agent-identity"><strong>Codex</strong><span class="agent-model" data-model-for="codex">正在读取…</span></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="codex-executable">程序路径</label><input id="codex-executable" value="codex" autocomplete="off" spellcheck="false">
@@ -125,7 +142,7 @@
           <label for="codex-effort">推理强度</label><select id="codex-effort"><option value="">跟随模型</option></select><div class="agent-probe-row"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button id="codex-probe" type="button" class="secondary">检测连接</button></div><div class="agent-card-actions"><span class="unsaved-state" data-dirty-for="codex" role="status" hidden>未保存</span><button id="codex-save" class="primary" type="button">保存</button></div>
         </div>
       </details>
-      <details class="agent-row" id="antigravity-settings">
+      <details class="agent-row" id="antigravity-settings" data-local-agent-settings>
         <summary><img class="agent-logo" src="/assets/antigravity.svg" alt=""><span class="agent-identity"><strong>Antigravity</strong><span class="agent-model" data-model-for="antigravity">正在读取…</span></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
           <label for="antigravity-executable">程序路径</label><input id="antigravity-executable" value="agy" autocomplete="off" spellcheck="false">
@@ -134,8 +151,10 @@
         </div>
       </details>
       </div>
-      <div id="host-agent-list" class="agent-service-list settings-card"></div>
+      <div id="host-agent-list" class="agent-service-list settings-card" data-local-agent-settings></div>
       <p id="agent-notice" role="status" aria-live="polite"></p>
+      </div>
+      </section>
       </div>
     </section>
     <section class="settings-panel compute-panel" id="automation" data-panel="automation" role="tabpanel" aria-labelledby="tab-automation" hidden>

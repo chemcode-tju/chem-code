@@ -2,7 +2,7 @@ import {escapeHtml as escape} from './core.mjs';
 import {fileIcon} from './file-actions.mjs';
 import {getFileBlob, isStructureName, isStreamableStructure} from './structure-links.mjs';
 import {t} from './i18n.mjs';
-import {fileMessage as message, renderFilePreview} from './file-preview.mjs';
+import {fileMessage as message, renderFilePreview, showSlowDirectoryRead} from './file-preview.mjs';
 
 function attachmentUrl(id, name) {
   const params = new URLSearchParams({source:`attachment:${id}`, path:name});
@@ -43,6 +43,9 @@ export function createFileBrowser({api, session, viewer}) {
   let sources = [], workspace = session(), root = '', treeRequest, sourceRequest, previewRequest;
   let searchRequest, searchTimer;
   let selected = null, directoryId = 0;
+  const directoryReads = new WeakMap();
+  const prefetchedAt = new WeakMap();
+  let intentTimer, warming = false;
   let previewAttachment = false;
   let project = null;
   let followingProject = false;
@@ -85,15 +88,32 @@ export function createFileBrowser({api, session, viewer}) {
     </div>${folder ? `<div class="file-tree-children" id="${group}" hidden></div>` : ''}</li>`;
   }
 
-  async function loadDirectory(target, path = '', offset = 0) {
+  function showDirectoryRead(target, read) {
+    if (read.cancelNotice || read.offset) return;
+    target.setAttribute('aria-busy','true');
+    read.cancelNotice = showSlowDirectoryRead(() => {
+      if (!read.signal.aborted && target.isConnected && !target.hidden) message(target,'正在读取目录…');
+    });
+  }
+
+  async function loadDirectory(target, path = '', offset = 0, prefetch = false) {
     const signal = treeRequest.signal;
+    const previous = directoryReads.get(target);
+    if (previous?.signal === signal && previous.offset === offset) {
+      if (!prefetch) showDirectoryRead(target,previous);
+      return;
+    }
+    const read = {signal,offset};
+    directoryReads.set(target,read);
     const submittedPath = pathInput.value;
     const more = target.querySelector(':scope > .file-tree-more');
     if (more) more.disabled = true;
-    if (!offset) message(target, '正在读取目录…');
+    if (!offset) target.replaceChildren();
+    if (!prefetch) showDirectoryRead(target,read);
     try {
       const data = await api(url('directory', {path, offset}), {signal});
       if (signal.aborted || !target.isConnected) return;
+      if (prefetch && !read.cancelNotice) prefetchedAt.set(target,performance.now());
       if (!path && data.root) {
         root = data.root;
         roots.set(sourceMenu.value, root);
@@ -120,6 +140,7 @@ export function createFileBrowser({api, session, viewer}) {
       }
     } catch (error) {
       if (signal.aborted || !target.isConnected) return;
+      if (prefetch && !read.cancelNotice) return;
       if (!path && !offset) clearFilter();
       if (!offset) message(target, error.message, 'alert');
       else {
@@ -132,6 +153,12 @@ export function createFileBrowser({api, session, viewer}) {
         target.append(status);
       }
       addPageButton(target, path, offset, '重试');
+    } finally {
+      read.cancelNotice?.();
+      if (directoryReads.get(target) === read) {
+        target.removeAttribute('aria-busy');
+        directoryReads.delete(target);
+      }
     }
   }
 
@@ -148,6 +175,7 @@ export function createFileBrowser({api, session, viewer}) {
   }
 
   function reload() {
+    clearTimeout(intentTimer);
     treeRequest?.abort();
     treeRequest = new AbortController();
     directoryId = 0;
@@ -162,7 +190,9 @@ export function createFileBrowser({api, session, viewer}) {
     sourceRequest?.abort();
     sourceRequest = new AbortController();
     const {signal} = sourceRequest;
-    if (!sources.length) message(tree, '正在读取文件位置…');
+    const cancelNotice = !sources.length ? showSlowDirectoryRead(() => {
+      if (!signal.aborted && !sources.length) message(tree,'正在读取文件位置…');
+    }) : null;
     try {
       const result = await api('/api/file-browser/sources', {signal});
       if (signal.aborted) return;
@@ -184,6 +214,8 @@ export function createFileBrowser({api, session, viewer}) {
     } catch (error) {
       if (signal.aborted) return;
       if (!sources.length) message(tree, error.message, 'alert');
+    } finally {
+      cancelNotice?.();
     }
   }
 
@@ -322,7 +354,9 @@ export function createFileBrowser({api, session, viewer}) {
       const source = sourceMenu.selectedOptions[0].textContent;
       const path = root ? `${root.replace(/\/$/, '')}/${eye.dataset.fileStructure}` : eye.dataset.fileStructure;
       const {filename:name} = eye.dataset;
-      const trajectory = isStreamableStructure(name) ? {name, url:url('trajectory', {path:eye.dataset.fileStructure})} : null;
+      const relative = eye.dataset.fileStructure;
+      const trajectory = isStreamableStructure(name) ? {name, url:url('trajectory', {path:relative})} : null;
+      if (trajectory && /\.(?:lammpstrj|dump)$/i.test(name)) trajectory.companionsUrl = url('companions', {path:relative});
       viewer.open(name, ({signal}) => getFileBlob(href, {signal}), {key:href, title:`${source} · ${path}`, trajectory});
       return;
     }
@@ -335,7 +369,29 @@ export function createFileBrowser({api, session, viewer}) {
     const children = byId(entry.getAttribute('aria-controls'));
     children.hidden = !children.hidden;
     entry.setAttribute('aria-expanded', String(!children.hidden));
-    if (!children.hidden && !children.hasChildNodes()) void loadDirectory(children, entry.dataset.entry);
+    if (!children.hidden) {
+      const warmed = prefetchedAt.get(children);
+      prefetchedAt.delete(children);
+      if (!children.hasChildNodes() || (warmed !== undefined && performance.now()-warmed > 5000)) {
+        void loadDirectory(children, entry.dataset.entry);
+      }
+    }
+  });
+  tree.addEventListener('pointerover', event => {
+    const button = event.target.closest('[data-directory]');
+    if (!button || button.contains(event.relatedTarget) || event.pointerType !== 'mouse') return;
+    clearTimeout(intentTimer);
+    intentTimer = setTimeout(async () => {
+      const children = byId(button.getAttribute('aria-controls'));
+      if (!children?.hidden || children.hasChildNodes() || warming || directoryReads.has(children)) return;
+      warming = true;
+      try { await loadDirectory(children,button.dataset.entry,0,true); }
+      finally { warming = false; }
+    }, 120);
+  });
+  tree.addEventListener('pointerout', event => {
+    const button = event.target.closest('[data-directory]');
+    if (button && !button.contains(event.relatedTarget)) clearTimeout(intentTimer);
   });
   tree.addEventListener('keydown', event => {
     const entry = event.target.closest('[data-entry]');
@@ -396,6 +452,7 @@ export function createFileBrowser({api, session, viewer}) {
       if (sourceMenu.value === 'workspace') changeSource();
     },
     reset() {
+      clearTimeout(intentTimer);
       sourceRequest?.abort();
       treeRequest?.abort();
       clearFilter();
