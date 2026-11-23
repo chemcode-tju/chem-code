@@ -4,6 +4,8 @@ Chem Code 是面向计算催化研究的聊天工作区。用户可以给出结�
 
 当前开发分支、已合入的功能、待验收事项和旧草稿恢复位置见[项目进度与分支维护](docs/project-status.md)。
 
+可在 Codex 中单独使用的研究方案与 Slurm 作业监控插件由[独立插件仓库](https://github.com/liyang-tju/chem-research-plugins)维护。
+
 ## 功能总览
 
 | 工作环节 | 当前可用功能 |
