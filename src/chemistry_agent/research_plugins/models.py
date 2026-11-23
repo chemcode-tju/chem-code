@@ -36,6 +36,22 @@ class WaitRegister(Scope):
     thread_id: UUID
     job_ids: list[UUID] = Field(min_length=1, max_length=100)
     mode: Literal["all", "any"] = "all"
+    delivery: Literal["default", "pull", "codex"] = Field(
+        default="default", description="Use the server's default delivery; pull is manual lookup."
+    )
+    summary: str = Field(
+        default="", max_length=2000, description="Read-only summary goal and known result paths."
+    )
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> "WaitRegister":
+        if self.delivery == "pull" and self.summary:
+            raise ValueError("summary 仅用于 Codex 自动汇总")
+        return self
+
+
+class WaitList(Scope):
+    offset: int = Field(default=0, ge=0)
 
 
 class WaitRead(Scope):

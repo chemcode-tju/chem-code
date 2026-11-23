@@ -102,7 +102,7 @@ class Relay:
                     data = {
                         "surface": self.surface,
                         "workspace_id": arguments.get("workspace_id"),
-                        "automatic_wakeup": "unavailable",
+                        "automatic_wakeup": self.request("/health")["automatic_wakeup"],
                     }
                 else:
                     allowed = {

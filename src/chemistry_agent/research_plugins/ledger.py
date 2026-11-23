@@ -48,6 +48,16 @@ class MonitorLedger:
                 CREATE TABLE IF NOT EXISTS events (
                     id TEXT PRIMARY KEY, wait_id TEXT NOT NULL UNIQUE,
                     payload TEXT NOT NULL, acknowledged REAL, created REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS wakeups (
+                    wait_id TEXT PRIMARY KEY REFERENCES waits(id),
+                    instruction TEXT NOT NULL, project_path TEXT);
+                CREATE TABLE IF NOT EXISTS deliveries (
+                    event_id TEXT PRIMARY KEY REFERENCES events(id),
+                    thread_id TEXT NOT NULL, message_id TEXT NOT NULL, prompt TEXT NOT NULL,
+                    status TEXT NOT NULL, submission_id TEXT, turn_id TEXT,
+                    created REAL NOT NULL, updated REAL NOT NULL, error TEXT);
+                CREATE INDEX IF NOT EXISTS waits_workspace_created ON waits(workspace, created);
+                CREATE INDEX IF NOT EXISTS waits_status ON waits(status);
             """)
 
     @contextmanager
@@ -139,10 +149,11 @@ class MonitorLedger:
                 )
             self._reconcile(db)
 
-    def register_wait(self, args: WaitRegister) -> dict:
+    def register_wait(self, args: WaitRegister, project_path: str | None = None) -> dict:
         job_ids = sorted({str(identifier) for identifier in args.job_ids})
         workspace, thread = str(args.workspace_id), str(args.thread_id)
-        identifier = stable_id(f"wait:{workspace}:{thread}:{args.mode}:{','.join(job_ids)}")
+        key = f"wait:{workspace}:{thread}:{args.mode}:{','.join(job_ids)}"
+        identifier = stable_id(key + (":codex" if args.delivery == "codex" else ""))
         with self.connect() as db:
             for job_id in job_ids:
                 if not db.execute(
@@ -161,6 +172,17 @@ class MonitorLedger:
                     time.time(),
                 ),
             )
+            if args.delivery == "codex":
+                instruction = args.summary.strip()
+                db.execute(
+                    "INSERT OR IGNORE INTO wakeups VALUES(?,?,?)",
+                    (identifier, instruction, project_path),
+                )
+                existing = db.execute(
+                    "SELECT instruction FROM wakeups WHERE wait_id=?", (identifier,)
+                ).fetchone()
+                if existing["instruction"] != instruction:
+                    raise ValueError("这组作业已有自动汇总登记，请沿用原有汇总要求")
             self._reconcile(db)
         return self.read_wait(workspace, identifier)
 
@@ -205,7 +227,8 @@ class MonitorLedger:
             if row is None:
                 raise ValueError("工作空间中不存在此等待")
             event = db.execute("SELECT * FROM events WHERE wait_id=?", (identifier,)).fetchone()
-            return {
+            wakeup = db.execute("SELECT 1 FROM wakeups WHERE wait_id=?", (identifier,)).fetchone()
+            result = {
                 "id": identifier,
                 "thread_id": row["thread"],
                 "status": row["status"],
@@ -218,9 +241,63 @@ class MonitorLedger:
                     if event
                     else None
                 ),
-                "delivery": "pull",
-                "automatic_wakeup": "unavailable",
+                "delivery": "codex" if wakeup else "pull",
+                "automatic_wakeup": "enabled" if wakeup else "unavailable",
             }
+            if wakeup:
+                result.update(
+                    self.delivery_status(db, event["id"] if event else None, row["status"])
+                )
+            return result
+
+    @staticmethod
+    def delivery_status(db: sqlite3.Connection, event_id: str | None, wait_status: str) -> dict:
+        row = (
+            db.execute(
+                "SELECT status AS delivery_status, turn_id, error AS delivery_error "
+                "FROM deliveries WHERE event_id=?",
+                (event_id,),
+            ).fetchone()
+            if event_id
+            else None
+        )
+        return (
+            dict(row) if row else {"delivery_status": MonitorLedger.initial_delivery(wait_status)}
+        )
+
+    @staticmethod
+    def initial_delivery(wait_status: str) -> str:
+        return {
+            "waiting": "waiting_for_job",
+            "ready": "pending",
+            "acknowledged": "already_acknowledged",
+        }.get(wait_status, wait_status)
+
+    def list_waits(self, workspace: str, offset: int) -> dict:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT w.id,w.thread AS thread_id,w.jobs,w.mode,w.status,"
+                "u.wait_id AS wakeup,e.id AS event_id,d.status AS delivery_status,d.turn_id,"
+                "d.error AS delivery_error FROM waits w LEFT JOIN wakeups u ON u.wait_id=w.id "
+                "LEFT JOIN events e ON e.wait_id=w.id LEFT JOIN deliveries d ON d.event_id=e.id "
+                "WHERE w.workspace=? ORDER BY w.created DESC,w.id LIMIT 101 OFFSET ?",
+                (workspace, offset),
+            ).fetchall()
+        waits = []
+        for row in rows[:100]:
+            wait = dict(row)
+            wait["job_ids"] = json.loads(wait.pop("jobs"))
+            wait["delivery"] = "codex" if wait.pop("wakeup") else "pull"
+            if wait["delivery"] == "codex" and wait["delivery_status"] is None:
+                wait["delivery_status"] = self.initial_delivery(wait["status"])
+            waits.append(wait)
+        return {"waits": waits, "next_offset": offset + 100 if len(rows) > 100 else None}
+
+    def wait_status(self, wait_id: str) -> str:
+        with self.connect() as db:
+            return db.execute("SELECT status FROM waits WHERE id=?", (wait_id,)).fetchone()[
+                "status"
+            ]
 
     def control_wait(self, args: WaitControl) -> dict:
         workspace, identifier = str(args.workspace_id), str(args.wait_id)

@@ -13,6 +13,8 @@ from filelock import FileLock
 from pydantic import ValidationError
 
 from chemistry_agent.errors import AgentError
+from chemistry_agent.research_plugins.app_server_client import AppServerClient
+from chemistry_agent.research_plugins.dispatcher import Dispatcher
 from chemistry_agent.research_plugins.observer import observe_slurm
 from chemistry_agent.research_plugins.service import ResearchService
 
@@ -24,6 +26,7 @@ def create_app(
     ssh_hosts: tuple[str, ...] = (),
     project_roots: tuple[Path, ...] = (),
     local_host: str = "",
+    codex_socket: Path | None = None,
 ) -> FastAPI:
     home = home.expanduser().resolve()
     if "archive" in home.parts:
@@ -39,7 +42,7 @@ def create_app(
     token = token_path.read_text().strip()
     if len(token) < 32:
         raise ValueError("监控服务 access-token 无效")
-    service = ResearchService(home, ssh_hosts, project_roots, local_host)
+    service = ResearchService(home, ssh_hosts, project_roots, local_host, codex_socket is not None)
 
     async def simulations() -> None:
         while True:
@@ -51,18 +54,38 @@ def create_app(
             await observe_slurm(service.ledger, ssh_hosts, local_host)
             await asyncio.sleep(15)
 
+    async def dispatch(socket: Path, stop: asyncio.Event) -> None:
+        dispatcher = Dispatcher(service.ledger, lambda: AppServerClient(socket))
+        try:
+            while not stop.is_set():
+                try:
+                    await asyncio.to_thread(dispatcher.tick)
+                except Exception:
+                    logger.exception("无法处理完成事件")
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(stop.wait(), timeout=5)
+        finally:
+            await asyncio.to_thread(dispatcher.close)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         with FileLock(str(home / "daemon.lock"), timeout=0):
             tasks = [asyncio.create_task(simulations()), asyncio.create_task(slurm())]
+            stop = asyncio.Event()
+            delivery_task = (
+                asyncio.create_task(dispatch(codex_socket, stop)) if codex_socket else None
+            )
             try:
                 yield
             finally:
+                stop.set()
                 for task in tasks:
                     task.cancel()
                 for task in tasks:
                     with suppress(asyncio.CancelledError):
                         await task
+                if delivery_task:
+                    await delivery_task
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.research = service
@@ -79,8 +102,8 @@ def create_app(
     async def health() -> dict:
         return {
             "status": "ok",
-            "automatic_wakeup": "unavailable",
-            "delivery": "pull",
+            "automatic_wakeup": "enabled" if codex_socket else "unavailable",
+            "delivery": "codex" if codex_socket else "pull",
             "model_runtime": False,
             "ssh_hosts": list(ssh_hosts),
             "local_host": local_host,

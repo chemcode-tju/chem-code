@@ -90,12 +90,16 @@ def test_slurm_accounting_never_uses_batch_row():
     assert scheduler_row("100.batch|COMPLETED|0:0\n", "100") == ("UNKNOWN", None)
     assert scheduler_row("100|CANCELLED by 22|0:15\n", "100") == ("CANCELLED", "0:15")
     assert scheduler_row("100_3|RUNNING\n", "100_3") == ("RUNNING", None)
+    accounting = "100_3.batch|FAILED|1:0|105.batch\n100_3|COMPLETED|0:0|105\n"
+    assert scheduler_row(accounting, "100_3") == ("COMPLETED", "0:0")
+    assert scheduler_row(accounting, "105") == ("COMPLETED", "0:0")
+    assert scheduler_row(accounting.splitlines()[0], "105") == ("UNKNOWN", None)
 
 
 async def test_local_and_remote_slurm_queries(tmp_path, monkeypatch):
     ledger = MonitorLedger(tmp_path / "monitor.sqlite3")
     workspace = str(uuid4())
-    local = register(ledger, workspace, "local", backend="slurm", host="cluster-a", scheduler_id="100")
+    local = register(ledger, workspace, "local", backend="slurm", host="cluster-a", scheduler_id="100_3")
     remote = register(ledger, workspace, "remote", backend="slurm", host="cluster-b", scheduler_id="101")
     denied = register(
         ledger, workspace, "denied", backend="slurm", host="other", scheduler_id="102"
@@ -106,13 +110,13 @@ async def test_local_and_remote_slurm_queries(tmp_path, monkeypatch):
         calls.append(arguments)
 
         class Process:
-            returncode = 0
+            returncode = 1 if arguments[0] == "squeue" else 0
 
             async def communicate(self):
                 if arguments[0] == "squeue":
-                    return b"", b""
+                    return b"", b"slurm_load_jobs error: Invalid job id specified"
                 if arguments[0] == "sacct":
-                    return b"100.batch|FAILED|1:0\n100|COMPLETED|0:0\n", b""
+                    return b"100_3.batch|FAILED|1:0|105.batch\n100_3|COMPLETED|0:0|105\n", b""
                 return b"101|RUNNING\n", b""
 
         return Process()
@@ -125,6 +129,7 @@ async def test_local_and_remote_slurm_queries(tmp_path, monkeypatch):
     assert states[denied["id"]]["scheduler_state"] == "UNKNOWN"
     assert states[denied["id"]]["observation_error"]
     assert [command[0] for command in calls] == ["squeue", "sacct", "ssh"]
+    assert calls[1][-1] == "--format=JobID%64,State,ExitCode,JobIDRaw%64"
     assert calls[-1][-2:] == ("cluster-b", "squeue -h -j 101 -o '%i|%T'")
 
 
