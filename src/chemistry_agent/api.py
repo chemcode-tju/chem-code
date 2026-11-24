@@ -252,8 +252,14 @@ def create_app(
     app.include_router(attachments_router)
     app.include_router(workspace_router)
     app.include_router(file_browser_router)
+    from chemistry_agent.guidance import router as guidance_router
     from chemistry_agent.hosting.routes import router as hosting_router
+    from chemistry_agent.hosting.terminal import router as terminal_router
+    from chemistry_agent.workspace_chat import router as workspace_chat_router
 
+    app.include_router(guidance_router)
+    app.include_router(workspace_chat_router)
+    app.include_router(terminal_router)
     app.include_router(hosting_router)
     app.include_router(structures_router)
 

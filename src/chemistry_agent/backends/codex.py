@@ -227,9 +227,27 @@ class CodexBackend:
                 await self.router.update_thread(
                     session_id, external_turn_id=turn_id, turn_state="running"
                 )
-                answer = await self.consume(
-                    rpc, thread_id, turn_id, session_id, run_id, progress, steps, calls, tail
-                )
+
+                async def steer(identifier: str, message: str) -> None:
+                    await rpc.request(
+                        "turn/steer",
+                        {
+                            "threadId": thread_id,
+                            "expectedTurnId": turn_id,
+                            "clientUserMessageId": identifier,
+                            "input": [{"type": "text", "text": message}],
+                        },
+                    )
+
+                if progress.preview:
+                    progress.preview.steer = steer
+                try:
+                    answer = await self.consume(
+                        rpc, thread_id, turn_id, session_id, run_id, progress, steps, calls, tail
+                    )
+                finally:
+                    if progress.preview:
+                        progress.preview.steer = None
                 await self.router.update_thread(session_id, turn_state="completed")
                 result_messages = [*messages, *tail, {"role": "assistant", "content": answer}]
                 return {

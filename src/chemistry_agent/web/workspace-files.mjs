@@ -24,7 +24,7 @@ export function linkedWorkspaceFile(href, files, origin) {
   } catch { return undefined; }
 }
 
-export function createWorkspaceFiles({api, session, attach, changed, toast}) {
+export function createWorkspaceFiles({api, session, attach, changed, toast, turns}) {
   let current=null, files=[], generation=0;
   const expanded=new Set(), rendered=new WeakMap();
   const fileRow=file=>`<div class="workspace-file"><span data-no-i18n title="${esc(file.path)}">${esc(file.name)}</span><span class="workspace-file-actions">${isStructureName(file.name)?structureButton('file',file.id,file.name,'查看',true):attachmentPreviewButton(file,true)}<a class="file-action" href="${esc(file.download_url)}" download="${esc(file.name)}" title="下载" aria-label="下载：${esc(file.name)}">${fileIcon('download')}</a><button type="button" class="file-action" data-output-attach="${esc(file.id)}" title="用于对话" aria-label="用于对话：${esc(file.name)}">${fileIcon('cite')}</button></span></div>`;
@@ -47,11 +47,25 @@ export function createWorkspaceFiles({api, session, attach, changed, toast}) {
       const key=target.dataset.generatedRun;
       replace(target,group(shown.filter(file=>file.run_id===key),key));
     }
-    replace(document.getElementById('workspace-structures'),preferredStructures(shown).map(fileRow).join(''));
+    const byRun = new Map();
+    for (const file of [...shown].reverse()) {
+      if (!byRun.has(file.run_id)) byRun.set(file.run_id, []);
+      byRun.get(file.run_id).push(file);
+    }
+    const runOrder = new Map(turns().map((turn,index)=>[turn.run?.id,index]));
+    const groups = [...byRun].sort(([first],[second])=>(runOrder.get(second) ?? -1) - (runOrder.get(first) ?? -1)).map(([id, items]) => {
+      const turn = turns().find(item => id && item.run?.id === id);
+      const title = turn?.text?.split('\n')[0] || (id ? new Date(items[0].modified_ns / 1000000).toLocaleString() : items[0].path);
+      return `<section class="result-group"><header>${id ? `<button type="button" data-origin-run="${esc(id)}" title="定位来源回复"><span data-no-i18n>${esc(title)}</span></button>` : `<strong data-no-i18n>${esc(title)}</strong>`}</header>${items.map(fileRow).join('')}</section>`;
+    });
+    replace(document.getElementById('session-results'),groups.join('') || '<p class="inspector-empty">暂无成果文件</p>');
+    const latest = [...new Map(shown.map(file => [file.path, file])).values()];
+    replace(document.getElementById('workspace-structures'),preferredStructures(latest).map(fileRow).join(''));
     updateStructureCount();
+    const newest = [...shown].reverse();
     for(let link of document.querySelectorAll('.markdown a[href], .markdown [data-local-file-path]')) {
       const path=link.dataset.localFilePath;
-      const file=path !== undefined ? shown.find(file=>file.source_path===path || file.sources?.some(source=>source.path===path)) : linkedWorkspaceFile(link.getAttribute('href'),shown,location.origin);
+      const file=path !== undefined ? newest.find(file=>file.source_path===path || file.sources?.some(source=>source.path===path)) : linkedWorkspaceFile(link.getAttribute('href'),newest,location.origin);
       if(!file) continue;
       if(link.tagName !== 'A') {
         const anchor=document.createElement('a');
@@ -87,7 +101,7 @@ export function createWorkspaceFiles({api, session, attach, changed, toast}) {
       const id=session(), version=++generation;
       if(!id) return;
       try {
-        const result=await api(`/api/workspaces/${id}/files`);
+        const result=await api(`/api/workspaces/${id}/files?versions=true`);
         if(id!==session() || version!==generation) return;
         current=id;files=result.files;draw();changed?.();
       } catch(error) {if(id===session()) toast('成果文件读取失败：'+error.message);}

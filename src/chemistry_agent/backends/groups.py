@@ -240,6 +240,7 @@ async def run_group(
     checkpoint = current_checkpoint.get()
     saved = await checkpoint.load() if checkpoint else {}
     state = saved.pop("group", {"members": roster, "completed": []})
+    state.pop("queued", None)
     completed = state["completed"]
     binding = await router.binding(session_id)
     parent = BackendSettings.model_validate_json(binding["config"])

@@ -3,7 +3,7 @@
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
@@ -41,6 +41,7 @@ class LiveAnswer:
     group_messages: list[dict] = field(default_factory=list)
     version: int = 0
     finished: bool = False
+    steer: Callable[[str, str], Awaitable[None]] | None = None
     changed: asyncio.Event = field(default_factory=asyncio.Event)
 
     def set_steps(self, steps: list[dict]) -> None:

@@ -1,3 +1,4 @@
+import {createAttention, createDelivery, createSideChat, createTargetMenu, guidanceRows} from "./chat-workspace.mjs";
 import { externalContextView } from "./external-context.mjs";
 import {createWorkspaceFiles} from "./workspace-files.mjs";
 import {createFileBrowser} from "./file-browser.mjs";
@@ -76,6 +77,44 @@ const selectInspectorTab = inspectorTabs.select;
 const viewer = createStructureBridge({selectTab:selectInspectorTab, toast});
 const structureDocuments = createStructureDocuments({inspector:inspectorTabs, toast});
 const fileBrowser = createFileBrowser({api, session:()=>state.sessionId, viewer:structureDocuments});
+const sideChat = createSideChat({api,state,markdown,toast});
+const delivery = createDelivery({api,state,toast,sync:syncChat,save:saveDraft});
+const targetMenu = createTargetMenu({api,state,toast,openFolder(data){
+  selectInspectorTab('file');
+  return fileBrowser.openProject({host_id:data.host,directory:data.directory});
+}});
+const attention = createAttention({api,state,toast,open:async id=>{
+  await openWorkspaceSession(id); await syncChat(); await chatModels.refreshApprovals();
+}, openStep:async item=>{
+  await refreshHealth();
+  if(state.sessionId!==item.session)return;
+  selectInspectorTab('calculation');
+  await calculations.openAttention(item);
+},renderBadges:()=>{if(!state.loading)renderSessions();}});
+document.addEventListener('click',async event=>{
+  const source=event.target.closest('[data-origin-run]');
+  if(!source)return;
+  const id=state.sessionId, target=source.dataset.originRun;
+  const anchor=()=>document.querySelector(`[data-generated-run="${CSS.escape(target)}"]`);
+  if(!anchor()){
+    try {
+      const runs=[];
+      for(let offset=0;id===state.sessionId;offset+=100){
+        const page=await api(`/sessions/${id}/runs?limit=100&offset=${offset}&compact=true`);
+        runs.push(...page);
+        if(page.length<100 || page.some(run=>run.id===target))break;
+      }
+      if(id!==state.sessionId)return;
+      const session=await api('/sessions/'+id);
+      if(id!==state.sessionId)return;
+      state.runs=runs;state.turns=buildTurns(session.messages,runs);renderConversation(false);
+    } catch(error){toast(error.message);return;}
+  }
+  const row=anchor();
+  if(!row){toast(t('未找到来源回复。'));return;}
+  if(!splitWorkspace.matches)setInspectorOpen(false);
+  row.closest('article').scrollIntoView({block:'start'});
+});
 document.addEventListener('click', event => {
   const action = event.target.closest('[data-preview-attachment]');
   if (!action) return;
@@ -383,7 +422,9 @@ function updateControls() {
   updateMentions($("conversation"));
   $("send-button").disabled = locked || state.metadataLoading || uploads.uploading || !(state.health && (chatModels?.grouped || state.health.model_configured));
   $("composer-add").disabled = locked || uploads.uploading;
-  const sendLabel = t(state.busy ? "正在生成回答" : "发送消息");
+  sideChat.select(state.sessionId);
+  delivery.render();
+  const sendLabel = !$("delivery-controls").hidden ? $("delivery-mode").selectedOptions[0].textContent : t(state.busy ? "正在生成回答" : "发送消息");
   $("send-button").title = sendLabel;
   $("send-button").setAttribute("aria-label", sendLabel);
   $("new-chat").disabled = locked;
@@ -402,8 +443,8 @@ async function refreshHealth() {
     $("shell-options").replaceChildren(...(state.health.ssh_hosts || []).map(host => {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = "远程终端 · " + host;
-      button.title = "使用 " + host + " 的终端";
+      button.textContent = t("允许 Agent 使用服务器") + " · " + host;
+      button.title = button.textContent;
       button.onclick = () => {
         const field = $("message-input");
         field.value = "/shell " + host + "\n" + field.value.replace(/^\/shell[ \t]+[^\n]*\n?/, "");
@@ -448,12 +489,12 @@ async function updateSessionTitle(id, session, turns) {
 }
 
 function sessionButton(session) {
-  return `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}"><span>${escapeHtml(session.title)}</span></button>`;
+  return `<button class="session-button${session.id === state.sessionId ? " active" : ""}" data-session="${escapeHtml(session.id)}" aria-current="${session.id === state.sessionId ? "page" : "false"}" title="${escapeHtml(session.title)}"><span data-no-i18n>${escapeHtml(session.title)}</span>${attention.badge(session.id)?`<small>${escapeHtml(attention.badge(session.id))}</small>`:""}</button>`;
 }
 
 const projectNavigation = createProjectNavigation({ api, state, selectSession, newConversation, refreshSessions, toast, sessionButton });
 chatModels = createChatModelPicker({
-  api, state, toast, updateControls, refreshHealth, onLocation:fileBrowser.syncProject,
+  api, state, toast, updateControls, refreshHealth, onLocation:value=>{fileBrowser.syncProject(value);targetMenu.render(value);},
   openSettingsTab:(tab, host)=>settingsDialog.open(tab, state.sessionId, host),
 });
 const uploads = createFileUploads({ state, toast, updateControls, onChange: () => calculations.drawStructures(), onUnauthorized: () => showLogin("登录已过期，请重新登录。") });
@@ -475,10 +516,11 @@ async function refreshSessions(append = false) {
   projectNavigation.accept(projects);
   state.sessions = append ? [...state.sessions, ...sessions] : sessions;
   state.hasMore = sessions.length === 50;
+  void attention.refresh();
   renderSessions();
 }
 
-const workspaceFiles=createWorkspaceFiles({api,session:()=>state.sessionId,
+const workspaceFiles=createWorkspaceFiles({api, turns:()=>state.turns,session:()=>state.sessionId,
   attach:file=>{uploads.add(file);$("message-input").focus();},toast});
 
 function renderUser(text, context, files = [], structures = []) {
@@ -551,17 +593,23 @@ function renderConversation(scroll = true) {
   }
   progressFeed.setHistory(state.sessionId,state.turns);
   $("conversation").innerHTML = state.turns.map((turn, index) =>
-    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn"><div class="assistant-message"><div class="assistant-body"><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer))}${answerFooter(index)}</div></div></article>` : `<article class="turn">${turn.background ? '' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div>${turn.answer ? answerFooter(index) : ''}</div></div></article>`
+    turn.event && !progressFeed.isFinal(turn.event) ? "" : turn.event ? `<article class="turn"><div class="assistant-message"><div class="assistant-body"><div data-plan-report="${escapeHtml(turn.event)}"></div>${answerBox(markdown.render(turn.answer))}${answerFooter(index)}</div></div></article>` : `<article class="turn">${turn.background ? '' : renderUser(turn.calls.some(c => c.name === "calculation_submit_confirmed") ? turn.text.replace(/^确认提交预览 [0-9a-f-]{36}/i,"确认提交") : turn.text, turn.context, turn.files, turn.structures)}${guidanceRows({guidance:(turn.guidance || []).map(message=>({message,status:"delivered"}))})}<div class="assistant-message"><div class="assistant-body">${activity({id:turn.run?.id || index,start:turn.run?.started_at,end:turn.run?.finished_at,calls:turn.calls,steps:turn.steps,running:turn.run?.status==="running",deferred:turn.run?.status!=="running"})}${turnAnswer(turn,index)}${artifactLinks(turn.calls)}<div data-generated-run="${escapeHtml(turn.run?.id || "")}"></div>${turn.answer ? answerFooter(index) : ''}</div></div></article>`
 
   ).join("");
+  for(const receipt of state.receipts || []) {
+    if(receipt.session_id!==state.sessionId || receipt.status!=='completed' || !receipt.guidance?.length)continue;
+    const target=$("conversation").querySelector(`[data-generated-run="${CSS.escape(receipt.run_id || '')}"]`);
+    target?.insertAdjacentHTML('beforebegin',guidanceRows({...receipt,guidance:receipt.guidance.filter(note=>!['included','delivered'].includes(note.status) || !state.turns.some(turn=>turn.run?.id===receipt.run_id && turn.guidance?.includes(note.message)))}));
+  }
   calculations.drawReportFigures();
   for (const item of state.outbox) {
     const article = document.createElement("article");
     article.className = "turn";
+    article.dataset.receipt=item.id;
     const failed = ["failed","uncertain"].includes(item.status);
     const label = failed ? item.error || "处理失败" : item.status==="queued" ? "等待上一条回复" : "";
-    article.innerHTML = renderUser(item.body.message, item.body.context || "") +
-      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}<div data-live-group></div>${item.partial_group?.length ? groupMessages(item.partial_group, markdown) : item.partial_answer ? answerBox(markdown.render(item.partial_answer)) : ''}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}${liveAnswerFooter(item.id)}</div></div>`;
+    article.innerHTML = renderUser(item.body.message, item.body.context || "") + guidanceRows(item) +
+      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}<div data-live-group></div>${item.partial_group?.length ? groupMessages(item.partial_group, markdown) : item.partial_answer ? answerBox(markdown.render(item.partial_answer)) : ''}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}${item.editable?`<div class="queue-actions"><button type="button" data-queue-edit="${escapeHtml(item.id)}">修改</button><button type="button" data-queue-withdraw="${escapeHtml(item.id)}">撤回</button></div>`:''}${liveAnswerFooter(item.id)}</div></div>`;
     $("conversation").append(article);
   }
   for (const el of $("conversation").querySelectorAll("[data-activity]")) el.open=activityOpen(el.dataset.running==='true',expanded.get(el.dataset.activity));
@@ -725,7 +773,7 @@ function draftKey() {
 
 function saveDraft(pending = state.pending?.request || null) {
   try {
-    localStorage.setItem(draftKey(), JSON.stringify({text:$("message-input").value, pending}));
+    localStorage.setItem(draftKey(), JSON.stringify({text:$("message-input").value, pending, delivery:delivery.snapshot()}));
   } catch { /* The server receipt still persists every accepted message. */ }
 }
 
@@ -734,6 +782,7 @@ function restoreDraft() {
   try {
     const draft = JSON.parse(localStorage.getItem(draftKey()) || "{}");
     $("message-input").value = draft.text || "";
+    delivery.restore(draft.delivery);
     state.pending = draft.pending ? {
       message:draft.pending.message, context:draft.pending.context || "",
       files:[], structures:[], request:draft.pending,
@@ -789,22 +838,23 @@ async function syncChat() {
     const receipt = await api(`/sessions/${id}/chat-requests?compact=true`);
     if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
     const signature = JSON.stringify([receipt.updated_at, receipt.active_run_id,
-      receipt.requests.map(item=>[item.id,item.status,item.error,item.tools,item.steps])]);
+      receipt.requests.map(item=>[item.id,item.status,item.error,item.tools,item.steps,item.guidance,item.native_steer,item.editable,item.status==="queued"?item.body?.message:null])]);
     if (state.pending?.request && receipt.requests.some(item=>item.id===state.pending.request.request_id)) {
       if ($("message-input").value.trim() === state.pending.message) $("message-input").value = "";
       state.pending = null;
       saveDraft();
     }
+    state.receipts=receipt.requests;
     if (signature === state.chatSignature) return;
     let runs = state.runs;
-    let transcriptChanged = false;
+
     if (receipt.updated_at !== state.loadedAt ||
         state.runs.some(run=>run.status==='running' && run.id!==receipt.active_run_id)) {
       const [session, latest] = await Promise.all([
         api(`/sessions/${id}`), api(`/sessions/${id}/runs?limit=100&compact=true`),
       ]);
       if (id !== state.sessionId || generation !== state.navigation || state.busy) return;
-      transcriptChanged = true;
+
       runs = latest;
       state.runs = runs;
       state.turns = buildTurns(session.messages, runs);
@@ -814,12 +864,13 @@ async function syncChat() {
       void workspaceFiles.refresh();
       void refreshContext();
     }
-    const outbox = receipt.requests.filter(item=>item.status!=="completed" &&
+    const outbox = receipt.requests.filter(item=>!["completed","withdrawn"].includes(item.status) &&
       !runs.some(run=>run.id===item.run_id && run.status==="completed"));
-    const outboxChanged = JSON.stringify(outbox) !== JSON.stringify(state.outbox);
+
     state.outbox = outbox;
     state.chatSignature = signature;
-    if (transcriptChanged || outboxChanged) renderConversation(false);
+    renderConversation(false);
+    updateControls();
   } catch { /* Keep saved messages and drafts visible while disconnected. */ }
   finally { syncingChat = false; }
 }
@@ -952,8 +1003,10 @@ async function runLocalTool(name, form) {
   }
 }
 
-$("chat-form").addEventListener("submit", (event) => {
+$("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if ($("send-button").disabled) return;
+  if (await delivery.submit(uploads.files.length || calculations.selectedIds().length || state.revision)) return;
   const revision = state.revision;
   sendChat($("message-input").value,revision ? revision.planRevision
     ? `修改方案/步骤：${revision.title}；先读取 calculation_plan_get，再用 calculation_plan_save 修改 plan_id=${revision.id}，expected_revision=${revision.planRevision}。`
@@ -1032,6 +1085,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 function showLogin(message = "") {
+  sideChat.reset(); attention.reset(); targetMenu.clear(); state.receipts=[];
   $("workspace-settings").close();
   memoryWorkspace.reset();
   chatPositions.clear();progressFeed.reset();

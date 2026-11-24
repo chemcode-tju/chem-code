@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from chemistry_agent.store import Store
 
 
+UNSTARTED_CHECKPOINT = "(c.payload IS NULL OR json_extract(c.payload,'$.group.queued')=1)"
+
+
 @dataclass
 class Checkpoint:
     store: "Store"

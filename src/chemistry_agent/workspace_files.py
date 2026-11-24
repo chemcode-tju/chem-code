@@ -269,7 +269,7 @@ class WorkspaceFiles:
                 "scan_limit_reached": not paths and len(names) >= MAX_SCAN_FILES,
             }
 
-    async def list(self, session: str) -> list[dict]:
+    async def list(self, session: str, *, versions: bool = False) -> list[dict]:
         async with self.store.lock:
             async with self.store.db.execute(
                 "SELECT w.*,a.name,a.excerpt IS NOT NULL AS text_available "
@@ -290,7 +290,7 @@ class WorkspaceFiles:
         origins = {}
         for source in sources:
             origins.setdefault(source["file_id"], []).append(dict(source))
-        latest = {row["path"]: dict(row) for row in rows}
+        records = rows if versions else {row["path"]: row for row in rows}.values()
         return [
             {
                 **row,
@@ -300,7 +300,7 @@ class WorkspaceFiles:
                 or str(self.workspace(session) / row["path"]),
                 "sources": origins.get(row["file_id"], []),
             }
-            for row in latest.values()
+            for row in records
         ]
 
 
@@ -322,9 +322,11 @@ def workspace_tools(service) -> list[Tool]:
 
 
 @router.get("/{session_id}/files")
-async def list_outputs(session_id: UUID, request: Request) -> dict:
+async def list_outputs(session_id: UUID, request: Request, versions: bool = False) -> dict:
     await request.app.state.store.require_session(str(session_id), request.state.user_id)
-    return {"files": await request.app.state.workspace_files.list(str(session_id))}
+    return {
+        "files": await request.app.state.workspace_files.list(str(session_id), versions=versions)
+    }
 
 
 @router.post("/{session_id}/publish")

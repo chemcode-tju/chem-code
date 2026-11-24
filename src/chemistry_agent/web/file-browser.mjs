@@ -416,6 +416,14 @@ export function createFileBrowser({api, session, viewer}) {
 
   return {
     activate() { void loadSources(); },
+    async openProject(location) {
+      const id=session();
+      await loadSources();
+      if(session()!==id)return;
+      if (!sources.some(item=>item.id===(location.host_id==='local'?'local':`ssh:${location.host_id}`))) throw new Error(t('文件位置不存在。'));
+      project = null;
+      this.syncProject(location);
+    },
     syncProject(location) {
       const source = !location?.host_id || location.host_id === 'local' ? 'local' : `ssh:${location.host_id}`;
       const path = location?.directory;

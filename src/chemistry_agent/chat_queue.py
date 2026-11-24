@@ -12,7 +12,12 @@ from chemistry_agent.automation.routes import local_service
 from chemistry_agent.backends.groups import transcript
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_runtime import ModelScope, ProviderRouter, current_model_scope
-from chemistry_agent.runtime.checkpoint import UNCERTAIN, Checkpoint, current_checkpoint
+from chemistry_agent.runtime.checkpoint import (
+    UNCERTAIN,
+    UNSTARTED_CHECKPOINT,
+    Checkpoint,
+    current_checkpoint,
+)
 from chemistry_agent.runtime.live import LiveAnswer
 from chemistry_agent.schemas import ChatRequest
 from chemistry_agent.store import Store, utc_now
@@ -26,6 +31,7 @@ class ChatQueue:
         self.execute = execute
         self.provider = provider
         self.live: dict[str, LiveAnswer] = {}
+        self.claimed: set[str] = set()
         self.tasks: set[asyncio.Task] = set()
         self.session_locks: dict[str, asyncio.Lock] = {}
         self.account_locks: dict[str | None, asyncio.Lock] = {}
@@ -49,7 +55,11 @@ class ChatQueue:
             "SELECT members FROM conversation_groups WHERE session_id=?", (session,)
         )
         roster = json.loads(group["members"]) if group else []
-        snapshot = json.dumps({"group": {"members": roster, "completed": []}}) if roster else None
+        snapshot = (
+            json.dumps({"group": {"members": roster, "completed": [], "queued": True}})
+            if roster
+            else None
+        )
         await self.store.db.execute(
             "INSERT INTO chat_checkpoints(request_id,local,provider,destination,payload) "
             "VALUES(?,?,?,?,?)",
@@ -219,6 +229,11 @@ class ChatQueue:
                 "'name',json_extract(value,'$.name'),'answer',json_extract(value,'$.answer'),"
                 "'handoff',json_extract(value,'$.handoff'))) "
                 "FROM json_each(c.payload,'$.group.completed')) END AS partial_group,"
+                "json_type(c.payload,'$.group') IS NOT NULL AS grouped,"
+                f"CASE WHEN q.status='queued' AND {UNSTARTED_CHECKPOINT} "
+                "THEN NOT EXISTS(SELECT 1 FROM messages m WHERE m.session_id=q.session_id "
+                "AND json_extract(m.payload,'$.role')='tool' AND instr(m.payload,q.id)>0) "
+                "ELSE 0 END AS editable,"
                 "CASE WHEN q.status!='completed' THEN json_extract(c.payload,'$.steps') "
                 "END AS steps,"
                 "(SELECT json_group_array(json_object('name', json_extract(value,'$.name'), "
@@ -234,11 +249,26 @@ class ChatQueue:
                 (compact, session, session),
             ) as cursor:
                 rows = await cursor.fetchall()
+            async with self.store.db.execute(
+                "SELECT g.* FROM chat_guidance g WHERE g.request_id IN (SELECT value FROM "
+                "json_each(?)) ORDER BY g.rowid",
+                (json.dumps([row["id"] for row in rows]),),
+            ) as cursor:
+                guidance = {}
+                for note in await cursor.fetchall():
+                    guidance.setdefault(note["request_id"], []).append(dict(note))
         receipts = [self.public(row) for row in reversed(rows)]
         for item in receipts:
             item["partial_group"] = json.loads(item["partial_group"] or "[]")
             item["partial_answer"] = transcript(item["partial_group"]) or None
             preview = self.live.get(item["id"])
+            item["grouped"] = bool(item["grouped"])
+            item["editable"] = bool(item["editable"]) and item["id"] not in self.claimed
+            item["guidance"] = guidance.get(item["id"], [])
+            item["native_steer"] = bool(getattr(preview, "steer", None))
+            for note in item["guidance"]:
+                if note["status"] == "pending" and item["status"] not in {"queued", "running"}:
+                    note["status"] = "expired"
             item["steps"] = (
                 preview.steps if preview and preview.steps else json.loads(item["steps"] or "[]")
             )
@@ -265,6 +295,14 @@ class ChatQueue:
                     else asyncio.Lock()
                 )
                 async with slot:
+                    async with self.store.lock:
+                        row = await self.store._one(
+                            "SELECT status,body FROM chat_requests WHERE id=?", (identifier,)
+                        )
+                        if not row or row["status"] != "queued":
+                            return
+                        self.claimed.add(identifier)
+                        body = ChatRequest.model_validate_json(row["body"])
                     while True:
                         try:
                             await self.execute(body, request)
@@ -283,6 +321,7 @@ class ChatQueue:
             await self.fail(identifier, "本轮处理失败，消息已保存，可点击重试。")
 
         finally:
+            self.claimed.discard(identifier)
             current_checkpoint.reset(checkpoint_token)
             self.live.pop(identifier).close()
 
