@@ -23,4 +23,4 @@ Demo 创建临时 SQLite，启动实际的本机 MCP HTTP 服务，再用两个�
 | `asset_inspect` | `{"revision":"检索结果中的完整 revision"}` |
 | `asset_fetch` | `{"revision":"检索结果中的完整 revision","name":"CONTCAR"}` |
 
-MCP 只提供读操作。登记、人工复核和共享演示由 Python 场景驱动。单文件上限为 64 KiB，SQLite 内的小文件按内容去重。命令模式使用真实本机 HTTP 与两个模拟身份，执行的是内置、经字节比对的合成脚本。接入真实节点和账号时，需把身份、数据获取和托管存储接到 Chem-Agent。 [调研与设计](../../reports/2026-11-19-research-assets/研究资产调研与设计.md)
+MCP 只提供读操作。登记、人工复核和共享演示由 Python 场景驱动。单文件上限为 64 KiB，SQLite 内的小文件按内容去重。命令模式使用真实本机 HTTP 与两个模拟身份，执行的是内置、经字节比对的合成脚本。接入真实节点和账号时，需把身份、数据获取和托管存储接到 Chem-Agent。 [科研资产使用说明](../../docs/RESEARCH_ASSETS.md)
