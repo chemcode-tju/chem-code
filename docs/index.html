@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chem Code — Local-First Research Workspace for Computational Chemistry</title>
+  <meta name="description" content="Local-first research workspace for computational chemistry and catalysis: plan multi-step DFT workflows, inspect 3D structures and convergence curves, monitor Slurm clusters, and build searchable research memory.">
+  <link rel="icon" type="image/svg+xml" href="images/chem-code-mark.svg">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-subtle: #f5f6f9;
+      --surface: #ffffff;
+      --surface-hover: #eef0f4;
+      --text: #111318;
+      --text-muted: #525866;
+      --border: rgba(17, 19, 24, 0.10);
+      --border-strong: rgba(17, 19, 24, 0.18);
+      --accent: #14171f;
+      --accent-fg: #ffffff;
+      --ring: rgba(17, 19, 24, 0.28);
+      --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
+      --shadow-md: 0 12px 32px rgba(15, 23, 42, 0.08);
+    }
+
+    :root[data-theme="dark"] {
+      --bg: #111215;
+      --bg-subtle: #181a1f;
+      --surface: #1e2127;
+      --surface-hover: #262a32;
+      --text: #f3f5f8;
+      --text-muted: #9aa2b1;
+      --border: rgba(243, 245, 248, 0.10);
+      --border-strong: rgba(243, 245, 248, 0.20);
+      --accent: #f3f5f8;
+      --accent-fg: #111215;
+      --ring: rgba(243, 245, 248, 0.32);
+      --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
+      --shadow-md: 0 16px 40px rgba(0, 0, 0, 0.45);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .container {
+      width: 100%;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: color-mix(in srgb, var(--bg) 82%, transparent);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .brand svg { width: 30px; height: 24px; display: block; flex-shrink: 0; }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn-ghost:hover {
+      background: var(--surface-hover);
+      border-color: var(--border-strong);
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 42px;
+      padding: 0 20px;
+      border-radius: 11px;
+      border: 1px solid transparent;
+      background: var(--accent);
+      color: var(--accent-fg);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 42px;
+      padding: 0 18px;
+      border-radius: 11px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .btn-secondary:hover { background: var(--surface-hover); transform: translateY(-1px); }
+
+    .hero {
+      text-align: center;
+      padding: 44px 0 28px;
+    }
+
+    .hero-logo {
+      width: 72px;
+      height: 56px;
+      margin: 0 auto 14px;
+      display: block;
+    }
+
+    .hero h1 {
+      font-size: clamp(30px, 4.5vw, 44px);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.12;
+      margin-bottom: 12px;
+    }
+
+    .hero p {
+      max-width: 680px;
+      margin: 0 auto 24px;
+      font-size: 16px;
+      color: var(--text-muted);
+    }
+
+    .hero-cta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .showcase {
+      padding: 12px 0 56px;
+    }
+
+    .carousel-shell {
+      position: relative;
+      border-radius: 18px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      padding: 16px 16px 20px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .stage-outer { position: relative; }
+
+    .stage-wrap {
+      overflow: clip;
+      border-radius: 12px;
+    }
+
+    .stage-track {
+      display: flex;
+      transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+      will-change: transform;
+    }
+
+    .slide {
+      flex: 0 0 100%;
+      min-width: 100%;
+      user-select: none;
+    }
+
+    .slide img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 10px;
+    }
+
+    .arrow-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 5;
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      border: 1px solid var(--border-strong);
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .arrow-btn:hover {
+      background: var(--surface);
+      transform: translateY(-50%) scale(1.06);
+    }
+
+    .arrow-btn:focus-visible,
+    .thumb:focus-visible,
+    .btn-ghost:focus-visible,
+    .btn-primary:focus-visible,
+    .btn-secondary:focus-visible {
+      outline: 2px solid var(--ring);
+      outline-offset: 2px;
+    }
+
+    .arrow-prev { left: 14px; }
+    .arrow-next { right: 14px; }
+    .arrow-btn svg { width: 20px; height: 20px; }
+
+    .caption-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 6px 12px;
+    }
+
+    .caption-text h2 {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 2px;
+    }
+
+    .caption-text p {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .slide-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .counter {
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .thumb-strip {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      padding-top: 6px;
+    }
+
+    .thumb {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 6px;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      text-align: left;
+      color: var(--text);
+      transition: border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+      opacity: 0.72;
+    }
+
+    .thumb:hover { opacity: 0.95; border-color: var(--border-strong); }
+
+    .thumb[aria-selected="true"] {
+      opacity: 1;
+      border-color: var(--accent);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .thumb img {
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      object-fit: cover;
+      border-radius: 6px;
+      display: block;
+    }
+
+    .thumb span {
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 2px;
+    }
+
+    .fixture-note {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .features-section {
+      padding: 8px 0 64px;
+    }
+
+    .section-title {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 18px;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      padding: 18px 20px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--bg-subtle);
+    }
+
+    .card h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .card p {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 0 40px;
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    footer a { text-decoration: underline; text-underline-offset: 3px; }
+
+    @media (max-width: 900px) {
+      .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .thumb-strip {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        padding-bottom: 4px;
+      }
+      .thumb { flex: 0 0 156px; scroll-snap-align: start; }
+      .caption-bar { flex-direction: column; align-items: flex-start; }
+    }
+
+    @media (max-width: 560px) {
+      .container { padding: 0 16px; }
+      .nav { gap: 10px; }
+      .nav-actions { gap: 6px; }
+      .btn-ghost { height: 32px; padding: 0 10px; font-size: 12.5px; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .arrow-btn { width: 36px; height: 36px; }
+      .arrow-prev { left: 8px; }
+      .arrow-next { right: 8px; }
+      .carousel-shell { padding: 10px 10px 14px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .stage-track, .arrow-btn, .thumb, .btn-primary, .btn-secondary, body {
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container nav">
+      <a class="brand" href="#top">
+        <svg viewBox="2 15 94 72" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke-width="3.80" d="M26.5 51.7 C19.4 53.8 13 50.6 10.1 45.7 Q7.6 41.7 8.6 37.6"/>
+            <path stroke-width="3.80" d="M26.7 50.6 C28.8 43.4 34.4 40.1 41.4 39.6 C46.8 39.2 51.7 40.4 55.5 41.8 Q58.7 39.3 61.8 36.7 L61.1 25.7 Q60.9 22.3 64 24.4 L70.8 29.6 Q75.6 28.1 80 30.1 L85.4 25.9 Q88.2 23.3 88 27.3 L87.5 36.9 C90.4 40.9 91 45.8 88.2 50.4 Q85.8 54.2 79.1 56.7 Q76.4 60.8 78.7 65.6 Q80.5 68.8 84 71.6 Q86.7 74.1 84.7 76 Q82.2 78.2 77.8 75.5 Q71.4 72.4 67 62.2 Q56.7 66.2 48.9 63.9 Q45.6 63.1 42.4 62.1 Q39.3 66.4 40.7 70.3 L43.7 74.1 Q46 77.4 42.3 78.5 Q38.6 79.3 34.5 76.2 Q29.5 72.7 27.2 64.5 Q24.6 57.6 26.7 50.6 Z"/>
+            <path stroke-width="3.15" d="M26.2 60.5 Q23.3 63.6 19.2 65.4 L16.7 66.3 Q13.6 67.3 14.6 69.8 Q15.4 72 18.2 72 Q22.3 71.8 25.8 68.3"/>
+            <path stroke-width="3.15" d="M59 65 Q60 69.2 57.9 73.4 Q56 76.2 59.4 77.1 L62.4 77.1"/>
+            <path stroke-width="2.43" d="M72.9 46.9 Q75.4 49.4 78 46.3"/>
+            <circle cx="69" cy="41.8" r="1.6" fill="currentColor" stroke="none"/>
+            <circle cx="81.1" cy="41.3" r="1.6" fill="currentColor" stroke="none"/>
+          </g>
+        </svg>
+        <span>Chem Code</span>
+      </a>
+      <div class="nav-actions">
+        <button id="lang-toggle" class="btn-ghost" type="button" aria-label="Switch language">中文</button>
+        <button id="theme-toggle" class="btn-ghost" type="button" aria-label="Toggle theme">Dark</button>
+        <a class="btn-ghost" href="https://github.com/liyang-tju/chem-code" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top" class="container">
+    <section class="hero">
+      <svg class="hero-logo" viewBox="2 15 94 72" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path stroke-width="3.40" d="M26.5 51.7 C19.4 53.8 13 50.6 10.1 45.7 Q7.6 41.7 8.6 37.6"/>
+          <path stroke-width="3.40" d="M26.7 50.6 C28.8 43.4 34.4 40.1 41.4 39.6 C46.8 39.2 51.7 40.4 55.5 41.8 Q58.7 39.3 61.8 36.7 L61.1 25.7 Q60.9 22.3 64 24.4 L70.8 29.6 Q75.6 28.1 80 30.1 L85.4 25.9 Q88.2 23.3 88 27.3 L87.5 36.9 C90.4 40.9 91 45.8 88.2 50.4 Q85.8 54.2 79.1 56.7 Q76.4 60.8 78.7 65.6 Q80.5 68.8 84 71.6 Q86.7 74.1 84.7 76 Q82.2 78.2 77.8 75.5 Q71.4 72.4 67 62.2 Q56.7 66.2 48.9 63.9 Q45.6 63.1 42.4 62.1 Q39.3 66.4 40.7 70.3 L43.7 74.1 Q46 77.4 42.3 78.5 Q38.6 79.3 34.5 76.2 Q29.5 72.7 27.2 64.5 Q24.6 57.6 26.7 50.6 Z"/>
+          <path stroke-width="2.85" d="M26.2 60.5 Q23.3 63.6 19.2 65.4 L16.7 66.3 Q13.6 67.3 14.6 69.8 Q15.4 72 18.2 72 Q22.3 71.8 25.8 68.3"/>
+          <path stroke-width="2.85" d="M59 65 Q60 69.2 57.9 73.4 Q56 76.2 59.4 77.1 L62.4 77.1"/>
+          <path stroke-width="2.20" d="M72.9 46.9 Q75.4 49.4 78 46.3"/>
+          <circle cx="69" cy="41.8" r="1.55" fill="currentColor" stroke="none"/>
+          <circle cx="81.1" cy="41.3" r="1.55" fill="currentColor" stroke="none"/>
+        </g>
+      </svg>
+      <h1>Chem Code</h1>
+      <p data-i18n="tagline">Local-first research workspace for computational chemistry and catalysis — plan multi-step DFT workflows, inspect 3D structures and convergence curves, monitor Slurm clusters, and build searchable research memory.</p>
+      <div class="hero-cta">
+        <a class="btn-primary" href="https://github.com/liyang-tju/chem-code/releases/latest" target="_blank" rel="noopener" data-i18n="download">Download macOS Release</a>
+        <a class="btn-secondary" href="https://github.com/liyang-tju/chem-code" target="_blank" rel="noopener" data-i18n="source">View on GitHub</a>
+      </div>
+    </section>
+
+    <section class="showcase" aria-label="Feature Showcase">
+      <div class="carousel-shell">
+        <div class="stage-outer">
+          <button class="arrow-btn arrow-prev" id="prev-btn" type="button" aria-label="Previous feature">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <div class="stage-wrap" id="stage-wrap">
+            <div class="stage-track" id="stage-track"></div>
+          </div>
+          <button class="arrow-btn arrow-next" id="next-btn" type="button" aria-label="Next feature">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        </div>
+
+        <div class="caption-bar">
+          <div class="caption-text">
+            <h2 id="slide-title"></h2>
+            <p id="slide-desc"></p>
+          </div>
+          <div class="slide-meta">
+            <span class="counter" id="slide-counter">1 / 6</span>
+          </div>
+        </div>
+
+        <div class="thumb-strip" id="thumb-strip" role="tablist" aria-label="Feature slides"></div>
+      </div>
+      <p class="fixture-note" data-i18n="fixtureNote">Showcase screenshots use synthetic Cu(111) + CO DFT fixtures in the English macOS desktop interface.</p>
+    </section>
+
+    <section class="features-section">
+      <h2 class="section-title" data-i18n="coreHeading">Core Capabilities</h2>
+      <div class="feature-grid" id="feature-grid"></div>
+    </section>
+
+    <footer>
+      <span data-i18n="licenseNote">MIT License · Local-first desktop workspace for computational chemistry</span>
+      <span>
+        <a href="https://github.com/liyang-tju/chem-code#readme" target="_blank" rel="noopener">README (EN)</a> ·
+        <a href="https://github.com/liyang-tju/chem-code/blob/main/README.zh-CN.md" target="_blank" rel="noopener">中文说明</a> ·
+        <a href="https://github.com/liyang-tju/chem-code/releases" target="_blank" rel="noopener">Releases</a>
+      </span>
+    </footer>
+  </main>
+
+  <script>
+    const SLIDES = [
+      {
+        src: 'images/overview.png',
+        thumbLabel: { en: 'Chat & Plan DAG', zh: '对话与方案画布' },
+        title: { en: 'Research Chat & Multi-Step Dependency Plan', zh: '研究对话与多步依赖方案画布' },
+        desc: {
+          en: 'Discuss DFT setups, assign execution presets per step, and track parallel branches across Canvas and Kanban views in one unified macOS window.',
+          zh: '在一体化 macOS 桌面端中讨论计算方案、按步骤分配执行 Agent 预设，并在画布与看板视图中跟踪并行分支。'
+        }
+      },
+      {
+        src: 'images/features-structure-viewer.png',
+        thumbLabel: { en: '3D Structures', zh: '三维结构与轨迹' },
+        title: { en: 'Embedded 3D Structure & Trajectory Viewer', zh: '内嵌三维结构与多帧轨迹查看器' },
+        desc: {
+          en: 'Inspect POSCAR, CONTCAR, XDATCAR, extxyz, LAMMPS, and GROMACS slabs, adsorbates, unit cells, and multi-frame relaxations with Atom Lens WebGL.',
+          zh: '在右侧研究面板直接查看表面、吸附体系、晶胞与多帧优化轨迹，兼容 VASP、extxyz、LAMMPS 与 GROMACS 格式。'
+        }
+      },
+      {
+        src: 'images/features-step-convergence.png',
+        thumbLabel: { en: 'Convergence Audit', zh: '收敛曲线与核查' },
+        title: { en: 'VASP Ionic Convergence & Step Audit Trail', zh: 'VASP 离子步收敛曲线与步骤核查' },
+        desc: {
+          en: 'Inspect real sampled E0, |ΔE|, and Fmax curves alongside INCAR/KPOINTS tabs, execution records, and separate scheduler vs. convergence status.',
+          zh: '交互查看保留真实单位的 E0、|ΔE| 与 Fmax 收敛曲线、INCAR/KPOINTS 参数与执行记录，严格区分调度完成与科学收敛。'
+        }
+      },
+      {
+        src: 'images/features-job-board.png',
+        thumbLabel: { en: 'Job Dashboard', zh: 'Slurm 作业看板' },
+        title: { en: 'Slurm Job Dashboard & Compute Telemetry', zh: 'Slurm 作业看板与算力统计' },
+        desc: {
+          en: 'Track a full year of cluster submissions with a quartile activity heatmap, live queue snapshots, peak submission hours, and CPU/GPU core-hour consumption.',
+          zh: '按服务器汇总全年提交热力图、实时运行与排队队列、提交高峰时段，以及按卡型统计的 CPU 核时与 GPU 小时。'
+        }
+      },
+      {
+        src: 'images/features-monitor-tasks.png',
+        thumbLabel: { en: 'Monitors & Wakes', zh: '监控与定时唤醒' },
+        title: { en: 'Autonomous Workflow Monitors & Scheduled Wakeups', zh: '持续流程监控与周期定时唤醒' },
+        desc: {
+          en: 'Register durable Slurm wait conditions and recurring scheduled inspections that automatically wake the originating research chat on completion or anomalies.',
+          zh: '登记持久 Slurm 等待条件与独立周期巡检任务，作业结束或出现异常时自动唤醒原研究对话汇报与推进。'
+        }
+      },
+      {
+        src: 'images/features-research-memory.png',
+        thumbLabel: { en: 'Memory & Dark UI', zh: '科研记忆与深色' },
+        title: { en: 'Research Memory & Solid Glass Dark Theme', zh: '可检索科研记忆与 Solid Glass 深色主题' },
+        desc: {
+          en: 'Preserve verified DFT protocols, calculation records, and troubleshooting lessons with full-text search, version history, and convergence evidence tags.',
+          zh: '沉淀经过验证的计算方案、参数记录与排错经验，支持全文检索、版本历史、收敛证据标记与本地知识 MCP 接入。'
+        }
+      }
+    ];
+
+    const FEATURES = [
+      {
+        title: { en: 'Native macOS Desktop & Isolation', zh: '原生 macOS 桌面端与本地隔离' },
+        body: {
+          en: 'Self-contained Apple Silicon app with bundled Python, RDKit, ASE, SciPy, and SSH runtime. Opens login-free and isolates data per user and workspace folder.',
+          zh: 'Apple Silicon 独立安装包内置 Python、RDKit、ASE、SciPy 与 SSH 运行时，打开即用，按 macOS 用户与工作目录隔离数据。'
+        }
+      },
+      {
+        title: { en: 'Multi-Agent Chat & Presets', zh: '多 Agent 协作与执行预设' },
+        body: {
+          en: 'Combine local Codex, Antigravity, ChatGPT, DeepSeek, or OpenAI-compatible models with per-step delegation and signed multi-agent group handoffs.',
+          zh: '复用本机已授权 Codex / Antigravity 或模型接口，支持按步骤分配执行预设与群聊署名按需交接。'
+        }
+      },
+      {
+        title: { en: 'DAG Workflows without AiiDA', zh: '无需 AiiDA 的多步依赖流程' },
+        body: {
+          en: 'Draft revisable calculation graphs over plain SSH and Slurm, submit ready branches in parallel, and keep scheduler exit codes separate from convergence.',
+          zh: '直接基于本机 SSH 与 Slurm 编排可修订依赖图、并行提交就绪分支，并将调度状态与科学收敛独立呈现。'
+        }
+      },
+      {
+        title: { en: 'Embedded 3D Viewer & Convergence', zh: '内嵌三维结构与收敛图表' },
+        body: {
+          en: 'Stream structures and trajectories inside the research panel with Atom Lens WebGL and inspect interactive VASP/LAMMPS energy and force histories.',
+          zh: '集成 Atom Lens WebGL 实时查看晶体、吸附结构与多帧轨迹，并联动 VASP / LAMMPS 真实采样收敛曲线。'
+        }
+      },
+      {
+        title: { en: 'Slurm Analytics & Wakeups', zh: 'Slurm 看板与持续唤醒' },
+        body: {
+          en: 'View full-year submission heatmaps, CPU/GPU hours, and live queues alongside durable job waits and recurring scheduled checks.',
+          zh: '统一掌握全年作业热力图、CPU/GPU 机时消耗与实时队列，配合持久等待条件与周期巡检自动推进计算。'
+        }
+      },
+      {
+        title: { en: 'Versioned Research Memory & MCP', zh: '版本化科研记忆与知识 MCP' },
+        body: {
+          en: 'Store converged results and troubleshooting lessons in searchable Markdown with version history and a local Knowledge MCP server for external agents.',
+          zh: '以结构化 Markdown 长期保存收敛记录与故障经验，支持全文检索、版本对比及本地知识 MCP 共享接入。'
+        }
+      }
+    ];
+
+    const STRINGS = {
+      en: {
+        tagline: 'Local-first research workspace for computational chemistry and catalysis — plan multi-step DFT workflows, inspect 3D structures and convergence curves, monitor Slurm clusters, and build searchable research memory.',
+        download: 'Download macOS Release',
+        source: 'View on GitHub',
+        coreHeading: 'Core Capabilities',
+        fixtureNote: 'Showcase screenshots use synthetic Cu(111) + CO DFT fixtures in the English macOS desktop interface.',
+        licenseNote: 'MIT License · Local-first desktop workspace for computational chemistry',
+        langBtn: '中文',
+        themeLight: 'Light',
+        themeDark: 'Dark'
+      },
+      zh: {
+        tagline: '面向计算化学与催化研究的本地优先科研工作台——规划多步 DFT 依赖工作流、查看三维结构与收敛曲线、监控 Slurm 集群并沉淀可检索科研记忆。',
+        download: '下载 macOS 安装包',
+        source: '访问 GitHub 仓库',
+        coreHeading: '核心特性',
+        fixtureNote: '展示截图均基于合成的 Cu(111) + CO 计算夹具，采用英文 macOS 桌面端实景渲染。',
+        licenseNote: 'MIT 许可证 · 本地优先的计算化学桌面科研工作台',
+        langBtn: 'EN',
+        themeLight: '浅色',
+        themeDark: '深色'
+      }
+    };
+
+    let lang = (new URLSearchParams(location.search).get('lang') === 'zh') ? 'zh' : 'en';
+    let current = 0;
+
+    const root = document.documentElement;
+    const savedTheme = localStorage.getItem('chemcode-pages-theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = savedTheme || (prefersDark ? 'dark' : 'light');
+
+    const track = document.getElementById('stage-track');
+    const thumbStrip = document.getElementById('thumb-strip');
+    const slideTitle = document.getElementById('slide-title');
+    const slideDesc = document.getElementById('slide-desc');
+    const slideCounter = document.getElementById('slide-counter');
+    const featureGrid = document.getElementById('feature-grid');
+    const langBtn = document.getElementById('lang-toggle');
+    const themeBtn = document.getElementById('theme-toggle');
+
+    function buildSlides() {
+      track.innerHTML = SLIDES.map((s) =>
+        `<div class="slide" role="tabpanel" aria-label="${s.title.en}"><img src="${s.src}" alt="${s.title.en}"></div>`
+      ).join('');
+      thumbStrip.innerHTML = SLIDES.map((s, i) =>
+        `<button class="thumb" type="button" role="tab" data-index="${i}" aria-selected="${i === current}">
+          <img src="${s.src}" alt="">
+          <span>${s.thumbLabel[lang]}</span>
+        </button>`
+      ).join('');
+      thumbStrip.querySelectorAll('.thumb').forEach(btn => {
+        btn.addEventListener('click', () => goTo(Number(btn.dataset.index)));
+      });
+    }
+
+    function renderCopy() {
+      const t = STRINGS[lang];
+      document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.dataset.i18n;
+        if (t[key]) el.textContent = t[key];
+      });
+      langBtn.textContent = t.langBtn;
+      themeBtn.textContent = root.dataset.theme === 'dark' ? t.themeLight : t.themeDark;
+
+      track.querySelectorAll('.slide').forEach((slideEl, i) => {
+        const title = SLIDES[i].title[lang];
+        slideEl.setAttribute('aria-label', title);
+        const img = slideEl.querySelector('img');
+        if (img) img.alt = title;
+      });
+      thumbStrip.querySelectorAll('.thumb').forEach((btn, i) => {
+        btn.querySelector('span').textContent = SLIDES[i].thumbLabel[lang];
+      });
+      featureGrid.innerHTML = FEATURES.map(f =>
+        `<div class="card"><h3>${f.title[lang]}</h3><p>${f.body[lang]}</p></div>`
+      ).join('');
+      updateSlideUI();
+    }
+
+    function updateSlideUI() {
+      const s = SLIDES[current];
+      track.style.transform = `translateX(-${current * 100}%)`;
+      slideTitle.textContent = s.title[lang];
+      slideDesc.textContent = s.desc[lang];
+      slideCounter.textContent = `${current + 1} / ${SLIDES.length}`;
+      thumbStrip.querySelectorAll('.thumb').forEach((btn, i) => {
+        const active = i === current;
+        btn.setAttribute('aria-selected', String(active));
+        if (active && thumbStrip.scrollWidth > thumbStrip.clientWidth) {
+          const targetLeft = btn.offsetLeft - (thumbStrip.clientWidth - btn.offsetWidth) / 2;
+          thumbStrip.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+        }
+      });
+    }
+
+    function goTo(index) {
+      current = (index + SLIDES.length) % SLIDES.length;
+      updateSlideUI();
+    }
+
+    document.getElementById('prev-btn').addEventListener('click', () => goTo(current - 1));
+    document.getElementById('next-btn').addEventListener('click', () => goTo(current + 1));
+
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft') goTo(current - 1);
+      else if (e.key === 'ArrowRight') goTo(current + 1);
+    });
+
+    let touchStartX = null;
+    const stageWrap = document.getElementById('stage-wrap');
+    stageWrap.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].clientX; }, { passive: true });
+    stageWrap.addEventListener('touchend', e => {
+      if (touchStartX === null) return;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      touchStartX = null;
+      if (Math.abs(dx) > 40) goTo(dx < 0 ? current + 1 : current - 1);
+    }, { passive: true });
+
+    langBtn.addEventListener('click', () => {
+      lang = lang === 'en' ? 'zh' : 'en';
+      renderCopy();
+    });
+
+    themeBtn.addEventListener('click', () => {
+      root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('chemcode-pages-theme', root.dataset.theme);
+      renderCopy();
+    });
+
+    buildSlides();
+    renderCopy();
+  </script>
+</body>
+</html>
