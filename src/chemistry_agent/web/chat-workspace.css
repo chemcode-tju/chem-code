@@ -193,6 +193,16 @@
   gap: 12px;
   padding: 10px;
 }
+html[data-desktop="macos"] .terminal-window > header {
+  min-height: var(--desktop-titlebar-height, 44px);
+  padding: 0 12px;
+  background: var(--opaque-panel);
+  -webkit-user-select: none;
+  user-select: none;
+}
+html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .terminal-window > header {
+  padding-inline-start: calc(var(--desktop-traffic-lights-right, 66px) + 14px);
+}
 .terminal-window strong {
   overflow-wrap: anywhere;
   min-width: 0;

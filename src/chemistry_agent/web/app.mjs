@@ -1204,6 +1204,26 @@ const settingsDialog = initSettingsDialog({
     if (state.health?.model_configured) void chatModels.refresh();
   },
 });
+globalThis.__chemDesktopCommand = (command) => {
+  if (!$("login-screen").hidden) return false;
+  if (command === "settings") {
+    settingsDialog.open("general", state.sessionId);
+    return true;
+  }
+  if (command === "new-chat") {
+    if (state.busy) return true;
+    if (activeWorkspace !== "chat") setWorkspace("chat", { navigate: true });
+    newConversation();
+    $("message-input").focus({ preventScroll: true });
+    return true;
+  }
+  if (command === "toggle-sidebar") {
+    if (activeWorkspace !== "chat") setWorkspace("chat", { navigate: true });
+    else toggleChatSidebar();
+    return true;
+  }
+  return false;
+};
 initialize();
 setInterval(() => { if ($("login-screen").hidden) refreshHealth(); }, 30000);
 

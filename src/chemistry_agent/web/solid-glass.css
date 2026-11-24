@@ -210,3 +210,80 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   }
   button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible {outline:2px solid Highlight;}
 }
+
+/* Unified macOS desktop chrome: traffic lights sit inside the single neutral shell. */
+html[data-desktop="macos"] {
+  --desktop-titlebar-height:44px;
+  --desktop-traffic-lights-right:66px;
+  --desktop-traffic-lights-clearance:calc(var(--desktop-traffic-lights-right) + 14px);
+  --desktop-rail-overlap:max(0px, calc(var(--desktop-traffic-lights-clearance) - var(--workspace-rail-width, 56px)));
+}
+html[data-desktop="macos"][data-desktop-fullscreen="1"] {
+  --desktop-traffic-lights-right:0px;
+  --desktop-traffic-lights-clearance:0px;
+  --desktop-rail-overlap:0px;
+}
+html[data-desktop="macos"] .auth-loading { background:var(--opaque-panel); }
+html[data-desktop="macos"] :is(.workspace-rail,.sidebar-header,.topbar,.queue-toolbar,.inspector-strip,
+  .sidebar-content :is(button,summary,.history-heading),.settings-header,.settings-sidebar) {
+  -webkit-user-select:none;
+  user-select:none;
+}
+html[data-desktop="macos"] .workspace-shell :is(.topbar,.sidebar-header,.queue-toolbar,.inspector-strip) {
+  height:var(--desktop-titlebar-height);
+  min-height:var(--desktop-titlebar-height);
+}
+html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .workspace-shell .workspace-rail {
+  padding-top:var(--desktop-titlebar-height);
+}
+html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .workspace-shell .workspace-rail .workspace-rail-brand {
+  margin-top:2px;
+}
+html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .workspace-shell .sidebar-content .sidebar-header {
+  padding-inline-start:var(--desktop-rail-overlap);
+}
+html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .workspace-shell.sidebar-collapsed .topbar,
+html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .workspace-shell .queue-toolbar {
+  padding-inline-start:var(--desktop-rail-overlap);
+}
+html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .workspace-shell.dock-max.inspector-open .inspector-strip {
+  padding-inline-start:max(8px, calc(var(--desktop-traffic-lights-clearance) - 8px));
+}
+html[data-desktop="macos"]:not(.embedded-settings) body:has(>.settings-sheet) {
+  padding:0;
+  background:var(--opaque-panel);
+}
+html[data-desktop="macos"]:not(.embedded-settings) .settings-sheet {
+  width:100%;
+  height:100%;
+  border-radius:0;
+  box-shadow:none;
+}
+html[data-desktop="macos"]:not(.embedded-settings):not(.compact-settings) .settings-sheet {
+  grid-template-rows:var(--desktop-titlebar-height) minmax(0,1fr);
+}
+html[data-desktop="macos"]:not(.embedded-settings).compact-settings .settings-sheet {
+  grid-template-rows:var(--desktop-titlebar-height) auto minmax(0,1fr);
+}
+html[data-desktop="macos"]:not(.embedded-settings) .settings-header {
+  padding:0 16px 0 24px;
+}
+html[data-desktop="macos"]:not(.embedded-settings):not([data-desktop-fullscreen="1"]) .settings-header {
+  padding-inline-start:var(--desktop-traffic-lights-clearance);
+}
+@media (max-width:1023px) {
+  html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .workspace-shell .sidebar-content {
+    border-left:0;
+    box-shadow:1px 0 0 var(--sg-popover-edge), 16px 0 40px -12px var(--sg-glass-shade);
+  }
+  html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) .workspace-shell.sidebar-open .workspace-rail {
+    z-index:41;
+  }
+}
+@media (max-width:767px) {
+  html[data-desktop="macos"]:not([data-desktop-fullscreen="1"]) #workspace-settings {
+    margin:var(--desktop-titlebar-height) 0 0;
+    height:calc(100dvh - var(--desktop-titlebar-height));
+    border-radius:var(--radius-panel) var(--radius-panel) 0 0;
+  }
+}
