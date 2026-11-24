@@ -1,4 +1,5 @@
 import { createCascadeMenu, effortLabel, permissionLabel } from './agent-menu.mjs';
+import {createGroupPicker} from './group-picker.mjs';
 import {t} from './i18n.mjs';
 import {createModelPickerPanel} from './model-picker-panel.mjs';
 import {createChatLocationPicker} from './chat-location.mjs';
@@ -9,10 +10,23 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
   const $ = id => document.getElementById(id);
   const picker = $('agent-picker'), permission = $('permission-picker');
   const permissions = createCascadeMenu(permission, 'permission-menu');
+  let group = [];
+  const groupBody = members => JSON.stringify({strategy: members[0]?.strategy || 'ordered', members: members.map(({id, version}) => ({id, version}))});
+  const groupMenu = createGroupPicker(picker, {api, current:()=>group, settings:()=>openSettings(), save:async members=>{
+    const version = generation, session = state.sessionId;
+    saving = true; updateControls();
+    try {
+      const result = session ? await api(`/api/agents/sessions/${session}/group`, {method:'PUT', body:groupBody(members)}) : {members};
+      if (generation !== version || state.sessionId !== session) return false;
+      group = result.members;
+      render();
+      return true;
+    } finally {saving = false; updateControls();}
+  }});
   const menu = createModelPickerPanel(picker, {
     getAgents: () => locations.agents.filter(agent => agent.enabled && agent.host_id === (selection.host_id || 'local')),
     getSelection: () => selection, agentChoice, catalog,
-    choose: next => choose(next, {keepPickerOpen:true}), openSettings,
+    choose: next => choose(next, {keepPickerOpen:true}), openSettings, openGroup:()=>groupMenu.open(),
   });
   let selection = null, defaultInstance = null, generation = 0, saving = false, catalogs = {};
   let locations={hosts:[],agents:[]};
@@ -30,12 +44,14 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     const model = models.find(item => item.id === current.model)?.name || current.model || models.find(item => item.default)?.name || names[current.backend];
     const agent = locations.agents.find(item => item.id === instanceKey(current))?.name || names[current.backend];
     const modelDetails = [agent, model !== agent && model, current.effort && t(effortLabel(current.effort))].filter(Boolean);
-    picker.title = [t('Agent、模型与推理强度'), ...modelDetails].join(' · ');
+    picker.dataset.grouped = String(Boolean(group.length));
+    picker.setAttribute('aria-controls',group.length ? 'conversation-group-panel' : 'conversation-model-panel');
+    picker.title = group.length ? group.map(item=>item.name).join(group[0].strategy === 'handoff' ? ' · ' : ' → ') : [t('Agent、模型与推理强度'), ...modelDetails].join(' · ');
     picker.setAttribute('aria-label', picker.title);
-    $('composer-model').textContent = model;
+    $('composer-model').textContent = group.length ? t('群组') + ' · ' + group.length : model;
     const effort = $('composer-effort');
     effort.textContent = current.effort ? t(effortLabel(current.effort)) : '';
-    effort.hidden = !current.effort;
+    effort.hidden = group.length > 0 || !current.effort;
     const logo = current.backend === 'antigravity'
       ? '<img class="icon agent-logo" src="/assets/antigravity.svg" alt="">'
       : `<svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-${current.backend === 'codex' ? 'gpt' : 'model'}"/></svg>`;
@@ -49,7 +65,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
     $('composer-permission').textContent = t(permissionLabel(current.permission));
     permission.querySelector('use').setAttribute('href', `/assets/ui-icons.svg#i-${permissionIcons[current.permission] || 'hand'}`);
     if(state.health) {
-      $('model-status').classList.toggle('unavailable',!state.health.model_configured);
+      $('model-status').classList.toggle('unavailable',!group.length && !state.health.model_configured);
       $('model-label').textContent=state.health.model_configured?`${model} · ${t('已配置')}`:t('模型未配置');
     }
     locationPicker.render();
@@ -103,6 +119,8 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
       permission:instance.backend==='builtin' && selection.permission==='auto_review'?'user':selection.permission,monitor_host:selection.monitor_host||'auto'};
   }
   picker.addEventListener('click', async () => {
+    if (groupMenu.visible) {groupMenu.close(); return;}
+    if (group.length) {void groupMenu.open(); return;}
     if (menu.visible) { menu.close(); return; }
     if (!selection) await defaults();
     if (selection) menu.open();
@@ -161,7 +179,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
   }
   setInterval(approvals,2000);
   window.addEventListener('languagechange',render);
-  return {get value(){return selection?.backend==='builtin' ? selection.model || null : null;},get saving(){return saving;},render,refresh,
+  return {get grouped(){return group.length > 0;},get mentionable(){return group[0]?.strategy === 'handoff' ? group : [];},get value(){return selection?.backend==='builtin' ? selection.model || null : null;},get saving(){return saving;},render,refresh,
     adaptHealth(health){
       if(state.sessionId || !selection) return health;
       const data=catalogs[instanceKey(selection)];
@@ -171,9 +189,9 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
         provider:selection.backend!=='builtin'?selection.backend:data?.provider || (matchesDefault?health.provider:'chatgpt'),
         model_configured:configured ?? (matchesDefault && health.model_configured)};
     },
-    reset(){generation++;selection=null;defaultInstance=null;catalogs={};catalogRequests.clear();menu.close();permissions.close();locationPicker.close();render();},
-    newConversation(){selection=null;defaultInstance=null;menu.close();permissions.close();locationPicker.close();void defaults();},
-    async loadSession(id){const version=++generation;menu.close();permissions.close();locationPicker.close();const [data]=await Promise.all([api(`/api/agents/sessions/${id}`),loadLocations()]);if(version===generation){selection=data;render();}},
-    async saveNewSession(id){if(selection) await api(`/api/agents/sessions/${id}`,{method:'PUT',body:JSON.stringify(selection)});},
+    reset(){group=[];groupMenu.close();generation++;selection=null;defaultInstance=null;catalogs={};catalogRequests.clear();menu.close();permissions.close();locationPicker.close();render();},
+    newConversation(){group=[];groupMenu.close();selection=null;defaultInstance=null;menu.close();permissions.close();locationPicker.close();void defaults();},
+    async loadSession(id){group=[];groupMenu.close();const version=++generation;menu.close();permissions.close();locationPicker.close();const [data]=await Promise.all([api(`/api/agents/sessions/${id}`),loadLocations()]);if(version===generation){selection=data;group=data.group || [];render();}},
+    async saveNewSession(id){if(selection) await api(`/api/agents/sessions/${id}`,{method:'PUT',body:JSON.stringify(selection)});if(group.length) await api(`/api/agents/sessions/${id}/group`, {method:'PUT',body:groupBody(group)});},
   };
 }

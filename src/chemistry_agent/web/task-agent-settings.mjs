@@ -23,7 +23,7 @@ export function createTaskAgentSettings(api) {
   async function load(hostingData) {
     const [presets, hosting] = await Promise.all([api('/api/agents/presets'), hostingData || api('/api/hosting')]);
     items = presets.items;
-    instances = hosting.agents.filter(item => item.enabled && ['codex','antigravity'].includes(item.backend));
+    instances = hosting.agents.filter(item => item.enabled && ['builtin','codex','antigravity'].includes(item.backend));
     draw();
   }
 
@@ -84,7 +84,7 @@ export function createTaskAgentSettings(api) {
     const item = items.find(row => row.id === (button?.dataset.editPreset || button?.dataset.disablePreset));
     if (!item) return;
     if (button.dataset.editPreset) return edit(item);
-    const {id, version, ...body} = item;
+    const {id, version, provider, destination, ...body} = item;
     button.disabled = true;
     try {await persist(id, {...body,enabled:false});} catch (error) {notice.textContent = error.message;}
     finally {button.disabled = false;}

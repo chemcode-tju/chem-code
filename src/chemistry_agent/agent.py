@@ -143,6 +143,10 @@ class ChemistryAgent:
     async def _model(self, state: AgentState) -> dict[str, Any]:
         # Also handles a restart after the tool checkpoint but before closing the ask turn.
         for execution in reversed(state["tool_calls"]):
+            if execution.success and execution.name == "group_handoff":
+                target = execution.result
+                text = f"交给 {target['name']}：{target['task']}"
+                return {"messages": [{"role": "assistant", "content": text}]}
             if (
                 execution.name == "ask_user_question"
                 and execution.success
@@ -241,7 +245,9 @@ class ChemistryAgent:
                 progress.preview.set_steps(public_steps(tail, observed))
             return execution
 
-        if len(calls) > 1 and any(call.function.name == "ask_user_question" for call in calls):
+        if len(calls) > 1 and any(
+            call.function.name in {"ask_user_question", "group_handoff"} for call in calls
+        ):
             # Never execute a dependent action batched with an unresolved decision.
             executions = [
                 ToolExecution(
@@ -249,7 +255,7 @@ class ChemistryAgent:
                     name=call.function.name,
                     arguments=call.function.arguments,
                     success=False,
-                    result={"error": "ask_separately", "message": "请单独调用询问工具。"},
+                    result={"error": "ask_separately", "message": "请单独调用询问或交接工具。"},
                 )
                 for call in calls
             ]

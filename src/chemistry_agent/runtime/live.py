@@ -38,6 +38,7 @@ def public_steps(messages: list[dict], calls: list[dict], pending: str = "runnin
 class LiveAnswer:
     text: str = ""
     steps: list[dict] = field(default_factory=list)
+    group_messages: list[dict] = field(default_factory=list)
     version: int = 0
     finished: bool = False
     changed: asyncio.Event = field(default_factory=asyncio.Event)
@@ -46,6 +47,10 @@ class LiveAnswer:
         if self.steps != steps:
             self.steps = steps
             self.wake()
+
+    def set_group_messages(self, messages: list[dict]) -> None:
+        self.group_messages = messages
+        self.wake()
 
     def set_text(self, text: str) -> None:
         if self.text != text:
@@ -65,6 +70,7 @@ class LiveAnswer:
         version = -1
         previous = ""
         previous_steps = None
+        previous_group = None
         while not self.finished:
             event = self.changed
             if version != self.version:
@@ -78,6 +84,9 @@ class LiveAnswer:
                 if previous_steps != self.steps:
                     body["steps"] = self.steps
                     previous_steps = self.steps
+                if self.group_messages and previous_group is not self.group_messages:
+                    body["group_messages"] = self.group_messages
+                    previous_group = self.group_messages
                 previous = self.text
                 yield f"event: draft\ndata: {json.dumps(body)}\n\n"
             try:

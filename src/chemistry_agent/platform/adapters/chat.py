@@ -2,8 +2,11 @@
 
 import asyncio
 import json
+from functools import partial
 
 from chemistry_agent.agent import RunProgress
+from chemistry_agent.backends.groups import run_group, turn_members
+from chemistry_agent.backends.service import BackendRouter
 from chemistry_agent.model_runtime import ModelScope, current_model_scope
 from chemistry_agent.platform.contracts import Delivery, DeliveryResult
 from chemistry_agent.platform.event_context import build_wakeup_message
@@ -75,7 +78,13 @@ class ChatAgentAdapter:
                 if preset["instructions"]:
                     message += f"\n执行预设指令：{preset['instructions']}"
             async with asyncio.timeout(plans.chat.service.settings.run_timeout_seconds):
-                result = await plans.agent.run(
+                group = (
+                    await turn_members(plans.store, session)
+                    if not task and isinstance(plans.agent, BackendRouter)
+                    else []
+                )
+                execute = partial(run_group, plans.agent, group) if group else plans.agent.run
+                result = await execute(
                     [*history, {"role": "system", "content": message}],
                     progress,
                     session_id=session,

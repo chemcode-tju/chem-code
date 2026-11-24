@@ -229,3 +229,27 @@ dialog.folder-dialog {
   .model-picker-reasoning [data-efforts] { display:flex; flex-wrap:wrap; gap:4px; }
   .model-picker-reasoning button { width:auto; }
 }
+
+/* A group has separate model windows and no single context meter. */
+.composer-right:has(#agent-picker[data-grouped=true]) #context-ring { display:none; }
+.group-picker { display:block; overflow:auto; width:min(380px,calc(100vw - 16px)); padding:12px; }
+.group-picker h2 { font-size:var(--font-size-ui); margin:0 0 8px; }
+.group-picker label { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:12px; margin-block:8px; }
+.group-picker select { width:100%; min-height:var(--control-height); color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-control); font:inherit; }
+.group-picker p { font-size:var(--font-size-secondary); color:var(--muted); }
+.group-picker p:empty { display:none; }
+.group-picker footer { margin-top:8px; }
+
+@media (pointer:coarse) { .group-picker :is(select,button) { min-height:44px; } }
+
+.group-speech { min-width:0; margin-block:12px; }
+.group-speech + .group-speech { border-top:1px solid var(--border); padding-top:12px; }
+.group-speech > header { display:flex; align-items:center; gap:8px; overflow-wrap:anywhere; font-size:var(--font-size-ui); }
+.group-speech .group-mention { background:transparent; color:var(--muted); border:0; border-radius:var(--radius-control); min-width:30px; min-height:30px; padding:0 4px; font:inherit; cursor:pointer; }
+.group-mention:hover,.group-mention:focus-visible { color:var(--text); background:var(--hover); }
+.group-transfer { margin-top:6px; color:var(--muted); font-size:var(--font-size-secondary); overflow-wrap:anywhere; }
+.group-transfer summary { display:flex; align-items:center; gap:4px; width:fit-content; cursor:pointer; }
+.group-transfer summary .icon { width:12px; height:12px; flex:none; }
+.group-transfer[open] summary .icon { transform:rotate(90deg); }
+.group-transfer > .markdown { margin:4px 0 0 16px; color:var(--text); font-size:var(--reading-size); }
+@media (pointer:coarse) { .group-speech .group-mention { min-height:44px; min-width:44px; } }

@@ -42,7 +42,7 @@ async def initialize(db: Connection) -> None:
 
 class PresetInput(StrictModel):
     name: str = Field(min_length=1, max_length=80)
-    backend: Literal["codex", "antigravity"]
+    backend: Literal["builtin", "codex", "antigravity"]
     instance_id: str = Field(min_length=1, max_length=96)
     model: str = Field(min_length=1, max_length=160)
     effort: str = Field(default="", max_length=32)
@@ -196,14 +196,17 @@ async def save_preset(
             raise AgentError("preset_model_unavailable", "此实例未提供所选模型或推理强度。", 422)
     store = router.store
     body = body.model_copy(update={"name": body.name.strip()})
+    payload = body.model_dump()
+    if body.enabled and body.backend == "builtin":
+        payload.update(provider=catalog["provider"], destination=catalog["destination"])
     async with store.transaction():
         await store.db.execute(
             "INSERT INTO task_agent_presets VALUES (?,1,?) ON CONFLICT(id) DO UPDATE SET "
             "version=version+1,payload=excluded.payload WHERE payload<>excluded.payload",
-            (identifier, body.model_dump_json()),
+            (identifier, json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
         )
         row = await store._one("SELECT version FROM task_agent_presets WHERE id=?", (identifier,))
-    return body.model_dump() | {"id": identifier, "version": row["version"]}
+    return payload | {"id": identifier, "version": row["version"]}
 
 
 async def assign(
@@ -271,14 +274,20 @@ async def resolve(router: BackendRouter, preset: dict) -> BackendSettings:
     )
     instance = router.hosting.resolve(choice, settings)
     backend = preset["backend"]
+    if backend == "builtin":
+        model = {
+            "preset_model": preset["model"], "reasoning_effort": preset["effort"],
+            "preset_provider": preset["provider"], "preset_destination": preset["destination"],
+        }
+    else:
+        model = {f"{backend}_model": preset["model"], f"{backend}_effort": preset["effort"]}
     return settings.model_copy(
         update=instance
         | {
             "working_directory": "",
             "workspace_id": "",
             "workspace_path": "",
-            f"{backend}_model": preset["model"],
-            f"{backend}_effort": preset["effort"],
+            **model,
             "permission_mode": "user",
             "codex_sandbox": "workspace-write",
         }

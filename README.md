@@ -24,6 +24,18 @@ Chem Code 是面向计算催化研究的聊天工作区。用户可以给出结�
 
 本地/常驻服务器部署、OpenViking 和 Skill 插件接入见[多服务器与共享知识](docs/RESEARCH_ENVIRONMENTS.md)。
 
+## 多 Agent 协作
+
+在本地工作台的「设置 → Agent 与模型 → 执行预设」中，为每个角色保存名称、实例、模型和任务指令。例如，用 Antigravity 的 Gemini 模型拟定方案，用 Codex 核对方案并执行获准的操作，再用已连接 DeepSeek 的 Chem Agent 复核变更、测试结果和待修复问题。
+
+- 在方案草稿的研究任务卡片上选择「执行 Agent」。确认后，步骤就绪和后续作业事件会送回该负责人。
+- 在聊天输入框的模型菜单中选择「开启群组」，选择 2–8 个预设。新建群组默认采用「按需交接」：默认接手人处理新请求，消息开头的 `@成员名` 可直接点名。成员通过 `group_handoff` 指定接手人和任务，支持审查后退回修改。每轮最多处理 2 × 成员数 + 1 次。原有群组保留「依次处理」模式。每位成员接收原始请求、先前的署名答复和工具结果摘录。同一会话的后续消息和发给主对话的方案事件沿用会话的协作方式。成员提问时，本轮暂停等待用户回答。
+- 点击输入框中的「群组」可调整顺序或关闭。重试已保存的聊天消息时，平台保留完成的交接，从中断的成员继续；工具结果未知时沿用原有的核对流程。
+
+群里每次发言单独署名。展开「交给 Codex」之类的记录可读到具体任务，在发言人旁点击 @ 可点名追问。群聊交互参考 Clowder AI 的同群点名与跨模型互审，以及 bothouse 的任务交接。工具与审批由 Chem Code 现有运行时处理。[Clowder AI 实录](https://github.com/zts212653/cat-cafe-tutorials/blob/main/docs/lessons/DEMO.md) · [bothouse](https://github.com/zuiho-kai/bothouse)
+
+可运行 `python examples/group_handoff_demo.py`，然后打开 [本地试玩房间](http://127.0.0.1:18973/demo)。回复由脚本模拟，分子性质由 RDKit 实算。发送「核对乙醇和二甲醚是不是同一种分子」可测试审查退回和重新送审。
+
 ## 模型登录
 
 研究空间左下角的「设置 → 模型」支持 ChatGPT 账号授权、DeepSeek API Key 和自定义 OpenAI

@@ -4,6 +4,7 @@ import {createFileBrowser} from "./file-browser.mjs";
 import {userQuestions} from './user-questions.mjs';
 import {visibleReference, activity, activityOpen, activitySteps, answerBox, answerFooter, liveAnswerFooter, initAnswerControls, initDeferredActivities} from "./answer-ui.mjs";
 import {liveAnswer} from "./live-answer.mjs";
+import {addressDraft, groupMessages} from "./group-messages.mjs";
 import {createProgressFeed} from './progress-feed.mjs';
 import { settingsHref, initSettingsDialog } from "./settings-dialog.mjs";
 import {initWorkspaceControls} from './workspace-controls.mjs';
@@ -374,7 +375,8 @@ function updateControls() {
   $("permission-picker").disabled = Boolean(locked || state.metadataLoading);
   for (const id of ['host-picker','folder-picker','folder-clear','monitor-picker']) $(id).disabled = Boolean(locked || state.metadataLoading);
   $("message-input").disabled = state.loading;
-  $("send-button").disabled = locked || state.metadataLoading || uploads.uploading || !state.health?.model_configured;
+  updateMentions($("conversation"));
+  $("send-button").disabled = locked || state.metadataLoading || uploads.uploading || !(state.health && (chatModels?.grouped || state.health.model_configured));
   $("composer-add").disabled = locked || uploads.uploading;
   const sendLabel = t(state.busy ? "正在生成回答" : "发送消息");
   $("send-button").title = sendLabel;
@@ -415,7 +417,7 @@ async function refreshHealth() {
     const names = { "deepseek-flash": "DeepSeek Flash", "deepseek-v4-pro": "DeepSeek Pro" };
     $("model-label").textContent = state.health.model_configured
       ? `${names[state.health.model] || state.health.model} · ${state.health.provider === "chatgpt" ? "已登录" : "已配置"}` : "模型未配置";
-    $("model-status").classList.toggle("unavailable", !state.health.model_configured);
+    $("model-status").classList.toggle("unavailable", !chatModels?.grouped && !state.health.model_configured);
   } catch {
     if (healthSession !== state.sessionId) return;
     state.health = null;
@@ -500,11 +502,31 @@ function artifactLinks(calls) {
 
 const questionCard = userQuestions({root:$("conversation"), session:()=>state.sessionId,
   api, sync:()=>syncChat(), toast});
+
+function updateMentions(root) {
+  const roster = chatModels?.mentionable || [];
+  for (const button of root.querySelectorAll('[data-mention-member]')) {
+    const matches = roster.filter(member => member.name.toLowerCase() === button.dataset.memberName.toLowerCase());
+    button.hidden = state.metadataLoading || matches.length !== 1 || matches[0].id !== button.dataset.mentionMember;
+  }
+}
+
+$("conversation").addEventListener('click', event => {
+  const button = event.target.closest('[data-mention-member]');
+  if (!button || button.hidden) return;
+  const input = $("message-input");
+  input.value = addressDraft(input.value, button.dataset.memberName, chatModels.mentionable);
+  input.dispatchEvent(new Event('input', {bubbles:true}));
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+});
+
 function turnAnswer(turn,index) {
   const ask = turn.calls.find(call=>call.name==="ask_user_question" && call.success && call.result?.status==="awaiting_user");
-  if (!ask) return answerBox(markdown.render(turn.answer));
+  const speeches = turn.groupMessages ? groupMessages(turn.groupMessages, markdown) : '';
+  if (!ask) return speeches || answerBox(markdown.render(turn.answer));
   const active=!state.turns.slice(index+1).some(other=>!other.event) && !state.outbox.length && !state.pending;
-  return questionCard(ask.result,active);
+  return speeches + questionCard(ask.result,active);
 }
 
 function renderConversation(scroll = true) {
@@ -533,7 +555,7 @@ function renderConversation(scroll = true) {
     const failed = ["failed","uncertain"].includes(item.status);
     const label = failed ? item.error || "处理失败" : item.status==="queued" ? "等待上一条回复" : "";
     article.innerHTML = renderUser(item.body.message, item.body.context || "") +
-      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}${liveAnswerFooter(item.id)}</div></div>`;
+      `<div class="assistant-message"><div class="assistant-body">${activity({id:item.run_id || item.id,start:item.started_at || (item.status==='running'?item.created_at:null),end:item.finished_at,calls:item.tools || [],steps:item.steps || [],running:item.status==='running',draftRequest:item.id})}<div data-live-group></div>${item.partial_group?.length ? groupMessages(item.partial_group, markdown) : item.partial_answer ? answerBox(markdown.render(item.partial_answer)) : ''}${label?`<div class="${failed?'message-error':'thinking-indicator'}">${escapeHtml(label)}</div>`:''}${item.status === "failed" ? `<button class="retry-button" data-retry-request="${escapeHtml(item.id)}">重试这条消息</button>` : ""}${liveAnswerFooter(item.id)}</div></div>`;
     $("conversation").append(article);
   }
   for (const el of $("conversation").querySelectorAll("[data-activity]")) el.open=activityOpen(el.dataset.running==='true',expanded.get(el.dataset.activity));
@@ -715,7 +737,7 @@ function restoreDraft() {
 }
 
 const streamed = liveAnswer({
-  render(request, text, steps) {
+  render(request, text, steps, group) {
     const el = document.querySelector(`[data-live-request="${CSS.escape(request)}"]`);
     if (!el) return;
     const scroll = $("chat-scroll");
@@ -725,11 +747,26 @@ const streamed = liveAnswer({
       activity.dataset.steps = JSON.stringify(steps);
       activity.querySelector('[data-activity-steps]').innerHTML = activitySteps(steps);
     }
-    if (el.dataset.preview !== text) {
+    if (group?.length) {
+      const feed = activity.parentElement.querySelector('[data-live-group]');
+      if (feed.messages !== group) {
+        feed.messages = group;
+        feed.groupPrefixLength = group.map(speech => '### ' + speech.name + '\n\n' + speech.answer).join('\n\n').length;
+        feed.innerHTML = groupMessages(group, markdown);
+        updateMentions(feed);
+      }
+      const current = text.slice(feed.groupPrefixLength);
+      const body = feed.lastElementChild.querySelector('.markdown');
+      if (body.dataset.draft !== current) {
+        body.dataset.draft = current;
+        body.innerHTML = markdown.renderPartial?.(current) ?? markdown.render(current);
+      }
+      el.dataset.preview = text;
+    } else if (el.dataset.preview !== text) {
       el.dataset.preview = text;
       el.innerHTML = text ? (markdown.renderPartial?.(text) ?? markdown.render(text)) : "";
     }
-    el.parentElement.hidden = !text;
+    el.parentElement.hidden = !text || Boolean(group?.length);
     const footer=el.closest('.assistant-body')?.querySelector(`[data-live-footer="${CSS.escape(request)}"]`);
     if(footer) footer.hidden=!text;
     activity.querySelector('[data-activity-placeholder]').hidden = Boolean(text || activity.querySelector('[data-activity-steps]').childElementCount);
@@ -787,7 +824,7 @@ window.addEventListener("pagehide", () => saveDraft());
 async function sendChat(message, context = "", files = uploads.files, retryRequest = null) {
   if (state.busy || state.loading || state.metadataLoading || chatModels.saving || uploads.uploading || !message.trim()) return;
   const selectedModel = chatModels.value;
-  if (!state.health?.model_configured) { toast("请先连接并配置模型。"); return; }
+  if (!(state.health && (chatModels.grouped || state.health.model_configured))) { toast("请先连接并配置模型。"); return; }
   state.busy = true;
   const accountVersion = state.accountVersion;
   const structures = calculations.selection();
@@ -798,12 +835,13 @@ async function sendChat(message, context = "", files = uploads.files, retryReque
     if (!state.sessionId) {
       const session = await api("/sessions", { method:"POST", body:JSON.stringify({}) });
       if (accountVersion !== state.accountVersion) return;
+      await chatModels.saveNewSession(session.id, selectedModel);
+      if (accountVersion !== state.accountVersion) return;
       state.sessionId = session.id;
       fileBrowser.syncSession();
       $("conversation-title").textContent = session.title;
       rememberSession(session.id);
       adoptInspector(session.id);
-      await chatModels.saveNewSession(session.id, selectedModel);
       await projectNavigation.assign(session.id);
     }
     if (!outbound || outbound.message !== message.trim() || outbound.context !== (context.trim() || null)) {

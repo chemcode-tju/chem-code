@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rdkit import Chem, DataStructs, rdBase
 from rdkit.Chem import Crippen, Descriptors, Lipinski, rdFingerprintGenerator, rdMolDescriptors
 
+from chemistry_agent.backends.handoff import active_handoff
 from chemistry_agent.errors import AgentError
 from chemistry_agent.platform.contracts import OperationContext as ToolContext
 from chemistry_agent.platform.task_agents import TASK_TOOLS, current_task_agent
@@ -127,6 +128,8 @@ class ToolRegistry:
 
     @staticmethod
     def visible(tool: Tool) -> bool:
+        if tool.name == "group_handoff":
+            return active_handoff.get() is not None
         if current_task_agent.get():
             return tool.name in TASK_TOOLS or tool.name in {
                 "molecular_properties", "molecular_similarity",

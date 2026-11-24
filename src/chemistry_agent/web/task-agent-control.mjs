@@ -4,7 +4,7 @@ import {t} from './i18n.mjs';
 
 export function presetDescription(preset) {
   if (!preset) return '';
-  const backend = preset.backend === 'codex' ? 'Codex' : 'Antigravity';
+  const backend = ({codex:'Codex', antigravity:'Antigravity', builtin:preset.provider || 'Chem Agent'})[preset.backend];
   return [backend, preset.model, preset.effort && t(effortLabel(preset.effort))].filter(Boolean).join(' · ');
 }
 

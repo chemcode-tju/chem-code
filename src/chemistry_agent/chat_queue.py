@@ -9,6 +9,7 @@ import aiosqlite
 from starlette.requests import Request
 
 from chemistry_agent.automation.routes import local_service
+from chemistry_agent.backends.groups import transcript
 from chemistry_agent.errors import AgentError
 from chemistry_agent.model_runtime import ModelScope, ProviderRouter, current_model_scope
 from chemistry_agent.runtime.checkpoint import UNCERTAIN, Checkpoint, current_checkpoint
@@ -87,10 +88,22 @@ class ChatQueue:
                     "VALUES (?,?,?,'queued',?)",
                     (identifier, session, encoded, utc_now()),
                 )
+            group = await self.store._one(
+                "SELECT members FROM conversation_groups WHERE session_id=?", (session,)
+            )
+            roster = json.loads(group["members"]) if group else []
+            snapshot = {"group": {"members": roster, "completed": []}} if roster else None
             await self.store.db.execute(
-                "INSERT OR IGNORE INTO chat_checkpoints(request_id,local,provider,destination) "
-                "VALUES(?,?,?,?)",
-                (identifier, local, config.provider, config.base_url),
+                "INSERT OR IGNORE INTO chat_checkpoints"
+                "(request_id,local,provider,destination,payload) "
+                "VALUES(?,?,?,?,?)",
+                (
+                    identifier,
+                    local,
+                    config.provider,
+                    config.base_url,
+                    json.dumps(snapshot) if snapshot else None,
+                ),
             )
         # Copy request-local state: background work must not write to the HTTP request.
         detached = Request({**request.scope, "state": dict(request.scope.get("state", {}))})
@@ -173,6 +186,12 @@ class ChatQueue:
             async with self.store.db.execute(
                 "SELECT q.id,q.session_id,q.created_at,q.run_id,q.status,q.error,"
                 "r.started_at,r.finished_at,"
+                "CASE WHEN q.status IN ('failed','uncertain') THEN "
+                "(SELECT json_group_array(json_object("
+                "'member_id',json_extract(value,'$.member_id'),"
+                "'name',json_extract(value,'$.name'),'answer',json_extract(value,'$.answer'),"
+                "'handoff',json_extract(value,'$.handoff'))) "
+                "FROM json_each(c.payload,'$.group.completed')) END AS partial_group,"
                 "CASE WHEN q.status!='completed' THEN json_extract(c.payload,'$.steps') "
                 "END AS steps,"
                 "(SELECT json_group_array(json_object('name', json_extract(value,'$.name'), "
@@ -190,6 +209,8 @@ class ChatQueue:
                 rows = await cursor.fetchall()
         receipts = [self.public(row) for row in reversed(rows)]
         for item in receipts:
+            item["partial_group"] = json.loads(item["partial_group"] or "[]")
+            item["partial_answer"] = transcript(item["partial_group"]) or None
             preview = self.live.get(item["id"])
             item["steps"] = (
                 preview.steps if preview and preview.steps else json.loads(item["steps"] or "[]")

@@ -157,7 +157,10 @@ export function buildTurns(messages, runs = []) {
           pendingCalls.set(call.id, call);
           turn.steps.push({type:'tool',call_id:call.id,name:call.function?.name || '工具',status:'uncertain'});
         }
-      } else if (message.content) turn.answer = message.content;
+      } else if (message.content) {
+        turn.answer = message.content;
+        if (message.group_messages?.length) turn.groupMessages = message.group_messages;
+      }
     } else if (turn && message.role === "tool") {
       const call = pendingCalls.get(message.tool_call_id);
       const result = parseJson(message.content, { error: "invalid_result", message: "无法读取结果" });

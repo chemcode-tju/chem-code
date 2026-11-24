@@ -33,7 +33,7 @@ export function createAnchoredPanel(anchor, menu) {
     if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); close(true); }
   });
   document.addEventListener('pointerdown', event => { if (!menu.contains(event.target) && !anchor.contains(event.target)) close(); });
-  document.addEventListener('chem:menu-open', event => { if (event.detail !== anchor) close(); });
+  document.addEventListener('chem:menu-open', event => { if (event.detail !== anchor && !(event.detail instanceof Node && menu.contains(event.detail))) close(); });
   document.addEventListener('focusin', event => { if (!menu.hidden && !menu.contains(event.target) && !anchor.contains(event.target)) close(); });
   window.addEventListener('resize', place);
   window.addEventListener('scroll', place, true);

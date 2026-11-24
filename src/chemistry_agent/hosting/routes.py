@@ -133,7 +133,12 @@ async def instance_models(backends, identifier: str, provider) -> dict:
     if not item:
         raise AgentError("agent_instance_missing", "Agent 实例不存在。", 404)
     if item["backend"] == "builtin":
-        return await provider.list_models() | {"configured": await provider.ready()}
+        ready = await provider.ready()
+        _, configuration = provider.configuration()
+        return await provider.list_models() | {
+            "configured": ready, "authenticated": ready, "backend": "builtin",
+            "destination": configuration.base_url,
+        }
     resolved = backends.hosting.resolve(
         SessionSelection(backend=item["backend"], instance_id=identifier, permission="user"), config
     )

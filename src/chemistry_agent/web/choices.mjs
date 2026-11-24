@@ -93,7 +93,7 @@ function open(select) {
   const resize = new ResizeObserver(place);
   current = {select, observer, resize, search:"", searchTime:0};
   labelMenu(select);
-  (select.closest("dialog[open]") || document.fullscreenElement || document.body).append(menu);
+  (select.closest("dialog[open], .agent-menu") || document.fullscreenElement || document.body).append(menu);
   if (hasPopover) menu.showPopover();
   select.setAttribute("aria-expanded", "true");
   select.setAttribute("aria-controls", menu.id);

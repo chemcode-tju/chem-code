@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from chemistry_agent.automation.routes import local_service
+from chemistry_agent.backends.groups import GroupSelection, members, save_group
 from chemistry_agent.backends.service import BackendSettings, BackendUpdate, SessionSelection
 from chemistry_agent.errors import AgentError
 from chemistry_agent.hosting.routes import instance_models
@@ -67,11 +68,18 @@ async def binding(session_id: UUID, request: Request) -> dict:
     local_service(request)
     await request.app.state.store.require_session(str(session_id), request.state.user_id)
     item = await request.app.state.agent_backends.binding(str(session_id))
-    return {
+    return {"group": await members(request.app.state.store, str(session_id))} | {
         k: item[k] for k in ("backend", "external_thread_id", "turn_state")
     } | await request.app.state.agent_backends.selection(
         str(session_id), request.app.state.provider
     )
+
+
+@router.put("/sessions/{session_id}/group")
+async def configure_group(session_id: UUID, body: GroupSelection, request: Request) -> dict:
+    local_service(request)
+    roster = await save_group(request.app.state.store, str(session_id), request.state.user_id, body)
+    return {"members": roster}
 
 
 @router.get("/selection")

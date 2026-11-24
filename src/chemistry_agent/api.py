@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager, nullcontext
+from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -34,6 +35,8 @@ from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
 from chemistry_agent.automation.settings_tools import authorizes_configuration, configuration_grant
 from chemistry_agent.automation.ssh_routes import router as ssh_router
+from chemistry_agent.backends.groups import run_group, turn_members
+from chemistry_agent.backends.handoff import HandoffInput, handoff
 from chemistry_agent.backends.routes import router as backend_router
 from chemistry_agent.backends.service import BackendRouter
 from chemistry_agent.chat_queue import ChatQueue
@@ -72,7 +75,7 @@ from chemistry_agent.session_titles import router as titles_router
 from chemistry_agent.store import Store
 from chemistry_agent.structures import router as structures_router
 from chemistry_agent.tokens import TokenCounter
-from chemistry_agent.tools import ToolRegistry
+from chemistry_agent.tools import Tool, ToolRegistry
 from chemistry_agent.user_questions import QUESTION_TOOL, Ask, Reply
 from chemistry_agent.workspace_files import WorkspaceFiles, workspace_tools
 from chemistry_agent.workspace_files import router as workspace_router
@@ -100,6 +103,11 @@ def create_app(
     calculation_enabled = settings.automation_enabled and not settings.auth_enabled
     extras = calculation_chat.tools() if calculation_enabled else []
     extras.append(QUESTION_TOOL)
+    if not settings.auth_enabled:
+        extras.append(Tool(
+            "group_handoff", "Transfer this assignment to another team member, then end your turn.",
+            HandoffInput, handoff,
+        ))
     extras.extend(workspace_tools(lambda: app.state.workspace_files))
     if settings.research_memory_enabled and not settings.auth_enabled:
         extras.extend(
@@ -623,7 +631,10 @@ def create_app(
         binding = await request.app.state.agent_backends.binding(
             str(body.session_id) if body.session_id else None
         )
-        if binding["backend"] != "builtin":
+        group = await turn_members(store, str(body.session_id) if body.session_id else None)
+        if group:
+            local_service(request)
+        elif binding["backend"] != "builtin":
             local_service(request)
             if not await request.app.state.agent_backends.ready(
                 str(body.session_id) if body.session_id else None
@@ -688,7 +699,9 @@ def create_app(
         grant = auto_queue.set(authorized_queue(body.message) if calculation_enabled else None)
         try:
             async with asyncio.timeout(settings.run_timeout_seconds):
-                result = await request.app.state.agent_backends.run(
+                router = request.app.state.agent_backends
+                execute = partial(run_group, router, group) if group else router.run
+                result = await execute(
                     messages,
                     progress,
                     session_id=session_id,

@@ -52,7 +52,28 @@ class ToolExecution(BaseModel):
     result: dict[str, Any]
 
 
+class GroupContribution(BaseModel):
+    preset_id: str
+    version: int
+    name: str
+    instance_id: str
+    model: str
+    call_ids: list[str]
+
+    @classmethod
+    def from_member(cls, member: dict, calls: list[dict]) -> "GroupContribution":
+        return cls(
+            preset_id=member["id"],
+            version=member["version"],
+            name=member["name"],
+            instance_id=member["instance_id"],
+            model=member["model"],
+            call_ids=[call["call_id"] for call in calls],
+        )
+
+
 class ContextUsage(BaseModel):
+    group_contributions: list[GroupContribution] = Field(default_factory=list)
     automation_event: Literal["diagnosis", "submission", "job_completion"] | None = None
     error_message: str | None = None
     manual_compaction: bool = False

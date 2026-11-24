@@ -5,7 +5,7 @@ const effortOrder = new Map([
   '', 'disabled', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'extra', 'max', 'ultra', 'enabled',
 ].map((effort, rank) => [effort, rank]));
 
-export function createModelPickerPanel(anchor, {getAgents, getSelection, agentChoice, catalog, choose, openSettings}) {
+export function createModelPickerPanel(anchor, {getAgents, getSelection, agentChoice, catalog, choose, openSettings, openGroup}) {
   const panel = document.createElement('section');
   panel.id = 'conversation-model-panel';
   panel.className = 'agent-menu model-picker-panel';
@@ -30,6 +30,7 @@ export function createModelPickerPanel(anchor, {getAgents, getSelection, agentCh
       <div class="model-picker-options" data-efforts role="group" aria-label="推理强度"></div>
     </section>
     <footer class="model-picker-footer">
+      <button type="button" class="quiet-button" data-group>开启群组…</button>
       <button type="button" class="quiet-button" data-refresh>刷新模型</button>
       <button type="button" class="quiet-button" data-settings>配置 Agent…</button>
     </footer>`;
@@ -167,12 +168,14 @@ export function createModelPickerPanel(anchor, {getAgents, getSelection, agentCh
     if (model) setModel({id:model});
   };
   panel.querySelector('[data-refresh]').onclick = () => { if (instance) void selectAgent(instance, true); };
+  panel.querySelector('[data-group]').onclick = () => {popup.close(); openGroup();};
   panel.querySelector('[data-settings]').onclick = () => { popup.close(true); openSettings(); };
 
   return {
     get visible() { return popup.visible; },
     close: popup.close,
     open() {
+      anchor.setAttribute('aria-controls',panel.id);
       panel.setAttribute('aria-label', t('模型选择'));
       panel.querySelectorAll('h2').forEach(heading => { heading.textContent = t(heading.textContent); });
       search.placeholder = t('搜索模型');

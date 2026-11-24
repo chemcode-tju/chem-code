@@ -196,11 +196,15 @@ class Store:
         async with self.db.execute(
             "SELECT payload,task_event FROM messages WHERE session_id=? ORDER BY seq", (session_id,)
         ) as cursor:
-            return [
-                json.loads(row["payload"])
-                | ({"task_event": row["task_event"]} if display and row["task_event"] else {})
-                for row in await cursor.fetchall()
-            ]
+            messages = []
+            for row in await cursor.fetchall():
+                message = json.loads(row["payload"])
+                if not display:
+                    message.pop("group_messages", None)
+                elif row["task_event"]:
+                    message["task_event"] = row["task_event"]
+                messages.append(message)
+            return messages
 
     async def append_task_report(self, session: str, event: str, answer: str) -> bool:
         """Commit an assistant-only message once, between user turns."""

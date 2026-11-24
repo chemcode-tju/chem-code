@@ -1,6 +1,7 @@
 """Durable backend choices and session bindings, independent of model providers."""
 
 from collections.abc import Callable
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -10,8 +11,14 @@ from chemistry_agent.backends.delivery import BackendDeliveries
 from chemistry_agent.backends.runtime import NativeSessions
 from chemistry_agent.errors import AgentError
 
+# Each group speaker starts a fresh native thread over the shared platform history.
+speaker_binding: ContextVar[dict | None] = ContextVar("speaker_binding", default=None)
+
 
 class BackendSettings(BaseModel):
+    preset_model: str = ""
+    preset_provider: str = ""
+    preset_destination: str = ""
     instance_id: str = ""
     host_id: str = "local"
     workspace_id: str = ""
@@ -124,6 +131,10 @@ class BackendRouter:
 
     async def initialize(self) -> None:
         async with self.store.transaction():
+            await self.store.db.execute(
+                "CREATE TABLE IF NOT EXISTS conversation_groups (session_id TEXT PRIMARY KEY "
+                "REFERENCES sessions(id) ON DELETE CASCADE, members TEXT NOT NULL)"
+            )
             await self.deliveries.initialize()
             await self.approvals.initialize()
             await self.store.db.execute(
@@ -196,6 +207,9 @@ class BackendRouter:
         return config.model_dump()
 
     async def binding(self, session: str | None, *, create: bool = False) -> dict:
+        speaker = speaker_binding.get()
+        if speaker and speaker["session_id"] == session:
+            return speaker
         async with self.store.lock:
             row = await self.store._one(
                 "SELECT * FROM agent_bindings WHERE session_id=?", (session,)
@@ -223,6 +237,10 @@ class BackendRouter:
         allowed = {"external_thread_id", "external_turn_id", "turn_state"}
         if not values or set(values) - allowed:
             raise ValueError("Invalid binding update")
+        speaker = speaker_binding.get()
+        if speaker and speaker["session_id"] == session:
+            speaker.update(values)
+            return
         async with self.store.transaction():
             await self.store.db.execute(
                 "UPDATE agent_bindings SET "
@@ -435,6 +453,21 @@ class BackendRouter:
                 kwargs["binding"] = binding
                 hosted = HostedBackend(self, adapter, config, binding["backend"])
                 return await self.deliveries.execute(hosted, messages, progress, **kwargs)
+            if config.preset_model:
+                from chemistry_agent.model_runtime import ModelScope, current_model_scope
+
+                owner, current = adapter.provider.configuration()
+                expected = (config.preset_provider, config.preset_destination)
+                if (current.provider, current.base_url) != expected:
+                    raise AgentError(
+                        "preset_provider_changed", "模型服务已更改，请重新保存执行预设。", 409
+                    )
+                scoped = current.model_copy(update={"model": config.preset_model})
+                token = current_model_scope.set(ModelScope(owner, scoped))
+                try:
+                    return await adapter.run(messages, progress, **kwargs)
+                finally:
+                    current_model_scope.reset(token)
             return await adapter.run(messages, progress, **kwargs)
         finally:
             current_tool_approval.reset(approval_token)
