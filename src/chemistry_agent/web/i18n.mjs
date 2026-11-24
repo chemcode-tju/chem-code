@@ -873,7 +873,8 @@ const messages = {
   "分子属性计算":"Molecular properties", "结构相似度比较":"Structure similarity", "上下文已压缩":"Context compacted",
   "计算未完成，请检查输入的分子结构。":"Calculation failed. Check the molecule input.", "暂时无法读取会话，请点击刷新。":"Unable to load chats. Try refreshing.",
   "暂时无法连接本地服务，请检查服务是否正在运行。":"Cannot connect to the local service. Check that it is running.", "登录已过期，请重新登录。":"Session expired. Sign in again.", "输入格式有误，请检查后再试。":"Check your input and try again.", "请求未能完成，请稍后重试。":"The request failed. Please try again.",
-  "正在打开研究空间…":"Opening workspace…", "登录工作空间":"Sign in to workspace", "使用你的工作空间账号登录。":"Use your workspace account to sign in.", "用户名":"Username", "例如 researcher":"e.g. researcher", "密码":"Password", "请输入密码":"Enter your password", "账号由管理员开通。需要帮助时，请联系工作空间管理员。":"Accounts are created by your workspace administrator.", "暂时无法连接服务，请稍后刷新页面重试。":"Unable to connect. Refresh the page to try again."
+  "正在打开研究空间…":"Opening workspace…", "登录工作空间":"Sign in to workspace", "使用你的工作空间账号登录。":"Use your workspace account to sign in.", "用户名":"Username", "例如 researcher":"e.g. researcher", "密码":"Password", "请输入密码":"Enter your password", "账号由管理员开通。需要帮助时，请联系工作空间管理员。":"Accounts are created by your workspace administrator.", "暂时无法连接服务，请稍后刷新页面重试。":"Unable to connect. Refresh the page to try again.",
+  "执行 Agent":"Execution agent", "任务线程":"Task thread", "等待任务启动":"Waiting for task start", "调度完成":"Scheduler completed", "已采用":"Adopted", "删除":"Delete"
 };
 let language = "zh-CN";
 try { language = localStorage.getItem("chemistry.language") === "en" ? "en" : "zh-CN"; } catch { /* Optional storage. */ }
