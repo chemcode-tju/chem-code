@@ -30,6 +30,36 @@ class ChatQueue:
         self.session_locks: dict[str, asyncio.Lock] = {}
         self.account_locks: dict[str | None, asyncio.Lock] = {}
 
+    async def insert_receipt(
+        self,
+        identifier: str,
+        session: str,
+        body: ChatRequest,
+        local: bool,
+        provider: str,
+        destination: str,
+    ) -> None:
+        """Persist a new turn and its execution boundary in the caller's transaction."""
+        await self.store.db.execute(
+            "INSERT INTO chat_requests(id,session_id,body,status,created_at) "
+            "VALUES (?,?,?,'queued',?)",
+            (identifier, session, self.encode(body), utc_now()),
+        )
+        group = await self.store._one(
+            "SELECT members FROM conversation_groups WHERE session_id=?", (session,)
+        )
+        roster = json.loads(group["members"]) if group else []
+        snapshot = json.dumps({"group": {"members": roster, "completed": []}}) if roster else None
+        await self.store.db.execute(
+            "INSERT INTO chat_checkpoints(request_id,local,provider,destination,payload) "
+            "VALUES(?,?,?,?,?)",
+            (identifier, local, provider, destination, snapshot),
+        )
+
+    @staticmethod
+    def encode(body: ChatRequest) -> str:
+        return json.dumps(body.model_dump(mode="json", exclude_unset=True), sort_keys=True)
+
     async def enqueue(
         self,
         identifier: str,
@@ -40,7 +70,7 @@ class ChatQueue:
         answering: str | None = None,
     ) -> dict:
         session = str(body.session_id)
-        encoded = json.dumps(body.model_dump(mode="json", exclude_unset=True), sort_keys=True)
+        encoded = self.encode(body)
         user_id, config = self.provider.configuration()
         try:
             local_service(request)
@@ -69,6 +99,11 @@ class ChatQueue:
                     "UPDATE chat_requests SET status='queued',run_id=NULL,error=NULL WHERE id=?",
                     (identifier,),
                 )
+                await self.store.db.execute(
+                    "INSERT OR IGNORE INTO chat_checkpoints(request_id,local,provider,destination) "
+                    "VALUES(?,?,?,?)",
+                    (identifier, local, config.provider, config.base_url),
+                )
             else:
                 if answering:
                     current = await self.store._one(
@@ -83,28 +118,9 @@ class ChatQueue:
                     )
                     if not current:
                         raise AgentError("question_superseded", "会话已继续，请查看最新方案。", 409)
-                await self.store.db.execute(
-                    "INSERT INTO chat_requests(id,session_id,body,status,created_at) "
-                    "VALUES (?,?,?,'queued',?)",
-                    (identifier, session, encoded, utc_now()),
+                await self.insert_receipt(
+                    identifier, session, body, local, config.provider, config.base_url
                 )
-            group = await self.store._one(
-                "SELECT members FROM conversation_groups WHERE session_id=?", (session,)
-            )
-            roster = json.loads(group["members"]) if group else []
-            snapshot = {"group": {"members": roster, "completed": []}} if roster else None
-            await self.store.db.execute(
-                "INSERT OR IGNORE INTO chat_checkpoints"
-                "(request_id,local,provider,destination,payload) "
-                "VALUES(?,?,?,?,?)",
-                (
-                    identifier,
-                    local,
-                    config.provider,
-                    config.base_url,
-                    json.dumps(snapshot) if snapshot else None,
-                ),
-            )
         # Copy request-local state: background work must not write to the HTTP request.
         detached = Request({**request.scope, "state": dict(request.scope.get("state", {}))})
         detached.state.chat_request_id = identifier
@@ -114,6 +130,8 @@ class ChatQueue:
     def schedule(
         self, identifier: str, body: ChatRequest, request: Request, scope: ModelScope
     ) -> None:
+        if identifier in self.live:
+            return
         self.live[identifier] = LiveAnswer()
         token = current_model_scope.set(scope)
         try:
@@ -123,15 +141,19 @@ class ChatQueue:
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
 
-    async def recover(self, app) -> None:
+    async def recover(self, app, identifier: str | None = None) -> None:
         """Replay persisted receipts in FIFO order using their original security boundary."""
         async with (
             self.store.lock,
             self.store.db.execute(
-                "SELECT r.*,s.owner_id,c.local,c.provider,c.destination FROM chat_requests r "
+                "SELECT r.*,s.owner_id,c.local,c.provider,c.destination,m.scheduled_at "
+                "FROM chat_requests r "
                 "JOIN sessions s ON s.id=r.session_id LEFT JOIN chat_checkpoints c "
-                "ON c.request_id=r.id "
-                "WHERE r.status='queued' ORDER BY r.rowid"
+                "ON c.request_id=r.id LEFT JOIN monitor_occurrences m ON m.request_id=r.id "
+                "WHERE r.status='queued' "
+                + ("AND r.id=? " if identifier else "")
+                + "ORDER BY r.rowid",
+                (identifier,) if identifier else (),
             ) as cursor,
         ):
             rows = await cursor.fetchall()
@@ -139,6 +161,11 @@ class ChatQueue:
             owner = row["owner_id"]
             if app.state.settings.auth_enabled != (owner is not None):
                 await self.fail(row["id"], "工作区登录模式已改变，请核对原消息。")
+                continue
+            if row["scheduled_at"] is not None and not (
+                app.state.settings.automation_enabled and app.state.settings.platform_agent_enabled
+            ):
+                await self.fail(row["id"], "定时唤醒已停用。")
                 continue
             config = self.provider.store.load(owner)
             if row["provider"] and (row["provider"], row["destination"]) != (

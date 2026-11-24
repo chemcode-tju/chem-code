@@ -172,3 +172,40 @@ button.queue-file-name:hover { background:var(--hover); }
 }
 .queue-job .queue-path { margin:0 8px 4px; padding-bottom:3px; }
 .queue-row .queue-partition { white-space:normal; overflow-wrap:anywhere; }
+
+#monitor-wakes { max-width:760px; }
+#monitor-wakes [hidden], .queue-controls[hidden] { display:none; }
+#wake-status:empty,#job-wake-status:empty,#job-wake[hidden],#job-wake-form[hidden] { display:none; }
+#job-wake-status { padding-inline:16px; }
+.wake-defaults { border:1px solid var(--border); border-radius:var(--radius-panel); }
+.wake-defaults summary { display:flex; align-items:center; cursor:pointer; padding:12px 16px; background:var(--panel); border-radius:inherit; }
+.wake-heading,.wake-task,.wake-actions,.wake-interval { display:flex; align-items:center; gap:8px; }
+.wake-heading,.wake-task { justify-content:space-between; }
+.wake-heading { margin:20px 0 12px; }
+.wake-heading h2 { margin:0; font-size:16px; }
+.wake-form { display:grid; gap:12px; padding:16px; }
+#wake-editor { background:var(--panel); border-radius:var(--radius-panel); }
+.wake-form label { display:grid; gap:4px; min-width:0; }
+.wake-form :is(input,textarea,select) { width:100%; min-width:0; box-sizing:border-box; }
+.wake-form textarea { resize:vertical; }
+.wake-form p,.wake-task p { font-size:var(--font-size-secondary); color:var(--muted); margin:0; }
+.wake-actions { justify-content:flex-end; flex-wrap:wrap; }
+.wake-task { padding:14px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.wake-task > div:first-child { display:grid; gap:4px; min-width:0; overflow-wrap:anywhere; }
+.wake-task a { color:var(--text); }
+@media (pointer:coarse) { #monitor-wakes :is(button,select,input), .queue-modes button { min-height:44px; } }
+
+#wake-workflows { display:grid; gap:8px; }
+#wake-workflows summary { gap:8px; }
+.wake-flow-title { flex:1; display:grid; gap:3px; min-width:0; overflow-wrap:anywhere; }
+.wake-flow-title small,.wake-flow-body small { color:var(--muted); font-size:var(--font-size-secondary); }
+.wake-flow-body { padding:4px 16px 16px; overflow-wrap:anywhere; }
+.wake-flow-body h3 { margin:12px 0 4px; font-size:var(--font-size-ui); }
+.wake-flow-body ul { list-style:none; margin:0 0 12px; padding:0; }
+.wake-flow-body li { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 12px; padding:6px 0; border-bottom:1px solid var(--border); }
+.wake-flow-body li small { grid-column:1/-1; }
+.wake-flow-body li div { display:grid; gap:4px; }
+#slurm-wake-defaults { margin-top:20px; }
+#monitor-tasks-scroll .wake-heading:first-child { margin-top:0; }
+#monitor-tasks-page .queue-controls { min-width:0; }
+#wake-scope { max-width:min(180px,34vw); }

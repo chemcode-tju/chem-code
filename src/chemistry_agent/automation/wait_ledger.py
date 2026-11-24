@@ -246,6 +246,14 @@ class WaitLedger:
                 if not old and legacy["status"] == "pending":
                     items.append((identifier, legacy.get("evidence") or evidence(plan, node)))
             for identifier, item in items:
+                state = item.get("state", {})
+                if state.get("scheduler_job_id") and not state.get("instruction"):
+                    from chemistry_agent.automation.monitor_schedules import slurm_instruction
+
+                    item = {
+                        **item,
+                        "state": {**state, "instruction": await slurm_instruction(self.store)},
+                    }
                 await self._insert(identifier, session, plan, {"events": [item]})
 
     async def _insert(self, identifier: str, session: str, plan: dict, payload: dict) -> None:

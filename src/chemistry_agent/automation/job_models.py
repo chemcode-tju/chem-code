@@ -142,6 +142,10 @@ class JobAdopt(DisplayOptions):
     plan_id: UUID | None = None
     step_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,63}$")
     title: str = Field(default="接管已有作业", min_length=1, max_length=120)
-    instruction: str = Field(default="检查实际输出，分析结果并继续已授权的任务。", max_length=12000)
+    instruction: str | None = Field(
+        default=None,
+        max_length=12000,
+        description="Optional override for the monitor's Slurm wake instruction.",
+    )
     retrieve: list[str] = Field(default_factory=list)
     required_outputs: list[str] = Field(default_factory=list)

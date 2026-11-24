@@ -1,4 +1,6 @@
 export const TOOL_LABELS = {
+  monitor_schedule_set: "设置定时任务",
+  monitor_schedule_control: "管理定时任务",
   ask_user_question: "询问用户",
   web_search: "联网搜索",
   remote_shell: "远程终端",

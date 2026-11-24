@@ -33,7 +33,8 @@ def tools(plans) -> list[Tool]:
             "or alter remote inputs. Repeated registration returns the existing binding. "
             "Optional plan_id attaches it to this conversation's active plan; otherwise creates "
             "a monitoring plan. On completion/failure this conversation agent wakes to process "
-            "instruction. retrieve lists outputs to download; raw files remain readable. "
+            "the saved Slurm wake instruction. Pass instruction for a job-specific override. "
+            "retrieve lists outputs to download; raw files remain readable. "
             "Use step_id to attach many jobs/attempts to one agent-owned task. "
             "Sidebar auto-registers; results='neb' or a manifest path overrides auto. "
             "Use calculation_wait_register for grouped waits. Register concrete array elements.",

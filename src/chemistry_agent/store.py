@@ -117,10 +117,12 @@ class Store:
             await init_memory_schema(db)
             await init_attachment_schema(db)
             await init_title_schema(db)
+            from chemistry_agent.automation.monitor_schedules import initialize as init_schedules
             from chemistry_agent.automation.wait_ledger import init_wait_schema
             from chemistry_agent.platform.slurm_bridge import initialize as init_slurm_bridge
             from chemistry_agent.platform.task_agents import initialize as init_task_agents
 
+            await init_schedules(db)
             await init_wait_schema(db)
             await init_task_agents(db)
             await init_slurm_bridge(db)
