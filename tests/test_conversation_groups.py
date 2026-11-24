@@ -7,8 +7,81 @@ from uuid import uuid4
 import httpx
 
 from chemistry_agent.api import create_app
+from chemistry_agent.automation.monitor_schedules import tick
 from chemistry_agent.backends.service import BackendSettings
 from chemistry_agent.schemas import ToolExecution
+
+
+async def test_scheduled_and_edited_queued_turns_keep_the_group_snapshot(settings_factory):
+    prompts = []
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": "deepseek-flash"}]})
+        prompts.append(json.loads(request.content)["messages"][-1]["content"])
+        message = {"role": "assistant", "content": "已检查"}
+        return httpx.Response(
+            200, json={"choices": [{"message": message, "finish_reason": "stop"}]}
+        )
+
+    app = create_app(
+        settings_factory(automation_enabled=True), transport=httpx.MockTransport(provider)
+    )
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+        ) as client,
+    ):
+        session = (await client.post("/sessions", json={})).raise_for_status().json()["id"]
+        refs = []
+        for name in ("planner", "reviewer"):
+            identifier = str(uuid4())
+            preset = {
+                "name": name,
+                "backend": "builtin",
+                "instance_id": "local-builtin",
+                "model": "deepseek-flash",
+                "instructions": name,
+            }
+            response = await client.put(f"/api/agents/presets/{identifier}", json=preset)
+            version = response.raise_for_status().json()["version"]
+            refs.append({"id": identifier, "version": version})
+        group_path = f"/api/agents/sessions/{session}/group"
+        response = await client.put(group_path, json={"members": refs, "strategy": "handoff"})
+        response.raise_for_status()
+
+        wakes = "/api/job-monitor/wakes"
+        schedule = {
+            "name": "进度",
+            "instruction": "核对输出",
+            "session_id": session,
+            "interval_minutes": 5,
+            "enabled": True,
+        }
+        (await client.put(f"{wakes}/schedules/{uuid4()}", json=schedule)).raise_for_status()
+        due = (await client.get(wakes)).raise_for_status().json()["schedules"][0]["next_at"]
+        queue = app.state.chat_queue
+        request_id = str(uuid4())
+        path = f"/sessions/{session}/chat-requests"
+        async with queue.session_locks.setdefault(session, asyncio.Lock()):
+            await tick(app, due)
+            response = await client.post(
+                "/chat/requests",
+                json={"session_id": session, "request_id": request_id, "message": "原排队消息"},
+            )
+            response.raise_for_status()
+            receipt = (await client.get(path)).raise_for_status().json()["requests"][-1]
+            assert receipt["grouped"] and receipt["editable"]
+            response = await client.patch(
+                f"{path}/{request_id}", json={"previous": "原排队消息", "message": "@reviewer 核对"}
+            )
+            response.raise_for_status()
+        await asyncio.wait_for(asyncio.gather(*queue.tasks), 5)
+        receipts = (await client.get(path)).raise_for_status().json()["requests"]
+        assert [item["status"] for item in receipts] == ["completed", "completed"]
+        assert "定时任务「进度」" in prompts[0] and "群组成员：planner" in prompts[0]
+        assert "@reviewer 核对" in prompts[1] and "群组成员：reviewer" in prompts[1]
 
 
 class NativeSpeaker:
