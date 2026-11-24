@@ -169,13 +169,19 @@ class AntigravityBackend:
             self.probe_cache = cache_key, time.monotonic(), result
             return result
 
-    async def configure(self, rpc, session: dict, identifier: str, config) -> None:
+    async def configure(
+        self, rpc, session: dict, identifier: str, config, *, side_question: bool = False
+    ) -> None:
         options = session.get("configOptions", [])
         choices = [
             ("model", config.antigravity_model),
             ("thought_level", config.antigravity_effort),
         ]
-        if config.permission_mode != "full":
+        if side_question:
+            modes = next((o for o in options if o.get("category") == "mode"), {})
+            if any(o["value"] == "plan" for o in select_options(modes)):
+                choices.append(("mode", "plan"))
+        elif config.permission_mode != "full":
             choices.append(
                 ("mode", "auto" if config.permission_mode == "auto_review" else "default")
             )

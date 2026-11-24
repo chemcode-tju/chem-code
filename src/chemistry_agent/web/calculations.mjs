@@ -378,6 +378,19 @@ export function createCalculations({ api, getSession, isBusy, toast, onConfirmed
 
   return {
     refresh, drawStructures,
+    async openAttention(item) {
+      await refresh();
+      const plan=records?.plans?.find(row=>row.id===item.plan);
+      const node=plan?.nodes.find(row=>row.id===item.node_id);
+      if(session!==item.session || !node) throw new Error('事项已更新，请查看当前对话。');
+      const data=await api(path(session)+'/workflows/'+encodeURIComponent(plan.id)+'/attention');
+      if(session!==item.session || getSession()!==session)return;
+      const action=data.items.find(row=>(row.approval_id || row.job_id)===item.id);
+      if(!action)throw new Error(t('事项已更新，请查看当前对话。'));
+      selectedPlan=plan.id;render();
+      attention={url:attentionUrl(),items:data.items,error:''};
+      detail.openGeneral(plan,node,path(session),data.items,action);
+    },
     drawReportFigures,
     enabled(value) {
       enabled = value;

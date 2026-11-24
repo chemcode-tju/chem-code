@@ -499,3 +499,86 @@ async def test_preflight_failure_retries_original_delivery_without_replaying_sen
             current_checkpoint.reset(token)
     finally:
         await store.close()
+
+
+def test_steer_targets_live_codex_turn_and_side_chat_uses_another_thread(
+    settings_factory, fake_codex, monkeypatch
+):
+    from uuid import uuid4
+
+    original = fake_codex.request
+
+    async def controlled(self, method, params):
+        if method == "thread/start":
+            self.side = bool(params.get("ephemeral"))
+            if self.side:
+                assert params["sandbox"] == "read-only"
+                assert "dynamicTools" not in params
+                return {"thread": {"id": "aside"}}
+        if method == "turn/start":
+            if not getattr(self, "side", False):
+                return {"turn": {"id": "main-turn"}}
+            assert params["threadId"] == "aside"
+            assert "parent prompt" in params["input"][0]["text"]
+        elif method == "turn/steer":
+            assert params["threadId"] == "external-thread"
+            assert params["expectedTurnId"] == "main-turn"
+            assert params["input"] == [{"type": "text", "text": "change direction"}]
+        else:
+            return await original(self, method, params)
+        turn_id = "aside-turn" if self.side else "main-turn"
+        await self.events.put(
+            {
+                "method": "item/completed",
+                "params": {
+                    "item": {
+                        "type": "agentMessage",
+                        "text": "aside answer" if self.side else "guided answer",
+                    }
+                },
+            }
+        )
+        await self.events.put(
+            {"method": "turn/completed", "params": {"turn": {"id": turn_id, "status": "completed"}}}
+        )
+        return {"turn": {"id": turn_id}}
+
+    monkeypatch.setattr(fake_codex, "request", controlled)
+    app = create_app(settings_factory(), transport=httpx.MockTransport(no_provider))
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
+        ready = asyncio.Event()
+        consume = app.state.agent_backends.codex.consume
+
+        async def signal_ready(*args):
+            ready.set()
+            return await consume(*args)
+
+        monkeypatch.setattr(app.state.agent_backends.codex, "consume", signal_ready)
+        client.put("/api/agents/settings", json={"default_backend": "codex"}).raise_for_status()
+        sid = client.post("/sessions", json={}).json()["id"]
+        req = str(uuid4())
+        client.post(
+            "/chat/requests",
+            json={"request_id": req, "session_id": sid, "message": "parent prompt"},
+        ).raise_for_status()
+
+        client.portal.call(asyncio.wait_for, ready.wait(), 5)
+        side = client.post(
+            f"/sessions/{sid}/side-chat", json={"id": str(uuid4()), "question": "What is ps?"}
+        )
+        assert side.json()["answer"] == "aside answer"
+        path = f"/sessions/{sid}/chat-requests"
+        run = client.get(path).json()["active_run_id"]
+        reply = client.put(
+            f"{path}/{req}/guidance/{uuid4()}", json={"run_id": run, "message": "change direction"}
+        )
+        assert reply.json() == {"status": "delivered"}
+
+        async def finish():
+            await asyncio.gather(*app.state.chat_queue.tasks)
+
+        client.portal.call(finish)
+        transcript = client.get(f"/sessions/{sid}").json()["messages"]
+        assert transcript[-1]["content"] == "guided answer"
+        assert "aside answer" not in str(transcript)
+        assert client.get(path).json()["requests"][0]["guidance"][0]["status"] == "delivered"

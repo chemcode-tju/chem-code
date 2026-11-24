@@ -147,7 +147,7 @@ export function buildTurns(messages, runs = []) {
       turns.push({event:message.task_event,text:"",context:"",calls:[],answer:message.content,run:null});
       turn = null;
     } else if (message.role === "user") {
-      turn = { ...splitReference(message.content || ""), answer: "", calls: [], steps: [], run: completed[turns.length] || null };
+      turn = { ...splitReference(message.content || ""), guidance:message.guidance || [], answer: "", calls: [], steps: [], run: completed[turns.length] || null };
       turns.push(turn);
       pendingCalls = new Map();
     } else if (turn && message.role === "assistant") {

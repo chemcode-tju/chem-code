@@ -83,6 +83,19 @@ class Store:
                     created_at TEXT NOT NULL, run_id TEXT, error TEXT
                 );
                 CREATE INDEX IF NOT EXISTS chat_requests_session ON chat_requests(session_id);
+                CREATE TABLE IF NOT EXISTS chat_guidance (
+                    id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES chat_requests(id)
+                    ON DELETE CASCADE, message TEXT NOT NULL, status TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS guidance_request ON chat_guidance(request_id);
+                UPDATE chat_guidance SET status='unconfirmed' WHERE status='sending';
+                CREATE TABLE IF NOT EXISTS side_answers (
+                    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id)
+                    ON DELETE CASCADE, question TEXT NOT NULL, answer TEXT, error TEXT
+                );
+                CREATE INDEX IF NOT EXISTS side_session ON side_answers(session_id);
+                UPDATE side_answers SET error='侧边对话已中断，请重新提问。'
+                    WHERE answer IS NULL AND error IS NULL;
                 CREATE TABLE IF NOT EXISTS chat_checkpoints (
                     request_id TEXT PRIMARY KEY REFERENCES chat_requests(id) ON DELETE CASCADE,
                     phase TEXT NOT NULL DEFAULT 'model', payload TEXT, local INTEGER NOT NULL,
@@ -196,11 +209,15 @@ class Store:
         async with self.db.execute(
             "SELECT payload,task_event FROM messages WHERE session_id=? ORDER BY seq", (session_id,)
         ) as cursor:
-            return [
-                json.loads(row["payload"])
-                | ({"task_event": row["task_event"]} if display and row["task_event"] else {})
-                for row in await cursor.fetchall()
-            ]
+            history = []
+            for row in await cursor.fetchall():
+                message = json.loads(row["payload"])
+                if display and row["task_event"]:
+                    message["task_event"] = row["task_event"]
+                if not display and (notes := message.pop("guidance", None)):
+                    message["content"] += "\n\n本轮引导\n" + "\n\n".join(notes)
+                history.append(message)
+            return history
 
     async def append_task_report(self, session: str, event: str, answer: str) -> bool:
         """Commit an assistant-only message once, between user turns."""
@@ -405,6 +422,16 @@ class Store:
     ) -> None:
         now = utc_now()
         async with self.transaction():
+            if messages and messages[0]["role"] == "user":
+                async with self.db.execute(
+                    "SELECT g.message FROM chat_guidance g JOIN chat_requests q ON "
+                    "q.id=g.request_id "
+                    "WHERE q.run_id=? AND g.status IN ('included','delivered') ORDER BY g.rowid",
+                    (run_id,),
+                ) as cursor:
+                    notes = [row["message"] for row in await cursor.fetchall()]
+                if notes:
+                    messages = [dict(messages[0], guidance=notes), *messages[1:]]
             await self.db.executemany(
                 "INSERT INTO messages(session_id, payload) VALUES (?, ?)",
                 [(session_id, json.dumps(message, ensure_ascii=False)) for message in messages],

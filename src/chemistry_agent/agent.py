@@ -8,8 +8,8 @@ from langgraph.graph import END, START, StateGraph
 
 from chemistry_agent.context import ContextManager
 from chemistry_agent.errors import AgentError
-from chemistry_agent.provider import DeepSeekClient, ToolCall
-from chemistry_agent.runtime.checkpoint import current_checkpoint
+from chemistry_agent.provider import Completion, DeepSeekClient, ToolCall
+from chemistry_agent.runtime.checkpoint import Checkpoint, current_checkpoint
 from chemistry_agent.runtime.live import LiveAnswer, current_answer, public_steps
 from chemistry_agent.runtime.loop_guard import ObservationWatch
 from chemistry_agent.schemas import ContextUsage, TokenUsage, ToolExecution
@@ -161,23 +161,57 @@ class ChemistryAgent:
         allow_tools = state["tool_limit"] is None or state["tool_rounds"] < state["tool_limit"]
         progress = state["progress"]
         progress.observations.check()
-        messages = await self.context_manager.prepare(
-            state["messages"],
-            state["history_count"],
-            state["session_id"],
-            state["run_id"],
-            progress,
-        )
+        current = current_checkpoint.get()
+        checkpoint = current if isinstance(current, Checkpoint) else None
+        while True:
+            supplied = state["messages"]
+            if checkpoint:
+                from chemistry_agent.guidance import at_boundary
+
+                notes = await at_boundary(checkpoint.store, checkpoint.identifier)
+                if notes:
+                    supplied = [*supplied, {"role": "user", "content": "\n\n".join(notes)}]
+            messages = await self.context_manager.prepare(
+                supplied,
+                state["history_count"],
+                state["session_id"],
+                state["run_id"],
+                progress,
+            )
+            completion = await self._complete(messages, progress, allow_tools)
+            progress.usage = progress.usage.plus(completion.usage)
+            if not checkpoint or completion.message.tool_calls:
+                break
+            # A note can arrive while streaming a tool-free final answer. Revisit
+            # the decision within this run, without cancelling the model stream.
+            async with checkpoint.store.lock:
+                pending = await checkpoint.store._one(
+                    "SELECT 1 FROM chat_guidance WHERE request_id=? AND status='pending' LIMIT 1",
+                    (checkpoint.identifier,),
+                )
+            if not pending:
+                break
+        if completion.message.tool_calls and not allow_tools:
+            raise AgentError("tool_round_limit", "已达到工具调用轮数上限，请缩小任务。", 422)
+        if progress.preview:
+            progress.preview.set_text(completion.message.content or "")
+        return {
+            "messages": [completion.message.to_wire()],
+            "usage": progress.usage,
+        }
+
+    async def _complete(
+        self, messages: list[dict], progress: RunProgress, allow_tools: bool
+    ) -> Completion:
         if progress.preview:
             progress.preview.set_text("")
         token = current_answer.set(progress.preview)
         try:
             for attempt in range(2):
                 try:
-                    completion = await self.provider.complete(
+                    return await self.provider.complete(
                         messages, self.registry.schemas(), allow_tools=allow_tools
                     )
-                    break
                 except AgentError as exc:
                     # Retry inference before visible output. Never replay tools here.
                     if (
@@ -196,15 +230,6 @@ class ChemistryAgent:
                     await asyncio.sleep(0.5)
         finally:
             current_answer.reset(token)
-        progress.usage = progress.usage.plus(completion.usage)
-        if completion.message.tool_calls and not allow_tools:
-            raise AgentError("tool_round_limit", "已达到工具调用轮数上限，请缩小任务。", 422)
-        if progress.preview:
-            progress.preview.set_text(completion.message.content or "")
-        return {
-            "messages": [completion.message.to_wire()],
-            "usage": progress.usage,
-        }
 
     def _route(self, state: AgentState) -> str:
         return "tools" if state["messages"][-1].get("tool_calls") else "end"

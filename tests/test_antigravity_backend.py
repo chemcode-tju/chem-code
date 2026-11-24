@@ -290,3 +290,45 @@ async def test_native_permission_is_answered_once(approved, expected):
     )
     assert len(requests) == 1
     assert requests[0][:2] == ("host-session", "run")
+
+
+def test_side_question_uses_separate_acp_session(settings_factory, fake_acp, monkeypatch):
+    from uuid import uuid4
+
+    original = fake_acp.request
+
+    async def respond(self, method, params, timeout=None):  # noqa: ASYNC109
+        if method != "session/prompt":
+            return await original(self, method, params, timeout)
+        assert self.bridge == []
+        assert "旁问测试" in params["prompt"][0]["text"]
+        await self.update(
+            {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "独立回答"},
+            }
+        )
+        return {"stopReason": "end_turn"}
+
+    monkeypatch.setattr(fake_acp, "request", respond)
+    with TestClient(
+        create_app(settings_factory(deepseek_api_key="")),
+        base_url="http://localhost",
+        client=("127.0.0.1", 5000),
+    ) as client:
+        session = client.post("/sessions", json={}).json()["id"]
+        client.put(
+            f"/api/agents/sessions/{session}",
+            json={
+                "backend": "antigravity",
+                "model": "gemini-test",
+                "effort": "low",
+                "permission": "user",
+            },
+        ).raise_for_status()
+        response = client.post(
+            f"/sessions/{session}/side-chat", json={"id": str(uuid4()), "question": "旁问测试"}
+        )
+        assert response.json()["answer"] == "独立回答"
+        assert client.get(f"/sessions/{session}").json()["messages"] == []
+        assert client.get(f"/api/agents/sessions/{session}").json()["external_thread_id"] is None

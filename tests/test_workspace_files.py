@@ -65,6 +65,10 @@ def test_publish_originals_versions_reuse_and_session_boundary(settings_factory,
         updated = client.post(endpoint, json={}).json()
         newer = next(f for f in updated["files"] if f["name"].endswith(".vasp"))
         assert newer["id"] != vasp["id"]
+        versions = client.get(f"/api/workspaces/{session}/files?versions=true").json()["files"]
+        assert [file["id"] for file in versions if file["path"] == "candidate.vasp"] == [
+            vasp["id"], newer["id"]
+        ]
         assert client.get(vasp["download_url"]).content == original
         assert client.get(newer["download_url"]).content == original + b"\n"
         for forbidden in ["../other.txt", "platform-history.json", "archive/old.xyz", "leak.txt"]:

@@ -1,0 +1,240 @@
+.workspace-target {
+  position: relative;
+  max-width: min(32vw, 200px);
+  font-size: var(--font-size-ui);
+}
+.workspace-target summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  gap: 6px;
+  padding: 0 8px;
+  cursor: pointer;
+  border-radius: var(--radius-control);
+}
+.workspace-target summary span,
+.target-menu code,
+.result-group header button,
+.session-button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-target summary::-webkit-details-marker {
+  display: none;
+}
+.workspace-target summary .icon {
+  width: 16px;
+  flex: none;
+}
+.workspace-target[open] summary {
+  background: var(--selected);
+}
+.target-menu {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: 100%;
+  width: max-content;
+  max-width: min(75vw, 340px);
+  padding: var(--menu-padding);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--floating-shadow);
+}
+.target-menu :is(button, a, code),
+#attention-items button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 4px 10px;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  border-radius: var(--radius-control);
+  text-decoration: none;
+}
+.target-menu code {
+  display: block;
+  font-size: var(--font-size-secondary);
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.target-menu :is(button, a):hover,
+#attention-items button:hover {
+  background: var(--hover);
+}
+.delivery-controls select {
+  font: inherit;
+  font-size: var(--font-size-secondary);
+  min-height: 30px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.guidance-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--strong-border);
+}
+.guidance-row span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.guidance-row small,
+#attention-list small,
+.session-button small {
+  color: var(--muted);
+  font-size: var(--font-size-secondary);
+  flex: none;
+}
+.guidance-row button,
+.result-group header button {
+  background: none;
+  border: 0;
+  color: var(--text);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.result-group {
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.result-group header {
+  display: flex;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+.result-group header button {
+  text-align: left;
+  font: inherit;
+}
+.side-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  gap: 8px;
+  padding: 12px;
+}
+#side-history {
+  flex: 1;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+#side-history article {
+  padding: 8px 0;
+}
+.side-question {
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+#side-form {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+#side-input {
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  resize: vertical;
+  padding: 10px;
+  background: var(--panel);
+  color: var(--text);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--strong-border);
+}
+#attention-list {
+  font-size: var(--font-size-ui);
+  padding: 6px 8px;
+}
+#attention-list summary {
+  cursor: pointer;
+  color: var(--text);
+}
+#attention-list summary span {
+  margin-inline-start: 4px;
+  color: var(--muted);
+}
+#attention-items button {
+  justify-content: space-between;
+  gap: 8px;
+}
+#attention-items button span {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.session-button small {
+  margin-inline-start: auto;
+}
+.terminal-window {
+  margin: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  font: 14px system-ui;
+  background: var(--surface);
+  color: var(--text);
+}
+.terminal-window header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+}
+.terminal-window strong {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+#terminal {
+  flex: 1;
+  min-height: 0;
+  background: black;
+  padding: 4px;
+}
+@media (pointer: coarse) {
+  .target-menu :is(button, a),
+  .workspace-target summary,
+  #attention-items button,
+  #side-submit {
+    min-height: 44px;
+  }
+}
+#queue-edit-dialog {
+  width: min(440px, calc(100vw - 32px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-dialog);
+  color: var(--text);
+  background: var(--raised);
+}
+#queue-edit-form {
+  display: grid;
+  gap: 12px;
+}
+#queue-edit-text {
+  padding: 8px;
+  font: inherit;
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--strong-border);
+}
+.queue-actions {
+  display: flex;
+  gap: 8px;
+}
+#terminal-target {
+  max-width: 100%;
+  font: inherit;
+}

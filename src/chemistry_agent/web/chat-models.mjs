@@ -145,7 +145,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
       const signature=JSON.stringify(data.items); if(signature===approvalSignature) return; approvalSignature=signature;
       container.replaceChildren(); container.hidden=!data.items.length;
       for(const item of data.items) {
-        const card=document.createElement('article');card.className='agent-approval';
+        const card=document.createElement('article');card.className='agent-approval';card.dataset.approvalId=item.id;
         const title=document.createElement('header');title.textContent=item.title;
         const details=document.createElement('details'), summary=document.createElement('summary'), pre=document.createElement('pre');summary.textContent='查看操作';pre.textContent=JSON.stringify(item.details,null,2);details.append(summary,pre);
         const actions=document.createElement('div');actions.className='approval-actions';
@@ -161,7 +161,7 @@ export function createChatModelPicker({api, state, toast, updateControls, refres
   }
   setInterval(approvals,2000);
   window.addEventListener('languagechange',render);
-  return {get value(){return selection?.backend==='builtin' ? selection.model || null : null;},get saving(){return saving;},render,refresh,
+  return {refreshApprovals:approvals,get value(){return selection?.backend==='builtin' ? selection.model || null : null;},get saving(){return saving;},render,refresh,
     adaptHealth(health){
       if(state.sessionId || !selection) return health;
       const data=catalogs[instanceKey(selection)];
