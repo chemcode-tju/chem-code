@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 
+from chemistry_agent.backends.executables import prepend_executable_dir
 from chemistry_agent.backends.runtime import ManagedTransport
 from chemistry_agent.errors import AgentError
 
@@ -26,7 +27,7 @@ class CodexTransport(ManagedTransport):
         return await super().__aenter__()
 
     async def start(self):
-        environment = os.environ.copy()
+        environment = prepend_executable_dir(os.environ.copy(), self.executable)
         if self.codex_home:
             environment["CODEX_HOME"] = str(self.codex_home)
         await self.spawn(self.executable, "app-server", "--listen", "stdio://", env=environment)

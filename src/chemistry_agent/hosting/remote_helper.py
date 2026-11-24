@@ -3,6 +3,7 @@
 import fcntl
 import json
 import os
+import re
 import selectors
 import shutil
 import signal
@@ -19,19 +20,84 @@ def location(value: str) -> Path:
     return path
 
 
+def _parse_semver(text: str):
+    match = re.search(r"\b(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?\b", text or "")
+    if not match:
+        return None
+    core = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    prerelease = match.group(4)
+    if not prerelease:
+        return (core, 1, ())
+    parts = tuple((0, int(tok)) if tok.isdigit() else (1, tok) for tok in prerelease.split("."))
+    return (core, 0, parts)
+
+
+def _discover_executable(
+    executable: str, prefer_newest: bool = False, fallback_dirs=None
+) -> str | None:
+    home = Path.home()
+    dirs = [Path(p).expanduser() for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    if fallback_dirs is None:
+        fallback_dirs = (
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            home / ".local/bin",
+            home / ".npm-global/bin",
+            home / ".volta/bin",
+            home / ".cargo/bin",
+            home / "Applications/Codex.app/Contents/Resources",
+            Path("/Applications/Codex.app/Contents/Resources"),
+        )
+    dirs.extend(fallback_dirs)
+    candidates = []
+    seen_targets = set()
+    for directory in dirs:
+        candidate = directory / executable
+        if not (candidate.is_file() and os.access(candidate, os.X_OK)):
+            continue
+        try:
+            key = str(candidate.resolve())
+        except OSError:
+            key = str(candidate)
+        if key in seen_targets:
+            continue
+        seen_targets.add(key)
+        candidates.append(candidate)
+    if not candidates:
+        return None
+    if len(candidates) == 1 or not prefer_newest:
+        return str(candidates[0])
+    ranked = []
+    for index, candidate in enumerate(candidates):
+        parsed = None
+        try:
+            env = os.environ.copy()
+            env["PATH"] = f"{candidate.parent}{os.pathsep}{env.get('PATH', '')}"
+            proc = subprocess.run(
+                [str(candidate), "--version"],
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                timeout=1.5,
+                check=False,
+                env=env,
+            )
+            if proc.returncode == 0:
+                parsed = _parse_semver(proc.stdout) or _parse_semver(proc.stderr)
+        except (OSError, subprocess.SubprocessError):
+            parsed = None
+        ranked.append(((1 if parsed else 0, parsed or ((0, 0, 0), 0, ()), -index), str(candidate)))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return ranked[0][1]
+
+
 def discover() -> dict:
     agents = []
     for backend, name, executable in (
         ("codex", "Codex", "codex"),
         ("antigravity", "Antigravity", "agy"),
     ):
-        path = shutil.which(executable)
-        for candidate in (
-            Path.home() / ".local/bin" / executable,
-            Path("/opt/homebrew/bin") / executable,
-        ):
-            if not path and candidate.is_file() and os.access(candidate, os.X_OK):
-                path = str(candidate)
+        path = _discover_executable(executable, prefer_newest=(backend == "codex"))
         if path:
             agents.append({"backend": backend, "name": name, "executable": path})
     return {"agents": agents, "home": str(Path.home()), "hostname": os.uname().nodename}

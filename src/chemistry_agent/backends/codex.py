@@ -2,8 +2,6 @@
 
 import asyncio
 import json
-import os
-import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -11,6 +9,11 @@ from uuid import NAMESPACE_URL, uuid5
 
 from chemistry_agent.agent import RunProgress
 from chemistry_agent.backends.codex_home import CodexHomes
+from chemistry_agent.backends.executables import (
+    discover_codex_candidates,
+    probe_binary_version,
+    resolve_codex_executable,
+)
 from chemistry_agent.backends.runtime import delivery_attempt
 from chemistry_agent.backends.transport import CodexTransport
 from chemistry_agent.errors import AgentError
@@ -56,15 +59,13 @@ class CodexBackend:
     def executable(config) -> str | None:
         if getattr(config, "host_id", "local") != "local":
             return config.codex_executable
-        name = str(Path(config.codex_executable).expanduser())
-        found = shutil.which(name)
-        if found:
-            return found
-        if name == "codex":
-            for candidate in (Path.home() / ".local/bin/codex", Path("/opt/homebrew/bin/codex")):
-                if candidate.is_file() and os.access(candidate, os.X_OK):
-                    return str(candidate)
-        return None
+        return resolve_codex_executable(config.codex_executable)
+
+    @staticmethod
+    def candidates(config) -> list[dict[str, str]]:
+        if getattr(config, "host_id", "local") != "local":
+            return []
+        return discover_codex_candidates()
 
     async def probe(self, config) -> dict:
         executable = self.executable(config)
@@ -79,10 +80,15 @@ class CodexBackend:
                 cursor = page.get("nextCursor")
                 if not cursor:
                     break
+        local = getattr(config, "host_id", "local") == "local"
+        version = (await asyncio.to_thread(probe_binary_version, executable)) if local else None
+        candidates = (await asyncio.to_thread(self.candidates, config)) if local else []
         return {
             "available": True,
             "authenticated": bool(account.get("account")),
             "executable": executable,
+            "version": version or "",
+            "candidates": candidates,
             "models": [
                 {
                     "id": m["model"],

@@ -27,6 +27,38 @@ export function createAgentSettings(api, {saveBuiltin} = {}) {
     model:$(`${id}-model`).value,effort:$(`${id}-effort`).value});
   const dirty = id => Object.entries(values(id)).some(([key,value])=>value!==(saved[`${id}_${key}`] || (key==='executable'?agents[id].executable:'')));
   const config = id => ({...saved,...Object.fromEntries(Object.entries(values(id)).map(([key,value])=>[`${id}_${key}`,value]))});
+  function updateExecutableOptions(id, info = {}) {
+    const list = $(`${id}-executable-options`);
+    const input = $(`${id}-executable`);
+    if (!input) return;
+    const candidates = Array.isArray(info.candidates) ? info.candidates : (descriptors[id]?.candidates || []);
+    const resolved = info.resolved_executable || info.executable || descriptors[id]?.resolved_executable || '';
+    const resolvedItem = candidates.find(item => item.path === resolved);
+    const resolvedVersion = info.version || resolvedItem?.version || '';
+    if (list) {
+      const options = [];
+      const autoOption = document.createElement('option');
+      autoOption.value = agents[id].executable;
+      autoOption.label = resolved
+        ? `${t('自动选择最新版本')} · ${resolved}${resolvedVersion ? ` (${resolvedVersion})` : ''}`
+        : t('自动选择最新版本');
+      autoOption.dataset.noI18n = '';
+      options.push(autoOption);
+      for (const item of candidates) {
+        if (!item?.path) continue;
+        const opt = document.createElement('option');
+        opt.value = item.path;
+        opt.label = item.version ? `${item.version}` : item.path;
+        opt.dataset.noI18n = '';
+        options.push(opt);
+      }
+      list.replaceChildren(...options);
+    }
+    const edited = input.value.trim() || agents[id].executable;
+    input.title = edited === agents[id].executable && resolved
+      ? `${t('当前自动解析')}：${resolved}${resolvedVersion ? ` (${resolvedVersion})` : ''}`
+      : '';
+  }
   function markers() {
     document.querySelectorAll('[data-default-for]').forEach(node => {
       node.hidden = node.dataset.defaultFor !== saved.default_backend;
@@ -65,6 +97,7 @@ export function createAgentSettings(api, {saveBuiltin} = {}) {
       connection.title=currentProbe ? new Date(currentProbe.checkedAt).toLocaleString(document.documentElement.lang) : '';
       if(currentProbe) connection.textContent += ' · '+new Date(currentProbe.checkedAt).toLocaleTimeString(document.documentElement.lang,{hour:'2-digit',minute:'2-digit'});
       connection.hidden = false;
+      updateExecutableOptions(id);
     }
   }
   function builtinSummary(data) {
@@ -124,8 +157,22 @@ export function createAgentSettings(api, {saveBuiltin} = {}) {
         throw error;
       }
       probes[id] = saveConnectionCheck(checkStorage,id,payload[`${id}_executable`],{...result,paths:[payload[`${id}_executable`],result.executable].filter(Boolean)});
-      notify(result.message,!result.authenticated);
-      if (result.executable) $(`${id}-executable`).value = result.executable;
+      if (descriptors[id]) {
+        descriptors[id] = {
+          ...descriptors[id],
+          available: result.available ?? descriptors[id].available,
+          resolved_executable: result.executable || descriptors[id].resolved_executable,
+          candidates: Array.isArray(result.candidates) ? result.candidates : descriptors[id].candidates,
+        };
+      }
+      const resolvedDetail = result.executable
+        ? ` (${result.executable}${result.version ? ` · ${result.version}` : ''})`
+        : '';
+      notify(t(result.message) + resolvedDetail, !result.authenticated);
+      if (result.executable && payload[`${id}_executable`] !== agents[id].executable) {
+        $(`${id}-executable`).value = result.executable;
+      }
+      updateExecutableOptions(id, result);
       catalogs[id] = result.models || []; modelOptions(id, selected, effort);
     }));
     $(`${id}-save`).addEventListener('click',()=>act(()=>saveCard(id)));

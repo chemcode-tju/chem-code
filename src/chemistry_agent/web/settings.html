@@ -139,7 +139,7 @@
       <details class="agent-row" id="codex-settings" data-local-agent-settings>
         <summary><svg class="icon agent-logo" aria-hidden="true"><use href="/assets/ui-icons.svg#i-gpt"/></svg><span class="agent-identity"><strong>Codex</strong><span class="agent-model" data-model-for="codex">正在读取…</span></span><svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
         <div class="agent-fields">
-          <label for="codex-executable">程序路径</label><input id="codex-executable" value="codex" autocomplete="off" spellcheck="false">
+          <label for="codex-executable">程序路径</label><input id="codex-executable" list="codex-executable-options" value="codex" autocomplete="off" spellcheck="false"><datalist id="codex-executable-options"></datalist>
           <label for="codex-model">默认模型</label><select id="codex-model"><option value="">跟随 Codex</option></select>
           <label for="codex-effort">推理强度</label><select id="codex-effort"><option value="">跟随模型</option></select><div class="agent-probe-row"><span class="agent-connection-state" data-connection-for="codex">尚未检测</span><button id="codex-probe" type="button" class="secondary">检测连接</button></div><div class="agent-card-actions"><span class="unsaved-state" data-dirty-for="codex" role="status" hidden>未保存</span><button id="codex-save" class="primary" type="button">保存</button></div>
         </div>

@@ -527,11 +527,20 @@ class BackendRouter:
         return bool(descriptor[1](config))
 
     async def public(self) -> dict:
+        import asyncio
+
         config = await self.settings()
+        backends = []
+        for identifier, (name, available) in self.descriptors.items():
+            entry: dict = {"id": identifier, "name": name, "available": bool(available(config))}
+            if identifier == "codex":
+                resolved = self.codex.executable(config)
+                entry["resolved_executable"] = resolved or ""
+                entry["candidates"] = await asyncio.to_thread(self.codex.candidates, config)
+            elif identifier == "antigravity":
+                entry["resolved_executable"] = self.antigravity.executable(config) or ""
+            backends.append(entry)
         return {
             "settings": config.model_dump(),
-            "backends": [
-                {"id": identifier, "name": name, "available": bool(available(config))}
-                for identifier, (name, available) in self.descriptors.items()
-            ],
+            "backends": backends,
         }

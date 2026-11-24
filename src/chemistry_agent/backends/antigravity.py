@@ -2,8 +2,6 @@
 
 import asyncio
 import json
-import os
-import shutil
 import time
 from contextlib import suppress
 from pathlib import Path
@@ -11,6 +9,7 @@ from uuid import uuid4
 
 from chemistry_agent.backends.acp_transport import ACPTransport
 from chemistry_agent.backends.antigravity_home import AntigravityHomes
+from chemistry_agent.backends.executables import resolve_antigravity_executable
 from chemistry_agent.backends.mcp_bridge import PlatformMCPBridge
 from chemistry_agent.backends.runtime import delivery_attempt
 from chemistry_agent.errors import AgentError
@@ -102,15 +101,7 @@ class AntigravityBackend:
     def executable(config) -> str | None:
         if getattr(config, "host_id", "local") != "local":
             return config.antigravity_executable
-        name = str(Path(config.antigravity_executable).expanduser())
-        found = shutil.which(name)
-        if found:
-            return found
-        if name == "agy":
-            for path in (Path.home() / ".local/bin/agy", Path("/opt/homebrew/bin/agy")):
-                if path.is_file() and os.access(path, os.X_OK):
-                    return str(path)
-        return None
+        return resolve_antigravity_executable(config.antigravity_executable)
 
     async def probe(self, config, *, refresh: bool = False) -> dict:
         from chemistry_agent.hosting.native import current_native

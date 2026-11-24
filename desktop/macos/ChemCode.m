@@ -169,6 +169,85 @@ static NSColor *ChemShellBackgroundColor(void) {
     [self checkWorkspaceUntil:[NSDate dateWithTimeIntervalSinceNow:25]];
 }
 
+- (NSArray<NSString *> *)loginShellPathsWithEnvironment:(NSDictionary *)environment {
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSString *shell = environment[@"SHELL"];
+    NSSet<NSString *> *posixShells = [NSSet setWithArray:@[@"zsh", @"bash", @"sh"]];
+    if (!shell.length || ![files isExecutableFileAtPath:shell] ||
+        ![posixShells containsObject:shell.lastPathComponent]) {
+        shell = @"/bin/zsh";
+    }
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:shell];
+    task.arguments = @[@"-lc", @"printf '__CHEM_PATH__%s__CHEM_PATH__' \"$PATH\""];
+    NSPipe *stdoutPipe = [NSPipe pipe];
+    task.standardInput = [NSFileHandle fileHandleWithNullDevice];
+    task.standardOutput = stdoutPipe;
+    task.standardError = [NSFileHandle fileHandleWithNullDevice];
+    NSError *launchError = nil;
+    if (![task launchAndReturnError:&launchError]) return @[];
+
+    NSFileHandle *reader = stdoutPipe.fileHandleForReading;
+    __block NSData *output = nil;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        output = [reader readDataToEndOfFile];
+        [task waitUntilExit];
+        dispatch_semaphore_signal(done);
+    });
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC))) != 0) {
+        if (task.running) [task terminate];
+        return @[];
+    }
+    if (!output.length) return @[];
+    NSString *text = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
+    if (!text.length) return @[];
+    NSString *marker = @"__CHEM_PATH__";
+    NSRange first = [text rangeOfString:marker];
+    if (first.location == NSNotFound) return @[];
+    NSUInteger start = NSMaxRange(first);
+    NSRange second = [text rangeOfString:marker options:0 range:NSMakeRange(start, text.length - start)];
+    if (second.location == NSNotFound || second.location <= start) return @[];
+    NSString *rawPath = [text substringWithRange:NSMakeRange(start, second.location - start)];
+    NSMutableArray<NSString *> *result = [NSMutableArray array];
+    for (NSString *entry in [rawPath componentsSeparatedByString:@":"]) {
+        if (entry.length) [result addObject:entry];
+    }
+    return result;
+}
+
+- (NSString *)workerPathWithEnvironment:(NSDictionary *)environment home:(NSString *)home {
+    NSMutableOrderedSet<NSString *> *ordered = [NSMutableOrderedSet orderedSet];
+    NSSet<NSString *> *systemDefaults = [NSSet setWithArray:@[@"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin"]];
+    NSMutableArray<NSString *> *inherited = [NSMutableArray array];
+    BOOL hasCustomInherited = NO;
+    for (NSString *entry in [environment[@"PATH"] ?: @"" componentsSeparatedByString:@":"]) {
+        if (!entry.length) continue;
+        [inherited addObject:entry];
+        if (![systemDefaults containsObject:entry]) hasCustomInherited = YES;
+    }
+    if (hasCustomInherited) {
+        [ordered addObjectsFromArray:inherited];
+    }
+    [ordered addObjectsFromArray:[self loginShellPathsWithEnvironment:environment]];
+    NSArray<NSString *> *fallbacks = @[
+        @"/opt/homebrew/bin",
+        @"/usr/local/bin",
+        [home stringByAppendingPathComponent:@".local/bin"],
+        [home stringByAppendingPathComponent:@".npm-global/bin"],
+        [home stringByAppendingPathComponent:@".volta/bin"],
+        [home stringByAppendingPathComponent:@".cargo/bin"],
+        [home stringByAppendingPathComponent:@"Applications/Codex.app/Contents/Resources"],
+        @"/Applications/Codex.app/Contents/Resources",
+        @"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin",
+    ];
+    [ordered addObjectsFromArray:fallbacks];
+    if (!hasCustomInherited) {
+        [ordered addObjectsFromArray:inherited];
+    }
+    return [ordered.array componentsJoinedByString:@":"];
+}
+
 - (BOOL)startWorker:(NSDictionary *)environment error:(NSError **)error {
     NSFileManager *files = NSFileManager.defaultManager;
     if (![files createDirectoryAtURL:self.dataDirectory withIntermediateDirectories:YES
@@ -196,16 +275,8 @@ static NSColor *ChemShellBackgroundColor(void) {
     worker.arguments = @[@"-I", @"-B", @"-m", @"chemistry_agent.desktop"];
     worker.currentDirectoryURL = self.dataDirectory;
     NSString *home = files.homeDirectoryForCurrentUser.path;
-    NSArray *paths = @[[home stringByAppendingPathComponent:@".local/bin"],
-        [home stringByAppendingPathComponent:@".cargo/bin"],
-        [home stringByAppendingPathComponent:@"Applications/Codex.app/Contents/Resources"],
-        @"/opt/homebrew/bin",
-        @"/usr/local/bin", @"/Applications/Codex.app/Contents/Resources",
-        @"/usr/bin", @"/bin", @"/usr/sbin"];
     NSMutableDictionary *child = [environment mutableCopy];
-    NSString *path = [paths componentsJoinedByString:@":"];
-    if ([environment[@"PATH"] length]) path = [path stringByAppendingFormat:@":%@", environment[@"PATH"]];
-    child[@"PATH"] = path;
+    child[@"PATH"] = [self workerPathWithEnvironment:environment home:home];
     child[@"PYTHONDONTWRITEBYTECODE"] = @"1";
     child[@"CHEM_CODE_DESKTOP_DATA"] = self.dataDirectory.path;
     child[@"CHEM_CODE_DESKTOP_PORT"] = self.origin.port.stringValue;

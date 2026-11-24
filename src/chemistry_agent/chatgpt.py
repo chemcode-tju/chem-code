@@ -4,12 +4,12 @@ import asyncio
 import json
 import os
 import re
-import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from chemistry_agent.backends.executables import prepend_executable_dir, resolve_codex_executable
 from chemistry_agent.chatgpt_plan import ChatGPTPlan
 from chemistry_agent.chatgpt_responses import PlanResponses
 from chemistry_agent.errors import AgentError
@@ -81,11 +81,14 @@ class ChatGPTClient:
             "NO_PROXY",
         }
         environment = {name: value for name, value in os.environ.items() if name in names}
+        resolved = resolve_codex_executable(self.store.settings.codex_binary)
+        if resolved:
+            prepend_executable_dir(environment, resolved)
         environment["CODEX_HOME"] = str(directory)
         return environment
 
     def executable(self) -> str:
-        executable = shutil.which(self.store.settings.codex_binary)
+        executable = resolve_codex_executable(self.store.settings.codex_binary)
         if not executable:
             raise AgentError(
                 "codex_not_installed", "未找到 Codex CLI，请在服务所在电脑安装并重启服务。", 503
@@ -114,7 +117,7 @@ class ChatGPTClient:
     async def authenticated(self, user_id: str | None) -> bool:
         if self.plan.selected(user_id):
             return self.plan.authenticated(user_id)
-        if not shutil.which(self.store.settings.codex_binary):
+        if not resolve_codex_executable(self.store.settings.codex_binary):
             return False
         if not (self.store.directory(user_id) / "codex" / "auth.json").is_file():
             return False
@@ -138,7 +141,7 @@ class ChatGPTClient:
         logged_in = await self.authenticated(user_id)
         return {
             "available": True,
-            "legacy_available": bool(shutil.which(self.store.settings.codex_binary)),
+            "legacy_available": bool(resolve_codex_executable(self.store.settings.codex_binary)),
             "authentication_mode": (
                 "chemistry-agent"
                 if self.plan.selected(user_id)
