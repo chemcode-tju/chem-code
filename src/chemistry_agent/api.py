@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, nullcontext
 from functools import partial
 from pathlib import Path
@@ -97,7 +98,10 @@ class LoginRequest(BaseModel):
 
 
 def create_app(
-    settings: Settings | None = None, *, transport: httpx.AsyncBaseTransport | None = None
+    settings: Settings | None = None,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+    prepare_local: Callable[[BackendRouter, ProviderRouter], Awaitable[None]] | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     automation = AutomationService(settings)
@@ -200,6 +204,8 @@ def create_app(
                         settings.platform_path, settings.allowed_ssh_hosts
                     )
                     await app.state.agent_backends.initialize()
+                    if prepare_local and not settings.auth_enabled:
+                        await prepare_local(app.state.agent_backends, provider)
                     app.state.agent_backends.workspace_files = app.state.workspace_files
                     app.state.workspace_files.sync_remote = app.state.agent_backends.sync_workspace
                     app.state.context_manager = context_manager

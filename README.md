@@ -2,6 +2,8 @@
 
 Chem Code 是面向计算催化研究的聊天工作区。用户可以给出结构，与 Agent 商定计算方案，在侧栏检查每一步的输入、依赖和结果，通过通用 Slurm 作业监控和持久事件唤醒推进计算。默认运行不需要 AiiDA。
 
+Apple Silicon Mac 可使用原生桌面版。工作台打开即可使用，复用本机已有的 Agent 登录状态。数据目录、Agent 程序和研究文件夹均可选择。 [macOS 安装与构建说明](desktop/macos/README.md)
+
 可在 Codex 中单独使用的研究方案与 Slurm 作业监控插件由[独立插件仓库](https://github.com/liyang-tju/chem-research-plugins)维护。
 
 ## 功能总览

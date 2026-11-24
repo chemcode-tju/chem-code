@@ -28,7 +28,10 @@ class CodexBackend:
     def transport(
         self, executable: str, session: str = "probe", thread: str | None = None
     ) -> CodexTransport:
-        homes = CodexHomes(self.router.root.parent / "codex-state")
+        homes = CodexHomes(
+            self.router.root.parent / "codex-state",
+            reuse_profile=getattr(self.router, "reuse_native_profile", True),
+        )
         rpc = self.transport_factory(executable)
         rpc.codex_home = self.router.sessions.home("codex", session)
 

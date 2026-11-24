@@ -81,7 +81,7 @@ class AntigravityBackend:
         thread: str | None = None,
     ) -> ACPTransport:
         home = self.router.sessions.home("antigravity", session)
-        homes = AntigravityHomes()
+        homes = AntigravityHomes(reuse_profile=getattr(self.router, "reuse_native_profile", True))
         rpc = self.transport_factory(
             executable,
             [

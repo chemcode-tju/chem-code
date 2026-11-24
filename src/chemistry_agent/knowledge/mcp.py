@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 from uuid import UUID
 
 import httpx
@@ -130,10 +131,15 @@ async def endpoint(request: Request, project_id: UUID | None = None):
 
 def main() -> None:
     """Optional stdio adapter for hosts without Streamable HTTP support."""
-    url = os.environ.get("CHEM_KNOWLEDGE_URL", "http://127.0.0.1:8766/api/knowledge/mcp")
+    url = httpx.URL(os.environ.get("CHEM_KNOWLEDGE_URL", "http://127.0.0.1:8766/api/knowledge/mcp"))
+    headers = {}
+    if token_file := os.environ.get("CHEM_KNOWLEDGE_TOKEN_FILE"):
+        if url.scheme != "http" or url.host != "127.0.0.1" or url.path != "/api/knowledge/mcp":
+            raise SystemExit("The desktop MCP token is only for the local knowledge endpoint.")
+        headers["Authorization"] = f"Bearer {Path(token_file).read_text().strip()}"
     # This is an explicit platform connection (often an SSH loopback tunnel).
     # Do not route project knowledge through inherited system HTTP proxies.
-    with httpx.Client(timeout=60, trust_env=False) as client:
+    with httpx.Client(timeout=60, trust_env=False, headers=headers) as client:
         for line in sys.stdin:
             message = json.loads(line)
             response = client.post(url, json=message)

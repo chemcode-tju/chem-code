@@ -89,6 +89,7 @@ class BackendRouter:
         from chemistry_agent.hosting.registry import Hosting
 
         self.hosting = Hosting(root.parent / "platform")
+        self.reuse_native_profile = True
         self.sessions = NativeSessions(root.parent)
         self.workspace_files = None
         from chemistry_agent.backends.approvals import ApprovalBroker

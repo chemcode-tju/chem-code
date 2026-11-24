@@ -33,11 +33,14 @@ async def connection(request: Request) -> dict:
     service(request)
     server = request.scope.get("server")
     port = server[1] if server else (request.url.port or 80)
+    environment = {"PYTHONPATH": MCP_MODULE_ROOT}
+    if token_file := getattr(request.state, "desktop_mcp_token_file", None):
+        environment["CHEM_KNOWLEDGE_TOKEN_FILE"] = token_file
     return {
         "http_path": "/api/knowledge/mcp",
         "stdio_command": sys.executable,
         "stdio_args": ["-m", "chemistry_agent.knowledge.mcp"],
-        "stdio_env": {"PYTHONPATH": MCP_MODULE_ROOT},
+        "stdio_env": environment,
         "platform_origin": f"http://127.0.0.1:{port}",
     }
 

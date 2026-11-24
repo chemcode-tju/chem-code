@@ -16,11 +16,18 @@ from chemistry_agent.errors import AgentError
 class AntigravityHomes:
     app_directory = "antigravity-cli"
 
-    def __init__(self, source: Path | None = None) -> None:
+    def __init__(self, source: Path | None = None, *, reuse_profile: bool = True) -> None:
         self.source = source or Path.home() / ".gemini"
+        self.reuse_profile = reuse_profile
 
     def prepare(self, target: Path, thread: str | None = None) -> None:
         target.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.reuse_profile:
+            self.copy_profile(target)
+        if thread:
+            self.import_session(target, thread)
+
+    def copy_profile(self, target: Path) -> None:
         # Preserve user customizations, not conversation databases, caches or locks.
         # Native login uses the OS credential store; never copy OAuth tokens.
         for name in (
@@ -38,8 +45,6 @@ class AntigravityHomes:
             if source.exists() and not destination.exists() and not destination.is_symlink():
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.symlink_to(source)
-        if thread:
-            self.import_session(target, thread)
 
     @staticmethod
     def require_idle(source: Path) -> None:

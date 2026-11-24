@@ -11,8 +11,11 @@ from chemistry_agent.errors import AgentError
 
 
 class CodexHomes:
-    def __init__(self, root: Path, source: Path | None = None) -> None:
+    def __init__(
+        self, root: Path, source: Path | None = None, *, reuse_profile: bool = True
+    ) -> None:
         self.root = root.resolve()
+        self.reuse_profile = reuse_profile
         self.source = (
             source or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
         ).resolve()
@@ -25,11 +28,14 @@ class CodexHomes:
         target.chmod(0o700)
         # Never share SQLite, locks, sessions, caches or logs with the desktop.
         # Auth is a reference, not a copied refresh token that can go stale.
-        for name in ("auth.json", "AGENTS.md", "rules", "policy", "skills"):
+        references = ("auth.json",)
+        if self.reuse_profile:
+            references += ("AGENTS.md", "rules", "policy", "skills")
+        for name in references:
             source, link = self.source / name, target / name
             if source.exists() and not link.exists() and not link.is_symlink():
                 link.symlink_to(source)
-        for name in ("config.toml", "hooks.json"):
+        for name in ("config.toml", "hooks.json") if self.reuse_profile else ():
             source, destination = self.source / name, target / name
             if source.is_file() and not destination.exists():
                 self.copy_atomic(source, destination)
