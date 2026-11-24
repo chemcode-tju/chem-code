@@ -1117,6 +1117,7 @@ class CalculationPlans:
 
     def tools(self) -> list[Tool]:
         from chemistry_agent.automation.job_tools import tools as job_tools
+        from chemistry_agent.automation.schedule_tools import tools as schedule_tools
         from chemistry_agent.automation.wait_tools import tools as wait_tools
         from chemistry_agent.platform.artifacts import ArtifactRead, ArtifactRegister
         from chemistry_agent.platform.results import ResultInspect, ResultRegister
@@ -1129,6 +1130,7 @@ class CalculationPlans:
         return [
             *job_tools(self),
             *wait_tools(self),
+            *schedule_tools(self),
             Tool(
                 "calculation_task_submit",
                 "Task Agent only. Queue one managed Slurm job for this step. "

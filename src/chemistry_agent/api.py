@@ -29,6 +29,8 @@ from chemistry_agent.auth import COOKIE_NAME, AuthenticationMiddleware, AuthMana
 from chemistry_agent.automation.chat import CalculationChat
 from chemistry_agent.automation.chat_routes import router as calculation_chat_router
 from chemistry_agent.automation.job_history import JobHistory
+from chemistry_agent.automation.monitor_schedules import router as monitor_wake_router
+from chemistry_agent.automation.monitor_schedules import scheduler
 from chemistry_agent.automation.routes import local_service
 from chemistry_agent.automation.routes import router as automation_router
 from chemistry_agent.automation.service import AutomationService
@@ -211,7 +213,10 @@ def create_app(
                     if settings.research_memory_enabled:
                         app.state.knowledge.sync.start()
                     try:
-                        yield
+                        async with scheduler(
+                            app, calculation_enabled and settings.platform_agent_enabled
+                        ):
+                            yield
                     finally:
                         await app.state.job_history.close()
                         await app.state.browser_connections.close()
@@ -250,6 +255,7 @@ def create_app(
     app.state.platform = calculation_chat.plans.platform
     from chemistry_agent.automation.queue_browser import router as queue_router
 
+    app.include_router(monitor_wake_router)
     app.include_router(queue_router)
     app.include_router(automation_router)
     app.include_router(ssh_router)
@@ -324,6 +330,7 @@ def create_app(
         return FileResponse(WEB_DIRECTORY / "index.html")
 
     @app.get("/monitor", include_in_schema=False)
+    @app.get("/monitor/tasks", include_in_schema=False)
     @app.get("/monitor/board", include_in_schema=False)
     async def job_monitor(request: Request):
         local_service(request)

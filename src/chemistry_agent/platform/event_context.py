@@ -61,7 +61,17 @@ def event_summary(item: dict, plan: dict, index: int, instruction: str) -> dict:
 
 def build_wakeup_message(plan: dict, event_id: str, payload: dict) -> str:
     """Build a notification without changing the durable event or execution authority."""
-    instruction = payload.get("instruction", "检查结果并继续已授权的目标")
+    instruction = payload.get("instruction")
+    instruction_path = "payload.instruction"
+    if not instruction:
+        job_instructions = {
+            (item.get("state") or {}).get("instruction") for item in payload["events"]
+        }
+        if len(job_instructions) == 1 and all(job_instructions):
+            instruction = job_instructions.pop()
+            instruction_path = "payload.events[0].state.instruction"
+        else:
+            instruction = "按各步骤的指令检查结果并继续已授权的目标"
     body = {
         "event_id": event_id,
         "event_type": "task_event",
@@ -70,7 +80,7 @@ def build_wakeup_message(plan: dict, event_id: str, payload: dict) -> str:
         "approved_revision": plan.get("approved_revision"),
         "plan_status": plan["status"],
         "auto_queue": plan.get("auto_queue"),
-        "instruction": instruction_reference(instruction, "payload.instruction"),
+        "instruction": instruction_reference(instruction, instruction_path),
         "events": [
             event_summary(item, plan, index, instruction)
             for index, item in enumerate(payload["events"])

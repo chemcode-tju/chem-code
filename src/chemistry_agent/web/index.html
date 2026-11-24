@@ -43,6 +43,7 @@
       <a id="chat-workspace-entry" class="icon-button" href="/" aria-label="对话" title="对话" aria-current="page"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chat"/></svg></a>
       <div class="workspace-rail-section">
         <a id="job-monitor-entry" class="icon-button" href="/monitor" title="作业监控" aria-label="作业监控" hidden><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-queues"/></svg></a>
+        <a id="monitor-tasks-entry" class="icon-button" href="/monitor/tasks" title="监控任务" aria-label="监控任务" aria-controls="monitor-tasks-page" hidden><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-clock"/></svg></a>
         <a id="job-board-entry" class="icon-button" href="/monitor/board" title="作业看板" aria-label="作业看板" hidden><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-speed"/></svg></a>
         <a id="memory-entry" class="icon-button" href="/memory" aria-controls="memory-page" aria-label="科研记忆" title="科研记忆"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-memory"/></svg></a>
       </div>
@@ -148,6 +149,15 @@
           <div class="queue-detail-title"><h2 id="job-heading" tabindex="-1" data-no-i18n></h2><div id="job-meta"></div></div>
           <button type="button" class="icon-button" id="job-close" title="关闭作业详情" aria-label="关闭作业详情"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-close"/></svg></button>
         </header>
+        <details id="job-wake" class="wake-defaults">
+          <summary>作业结束时唤醒<svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+          <form id="job-wake-form" class="wake-form" hidden>
+            <label>唤醒对话<select id="job-wake-session" required></select></label>
+            <label>本次作业指令<textarea id="job-wake-instruction" rows="2" maxlength="4000" placeholder="留空使用 Slurm 默认指令"></textarea></label>
+            <div class="wake-actions"><button class="secondary">登记作业唤醒</button></div>
+          </form>
+          <p id="job-wake-status" role="status"></p>
+        </details>
         <div class="queue-folder">
           <button type="button" class="icon-button" id="job-parent" title="上一级" aria-label="上一级" hidden><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-arrow"/></svg></button>
           <code id="job-path" class="queue-path" tabindex="0" aria-label="当前目录"></code>
@@ -175,6 +185,46 @@
     </div>
   </main>
 
+
+  <main class="queue-page" id="monitor-tasks-page" hidden>
+    <header class="queue-toolbar"><h1 id="monitor-tasks-heading" tabindex="-1">监控任务</h1>
+      <div class="queue-controls"><label class="sr-only" for="wake-scope">按对话筛选</label>
+        <select id="wake-scope"><option value="">全部对话</option></select>
+        <button type="button" id="wake-refresh" class="icon-button" aria-label="刷新监控任务" title="刷新监控任务"><svg class="icon" aria-hidden="true"><use href="/assets/ui-icons.svg#i-refresh"/></svg></button>
+      </div>
+    </header>
+    <div class="queue-list" id="monitor-tasks-scroll">
+        <section id="monitor-wakes">
+          <p id="wake-status" role="status"></p>
+          <div id="wake-settings" hidden>
+            <section aria-labelledby="workflow-heading"><header class="wake-heading"><h2 id="workflow-heading">方案流程监控</h2></header>
+              <div id="wake-workflows"></div>
+            </section>
+            <header class="wake-heading"><h2>独立定时任务</h2><button id="wake-new" type="button" class="primary">添加任务</button></header>
+            <form id="wake-editor" class="wake-form" hidden>
+              <label>任务名称<input id="wake-name" required maxlength="100"></label>
+              <label>唤醒对话<select id="wake-session" required></select></label>
+              <div class="wake-interval"><label>重复间隔<input id="wake-period" type="number" min="1" step="1" required></label>
+                <label>单位<select id="wake-unit"><option value="1">分钟</option><option value="60">小时</option><option value="1440">天</option></select></label></div>
+              <label>唤醒指令<textarea id="wake-prompt" required maxlength="4000" rows="3" placeholder="例如，检查本对话中已登记作业的进度，汇总异常。"></textarea></label>
+              <p>平台运行时生效。重新上线后，错过的周期合并为一次。</p>
+              <div class="wake-actions"><button id="wake-cancel" type="button" class="quiet-button">取消</button><button class="primary">保存任务</button></div>
+            </form>
+            <p id="wake-disabled" hidden>平台 Agent 已停用，定时任务等待启用。</p>
+            <div id="wake-tasks"></div>
+            <p id="wake-empty" hidden>请先创建一个对话，再添加定时任务。</p>
+            <details class="wake-defaults" id="slurm-wake-defaults">
+              <summary>Slurm 默认唤醒指令<svg class="icon disclosure" aria-hidden="true"><use href="/assets/ui-icons.svg#i-chevron"/></svg></summary>
+              <form id="wake-default-form" class="wake-form">
+                <label>作业结束时发送给 Agent 的指令<textarea id="wake-default" rows="3" maxlength="4000" required></textarea></label>
+                <p>适用于已登记的 Slurm 作业。作业和等待条件可指定专用指令。</p>
+                <div class="wake-actions"><button id="wake-reset" type="button" class="quiet-button">恢复预设文本</button><button class="secondary">保存默认指令</button></div>
+              </form>
+            </details>
+          </div>
+        </section>
+    </div>
+  </main>
 
   <main class="queue-page job-board" id="job-board-page" hidden>
     <header class="queue-toolbar">

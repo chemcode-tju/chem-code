@@ -105,6 +105,15 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                 required_outputs=args.required_outputs,
                 results=args.results,
             )
+            from chemistry_agent.automation.monitor_schedules import (
+                DEFAULT_INSTRUCTION,
+                slurm_instruction,
+            )
+
+            instruction = args.instruction or DEFAULT_INSTRUCTION
+            if not old and not args.instruction and plans.store:
+                async with plans.store.lock:
+                    instruction = await slurm_instruction(plans.store)
             record = old or {
                 **observed,
                 "id": identifier,
@@ -117,7 +126,7 @@ async def adopt_job(plans, args: JobAdopt, context: ToolContext) -> dict:
                 "plan_id": plan_id,
                 "node_id": node_id,
                 "step_id": step_id,
-                "instruction": args.instruction,
+                "instruction": instruction,
             }
             if record.get("terminal"):
                 record.setdefault("completed_at", utc_now())

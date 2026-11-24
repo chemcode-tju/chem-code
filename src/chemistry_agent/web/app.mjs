@@ -11,6 +11,7 @@ import {resultFigures} from './result-figures.mjs';
 import { initInspectorTabs } from "./inspector-tabs.mjs";
 import { createStructureBridge, createStructureDocuments, structureButton, inlineStructureName, isStructureName, getFileBlob } from "./structure-links.mjs";
 import { createCalculations } from "./calculations.mjs?v=20261102-general-plans";
+import {initMonitorWakes} from "./monitor-wakes.mjs";
 import {initJobMonitor} from "./job-monitor.mjs";
 import {initJobBoard} from "./job-board.mjs";
 import {createMemoryWorkspace} from "./memory.mjs";
@@ -35,11 +36,13 @@ const state = {
 const splitWorkspace = matchMedia("(min-width:688px)");
 const dockedNavigation = matchMedia("(min-width:1024px)");
 const setDockMaximized = initWorkspaceControls({closeInspector:()=>setInspectorOpen(false), onMaximized:syncDrawerAccessibility});
-const jobMonitor = initJobMonitor();
+const jobMonitor = initJobMonitor(() => state.sessionId);
+const monitorTasks = initMonitorWakes(() => state.sessionId);
 const jobBoard = initJobBoard();
 const workspaces = {
   chat: {path:"/", entry:"chat-workspace-entry", panel:"chat-panel", heading:"conversation-title"},
   monitor: {path:"/monitor", entry:"job-monitor-entry", panel:"queue-page", heading:"queue-heading"},
+  tasks: {path:"/monitor/tasks", entry:"monitor-tasks-entry", panel:"monitor-tasks-page", heading:"monitor-tasks-heading"},
   board: {path:"/monitor/board", entry:"job-board-entry", panel:"job-board-page", heading:"job-board-heading"},
   memory: {path:"/memory", entry:"memory-entry", panel:"memory-page", heading:"memory-heading"},
 };
@@ -185,6 +188,7 @@ function syncDrawerAccessibility() {
   $("inspector").inert = inspectorHidden;
   $("inspector").setAttribute("aria-hidden", String(inspectorHidden));
   $("queue-page").inert = loginRequired;
+  $("monitor-tasks-page").inert = loginRequired;
   $("job-board-page").inert = loginRequired;
   $("memory-page").inert = loginRequired;
 }
@@ -197,7 +201,7 @@ function setWorkspace(name, {navigate = false, focus = false, chatSession = stat
   const workspace = workspaces[name];
   const entry = $(workspace.entry);
   const chat = name === "chat";
-  if ((name === "monitor" || name === "board") && (state.auth.enabled || (entry.hidden && navigate))) return;
+  if (["monitor","board","tasks"].includes(name) && (state.auth.enabled || (entry.hidden && navigate))) return;
 
   if (!chat && activeWorkspace === "chat") {
     restoreChatInspector = document.body.classList.contains("inspector-open");
@@ -216,6 +220,7 @@ function setWorkspace(name, {navigate = false, focus = false, chatSession = stat
   syncSidebarNavigation();
   jobMonitor.show(name === "monitor");
   jobBoard.show(name === "board");
+  if (name === "tasks") void monitorTasks.load();
   if (chat && restoreChatInspector) setInspectorOpen(true, {focus:false,persist:false});
   if (name === "memory") void memoryWorkspace.activate(location.search);
   if (focus) $(workspace.heading).focus({preventScroll:true});
@@ -408,6 +413,7 @@ async function refreshHealth() {
       return button;
     }));
     $("job-monitor-entry").hidden = !state.health.queue_monitor_enabled;
+    $("monitor-tasks-entry").hidden = !state.health.queue_monitor_enabled;
     $("job-board-entry").hidden = !state.health.queue_monitor_enabled;
     calculations.enabled(Boolean(state.health.automation_enabled));
     notifications.enabled(Boolean(state.health.automation_enabled));

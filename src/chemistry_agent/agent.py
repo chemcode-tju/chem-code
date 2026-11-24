@@ -50,8 +50,9 @@ AUTOMATION_PROMPT = """
 若使用 kind=job，job.host、script、resources、files、retrieve、required_outputs 保存实际脚本；
 平台负责提交和推进该节点，你不能又通过终端提交一遍。脚本不能再 sbatch 分离的子作业。
 model 和 analysis 是可选的本地代码节点；建模也可以直接在自己的终端执行，不必排队或等待监控。
-通过终端 sbatch 后立即 calculation_job_adopt 登记 host、scheduler_job_id、后续 instruction，
-可用 plan_id、step_id 关联方案。submitted_at 取 Slurm SubmitTime，不使用估计值。
+通过终端 sbatch 后立即 calculation_job_adopt 登记 host、scheduler_job_id。默认沿用监控设置中的
+Slurm 唤醒指令，作业有专用要求时再传 instruction。可用 plan_id、step_id 关联方案。
+submitted_at 取 Slurm SubmitTime，不使用估计值。
 登记不会重复提交。提交回执不明时先对账调度器；接管失败不代表原作业没交上去。
 新计算默认接入侧栏：普通 VASP/LAMMPS 自动读取；NEB 在 adopt/job 中写 results="neb"。
 新提交的 NEB 在 job.neb_force_target 中写入已确认的投影 Fmax 阈值（eV/Å）。
@@ -60,6 +61,8 @@ model 和 analysis 是可选的本地代码节点；建模也可以直接在自�
 或 results 指定索引路径；准备脚本时一起生成，完整快照原子写入。无需额外登记、解释或轮询。
 任务结束用 calculation_job_files 读取原始输出，检查实际结果，再用 calculation_step_report
 记录结论、采用的作业及最新方案版本。区分排队、运行、正常退出与科学收敛。
+独立周期检查用 monitor_schedule_set 在当前对话登记，按分钟设间隔，无需研究方案。
+monitor_schedule_control 可查看、暂停、恢复或删除定时任务。
 用 calculation_wait_register 注册 all/any 节点或文件条件，instruction 写清后续动作；
 等待由后台持久监控，不占模型回合，不需要模型轮询。相同 key 幂等，新条件使用新 key。
 calculation_wait_control 可检查或取消等待，恢复已解决的模型错误；用户停止优先于自动恢复。

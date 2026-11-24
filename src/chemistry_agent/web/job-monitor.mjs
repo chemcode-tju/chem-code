@@ -3,7 +3,7 @@ import {fileIcon} from './file-actions.mjs';
 import {fileMessage, renderFilePreview, showSlowDirectoryRead} from './file-preview.mjs';
 import {createStructureBridge, getFileBlob, isStructureName, isStreamableStructure} from './structure-links.mjs';
 
-export function initJobMonitor() {
+export function initJobMonitor(currentSession) {
   const $ = id => document.getElementById(id);
   const hostSelect = $('queue-host');
   const jobList = $('queue-jobs');
@@ -278,6 +278,8 @@ export function initJobMonitor() {
     const job = results.flatMap(row => row.jobs || []).find(job => key(job) === button.dataset.job);
     if (!job) return;
     if (selected && key(selected) === key(job)) {closeJob();return;}
+    $('job-wake').open = false;
+    $('job-wake').hidden = !/^\d+(?:_\d+)?$/.test(job.id) || !job.submitted || !job.directory?.startsWith('/');
     selected = job;
     detail.hidden = false;
     renderJob();
@@ -285,6 +287,47 @@ export function initJobMonitor() {
     $('job-heading').focus();
     void loadFiles('');
   });
+  const watchForm = $('job-wake-form'), watchStatus = $('job-wake-status');
+  $('job-wake').ontoggle = async () => {
+    if (!$('job-wake').open || !selected) return;
+    const identity = key(selected);
+    watchForm.hidden = true;
+    watchStatus.textContent = '正在读取唤醒设置…';
+    try {
+      const {sessions,instruction,scheduler_enabled} = await api('/api/job-monitor/wakes');
+      if (!selected || identity !== key(selected)) return;
+      const select = $('job-wake-session');
+      select.innerHTML = sessions.map(s => `<option data-no-i18n value="${esc(s.id)}">${esc(s.title)}</option>`).join('');
+      if (sessions.some(s => s.id === currentSession())) select.value = currentSession();
+      $('job-wake-instruction').value = instruction;
+      watchForm.hidden = !scheduler_enabled || !sessions.length;
+      watchStatus.textContent = !scheduler_enabled ? '请先启用平台 Agent。' :
+        sessions.length ? '' : '请先创建一个对话。';
+    } catch (error) {
+      if (selected && key(selected) === identity) watchStatus.textContent = error.message;
+    }
+  };
+  watchForm.onsubmit = async event => {
+    event.preventDefault();
+    const job = selected, session = $('job-wake-session').value;
+    if (!job || !session || watchForm.inert) return;
+    const instruction = $('job-wake-instruction').value.trim();
+    const args = {host:job.host,scheduler_job_id:job.id,submitted_at:job.submitted,
+      remote_directory:job.directory,title:job.name.slice(0,120) || job.id};
+    if (instruction) args.instruction = instruction;
+    watchForm.inert = true;
+    watchStatus.textContent = '正在核对作业身份…';
+    try {
+      const result = await api(`/api/platform/${session}/operations/job.adopt`, {
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({arguments:args}),
+      });
+      if (!selected || key(selected) !== key(job)) return;
+      watchForm.hidden = true;
+      watchStatus.textContent = result.reused ? '此对话已登记该作业，沿用原指令。' : '已登记，作业结束时将唤醒所选对话。';
+    } catch (error) {
+      if (selected && key(selected) === key(job)) watchStatus.textContent = error.message;
+    } finally { watchForm.inert = false; }
+  };
   async function openFile(name) {
     if (!selected) return;
     closeViewer();

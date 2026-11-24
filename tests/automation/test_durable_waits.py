@@ -588,3 +588,21 @@ async def test_agent_turn_timeout_is_blocked_instead_of_automatic_restart(saved)
     assert row["status"] == "blocked"
     assert json.loads(row["checkpoint"])["rounds"] == 120
     assert await ledger.pending(session, plan) is None
+
+
+async def test_slurm_defaults_frozen_per_job_and_bundled(saved):
+    from chemistry_agent.automation.monitor_schedules import MonitorDefaults, defaults
+    from chemistry_agent.platform.event_context import build_wakeup_message
+
+    store, session, plan = saved
+    await defaults(MonitorDefaults(instruction="核对默认判据"), store)
+    for node, state in plan["runtime"].items():
+        state.update(status="completed", job={"scheduler_job_id": "11" if node == "a" else "12"})
+    plan["runtime"]["b"]["job"]["instruction"] = "检查专用判据"
+    record_events(plan)
+    ledger = WaitLedger(store)
+    await ledger.observe(session, plan)
+    await defaults(MonitorDefaults(instruction="之后的作业"), store)
+    event = await ledger.pending(session, plan)
+    prompt = build_wakeup_message(plan, event["id"], json.loads(event["payload"]))
+    assert "核对默认判据" in prompt and "检查专用判据" in prompt and "之后的作业" not in prompt
