@@ -2,8 +2,6 @@
 
 Chem Code 是面向计算催化研究的聊天工作区。用户可以给出结构，与 Agent 商定计算方案，在侧栏检查每一步的输入、依赖和结果，通过通用 Slurm 作业监控和持久事件唤醒推进计算。默认运行不需要 AiiDA。
 
-当前开发分支、已合入的功能、待验收事项和旧草稿恢复位置见[项目进度与分支维护](docs/project-status.md)。
-
 可在 Codex 中单独使用的研究方案与 Slurm 作业监控插件由[独立插件仓库](https://github.com/liyang-tju/chem-research-plugins)维护。
 
 ## 功能总览
@@ -204,4 +202,4 @@ Agent 本地生成的结构、图片和其他文件可直接在网页预览、�
 
 新增或修改界面请先阅读 [统一界面设计规范](docs/design/ui-spec.md)，复用 Solid Glass 语义 token、Lucide 图标和公共交互组件；Harness 别名仅用于兼容。验收包含实际浏览器的宽窄布局与键盘交互。
 
-UI 阶段进度、分支关系及统一基线的合并方案见 [UI 整合进度](docs/design/ui-integration-status.md)。新功能应从已包含本轮 UI 的 main 创建分支；仍在维护的旧分支先同步该 main，再按统一规范开发。
+界面开发遵循 [UI 设计规范](docs/design/ui-spec.md)。

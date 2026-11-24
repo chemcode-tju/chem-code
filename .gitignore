@@ -25,3 +25,6 @@ plugins/*/server.py
 plugins/*/connection.json
 plugins/*/.mcp.json
 plugins/*/mcp.json
+
+# Local validation records may contain private research data.
+/reports/
