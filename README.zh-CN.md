@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <strong>简体中文</strong> · <a href="https://github.com/liyang-tju/chem-code/releases/latest">下载 macOS Release ↗</a>
+  <a href="README.md">English</a> | <strong>简体中文</strong> · <a href="https://liyang-tju.github.io/chem-code/?lang=zh">交互式功能展示页 ↗</a> · <a href="https://github.com/liyang-tju/chem-code/releases/latest">下载 macOS Release ↗</a>
 </p>
 
 <p align="center">
